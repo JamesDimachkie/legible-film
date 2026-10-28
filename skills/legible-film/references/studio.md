@@ -35,7 +35,7 @@ planned as silent skips the listening judgements, with the reason recorded.
 
 ## 2. Open the studio
 
-Settle these before any design work:
+Settle these before designing picture or sound:
 
 - **The use.** Ask in plain words: "Will you pay to promote this video, including boosted posts? Where will it
   appear, in which countries, for how long, and might you want shorter or translated versions later? If you're not
@@ -60,6 +60,11 @@ Settle these before any design work:
   audience is available for the bar (§8).
 - **What is owed.** Agree which of the studio deliverables in §9 this film needs, in plain words, with their cost and
   storage. Say before starting any added version or licence that changes the estimate.
+- **The first reply.** Lead with the film: describe two or three directions so the person can picture each (§4, item
+  5), as ideas the study and the sketches will test. Then give the route in plain words (what the person will see and
+  decide at each step, and what each step may cost), the questions above, and how the finished film will be judged:
+  the six questions in §8, answered by viewers, with rounds on the weakest moment until every answer is yes or the
+  person stops.
 
 Done when `budget.csv` holds the cap and the planned lines, the use and the material are recorded with their gaps,
 the references are annotated, every gate has an owner, and the deliverables are agreed.
@@ -71,6 +76,8 @@ precisely to what they see and hear.
 
 - **Show, don't ask.** Put two or three versions in front of the person and ask which they would watch again, and
   why. Never ask them to choose in a vocabulary they do not use.
+- **Name each step by what the person will see and decide**, such as "three rough sketches, to choose the story",
+  with any trade name in brackets.
 - **Say once, at the first gate, what you cannot do:** "I can prepare these options and measure them, but I can't
   watch them at normal speed or hear them. Please play them on the device you'll use, with sound on. Until someone
   has, I'll report them as unwatched and unheard." Where the person cannot judge something critical, such as a mix
@@ -119,8 +126,10 @@ references to test.
    the product's own material: the sounds it makes, the states it passes through, what it outputs, the limits it
    works within. Draft at least one concept from that list. A concept that would describe a competitor as well is
    replaced.
-5. Propose two or three directions from what the study found, each with what it would make the viewer notice and
-   feel, its risks, and the gate at which the person compares them.
+5. Propose two or three directions from what the study found, each specific enough to picture: who and what is on
+   screen, the first image or line, the peak and how it lands, the look and the sound in a phrase each, and the last
+   frame. Give each what it would make the viewer notice and feel, its risks, and the gate at which the person
+   compares them.
 
 Numbers in the study are facts about their own films, never targets for this one.
 
