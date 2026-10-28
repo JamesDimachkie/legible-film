@@ -104,7 +104,8 @@ precisely to what they see and hear.
 ## 4. Study before design
 
 A professional brings a frame of reference the person cannot supply. Build one for this film before designing
-picture or sound:
+picture or sound, and draw the directions from it: an idea you had before the study enters it as a hypothesis for the
+references to test.
 
 1. Find 5-8 comparable pieces (same kind of product, audience or structure) whose makers documented their decisions:
    interviews, breakdowns, case studies. For each, record what it needed to do, what it did and why its makers say
@@ -118,8 +119,8 @@ picture or sound:
    the product's own material: the sounds it makes, the states it passes through, what it outputs, the limits it
    works within. Draft at least one concept from that list. A concept that would describe a competitor as well is
    replaced.
-5. Propose two or three directions, each with what it would make the viewer notice and feel, its risks, and the gate
-   at which the person compares them.
+5. Propose two or three directions from what the study found, each with what it would make the viewer notice and
+   feel, its risks, and the gate at which the person compares them.
 
 Numbers in the study are facts about their own films, never targets for this one.
 
@@ -262,7 +263,8 @@ made the judgement (§1).
 - **At a cut, rank emotion, then story, then rhythm, then continuity**, after truth: a cut may never misrepresent the
   product's state, version, inputs, causality or the elapsed time of a real operation. A true change of state reads
   as one, and compressed time is labelled ([product-demos](product-demos.md) §3). Within that, choose the cut point
-  that serves the feeling, and accept a mismatch in composition, gesture or screen direction if that is the cost. After a heavy moment, try a version with more room before the next idea.
+  that serves the feeling, and accept a mismatch in composition, gesture or screen direction if that is the cost.
+  After a heavy moment, try a version with more room before the next idea.
 - **Map where the eye is at each cut.** Mark the focal region in the last readable outgoing frame and the first
   incoming frame. In a continuous argument, put the next important detail near the last one or lead the eye there;
   when a big jump is intended, leave time to find the new place before anything essential happens. Export the paired
