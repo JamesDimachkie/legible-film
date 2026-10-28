@@ -47,10 +47,12 @@ Settle these before any design work:
   I'll list what's missing and ask before uploading anything private."
 - **The cap and the plan.** The person sets the spending cap. Fill [budget.csv](../assets/templates/budget.csv): one
   line per purchase or generation batch, with what it buys for the viewer, the gate that needs it, the most it can
-  cost, the licence it must carry ([assets](assets.md), [generation](generation.md)) and the fallback if it is
-  declined. Before each approval, show the amount payable now (with tax and any minimum or annual term), the total
-  already spent or committed, and what remains under the cap. Never exceed the cap, start a new generation batch or
-  renew a subscription without asking.
+  cost over its whole term with tax (`max_cost`), its commitment (one-off, a batch, or a subscription's term), the
+  licence it must carry ([assets](assets.md), [generation](generation.md)) and the fallback if it is declined. Before
+  each approval, show what the line costs now and over its term, the total committed so far (paid to date plus
+  everything still owed, with an approved subscription counted for its full term until its cancellation is
+  confirmed), and what remains under the cap. Never exceed the cap, start a new generation batch or renew beyond an
+  approved term without asking.
 - **The bar.** Agree two or three reference films the finished piece should be able to sit beside. If the person has
   none, do the reference part of the study first (§4, items 1-3) and show short labelled comparisons; agreeing two or
   three of them completes this item. The person never has to find references themselves.
@@ -73,9 +75,11 @@ precisely to what they see and hear.
   watch them at normal speed or hear them. Please play them on the device you'll use, with sound on. Until someone
   has, I'll report them as unwatched and unheard." Where the person cannot judge something critical, such as a mix
   or a voice, suggest someone who can.
-- **Present every gate the same way:** "This is a rough preview, not the final quality. Today, please choose ___.
-  Still temporary: ___. This choice affects ___ later; changing it after picture lock means redoing ___. Tell me
-  anything that feels wrong, even if you can't say why."
+- **Present every gate before the final one the same way:** "This is a rough preview, not the final quality. Today,
+  please choose ___. Still temporary: ___. This choice affects ___ later; changing it after picture lock means
+  redoing ___. Tell me anything that feels wrong, even if you can't say why."
+- **Present the final gate as the finished film:** "This is the finished file, version ___. Checked: ___. Not
+  checked, or still open: ___. Approving it means ___."
 - **Explore widely in private; present a few.** Make more directions than you show. Present two or three, each with
   the one question it answers and its main cost. Record the choice as "We chose ___ because ___, and will judge it by
   ___", and check later rounds against that line.
@@ -137,7 +141,7 @@ decision is recorded with its sentence, and everything provisional is labelled.
 | Final | 7-9 | the finished file and its deliverables, muted, then with sound | release |
 
 For a silent deliverable, the sound-direction gate and every "with sound" pass are recorded as not applicable, with
-the reason and the verified absent audio stream.
+the reason, and with the audio stream verified absent, or verified silent where the destination requires a track.
 
 - **Concept sketches.** Run the operation and decoding tests ([story-and-score](story-and-score.md) §4) on all three
   sketches before the choice, not only on the winner.
@@ -157,7 +161,8 @@ that, the priorities depend on the film:
 
 - **Narrated:** the voice performance, the music's fit and an intelligible mix.
 - **Product-led:** accurate product work and one coherent hero sequence.
-- **Music-led:** a track whose structure follows the story's curve, cleared for the real use, with stems.
+- **Music-led:** a track whose structure follows the story's curve, cleared for the real use, with music stems (its
+  parts, such as drums and melody, as separate files).
 - **Silent:** picture, type and motion; music and voice budgets go to zero.
 
 Buy each item at the gate that needs it, never before the decision it serves. Use previews and watermarked comps only
@@ -254,10 +259,10 @@ made the judgement (§1).
 
 ### 7.4 Editing and joins
 
-- **At a cut, rank emotion, then story, then rhythm, then continuity**, after truth: a cut may never change the
-  product's state, a version, an input or the apparent elapsed time of a real operation. Within that, choose the cut
-  point that serves the feeling, and accept a mismatch in composition, gesture or screen direction if that is the
-  cost. After a heavy moment, try a version with more room before the next idea.
+- **At a cut, rank emotion, then story, then rhythm, then continuity**, after truth: a cut may never misrepresent the
+  product's state, version, inputs, causality or the elapsed time of a real operation. A true change of state reads
+  as one, and compressed time is labelled ([product-demos](product-demos.md) §3). Within that, choose the cut point
+  that serves the feeling, and accept a mismatch in composition, gesture or screen direction if that is the cost. After a heavy moment, try a version with more room before the next idea.
 - **Map where the eye is at each cut.** Mark the focal region in the last readable outgoing frame and the first
   incoming frame. In a continuous argument, put the next important detail near the last one or lead the eye there;
   when a big jump is intended, leave time to find the new place before anything essential happens. Export the paired
@@ -432,10 +437,11 @@ Deliver what was agreed in §2, on top of the main deliverables ([formats](forma
   or coloured-edge detail must survive), its precision and chroma stated honestly (§7.9). Check it with `qc_file.py`
   against its own spec (for example `--vcodec prores --pix-fmt yuv422p10le --color bt709 --frames N`), confirm the
   range in the `--json` report, and leave out web-only checks such as `--faststart`.
-- **Stems:** dialogue, music and effects from the same timeline start, sample rate, sample count and channel layout,
-  with their automation, delays and effect returns, and tails inside the duration. Say whether they reconstruct the
-  approved mix, and test it: sum them at unity and subtract the mix before its encode. An exact reconstruction leaves
-  a residual peak of `-inf` or only rounding noise. For stereo stems:
+- **Mix stems:** dialogue, music and effects from the same timeline start, sample rate, sample count and channel
+  layout, with their automation, delays and effect returns, and tails inside the duration. Say whether they
+  reconstruct the approved mix, and test it: sum them at unity and subtract the mix before its encode. An exact
+  reconstruction leaves a residual peak of `-inf` or only rounding noise; FFmpeg exits 0 either way, so read the
+  peak. For stereo stems:
 
   ```
   ffmpeg -i dialogue.wav -i music.wav -i effects.wav -i mix.wav -filter_complex \
@@ -447,7 +453,9 @@ Deliver what was agreed in §2, on top of the main deliverables ([formats](forma
   each stem separately.
 - **Localisation material, when versions in other languages are in scope:** a textless picture from the same render,
   editable copy and captions, a full music-and-effects mix with the gaps under dialogue filled, handles on shots
-  likely to be retimed, and a list of any wording baked into the picture.
+  likely to be retimed, and a list of any wording baked into the picture. Check that the textless picture matches the
+  approved one in frame count, cut positions and colour, with no surviving titles and no missing graphics; a named
+  listener checks the music-and-effects mix for residual speech and holes; record each handle's length.
 - **Cut-downs and renditions:** each composed for its own length and aspect ratio, never trimmed blind from the
   master.
 - **Captions** as sidecar files, and burned in where a rendition requires or the person agrees it, never doubled with

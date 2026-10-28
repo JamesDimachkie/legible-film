@@ -4,9 +4,10 @@ Two kinds of evaluation for the skill itself.
 
 ## Behaviour (`evals.json`)
 
-Five realistic requests, each paired with expectations describing what the skill should change in an agent's
+Six realistic requests, each paired with expectations describing what the skill should change in an agent's
 behaviour: honest status (unwatched, unheard), the approval gates, a facts file, QC on the delivered file, baselines
-for revisions, and treatments chosen by listening.
+for revisions, treatments chosen by listening, and (eval 6, added in 1.1.0) a studio-grade plan for someone new to
+video.
 
 To run one:
 

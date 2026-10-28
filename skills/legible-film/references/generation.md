@@ -180,9 +180,9 @@ from documentation and record the shot's quality as untested.
 
 **Images**
 
-- **OpenAI GPT Image 2.5** (Sunburst for precise edits, Flare for throughput): up to 3840x2160, with sizes above
-  2560x1440 marked experimental; transparent backgrounds
-  ([guide](https://developers.openai.com/api/docs/guides/image-generation)).
+- **OpenAI GPT Image 2.5** (Sunburst for precise edits, Flare for throughput): custom sizes in multiples of 16, from
+  1:3 to 3:1, up to 3,840 px a side and 655,360 to 8,294,400 pixels in all (3840x2160 or 2160x3840 at most), with
+  anything above 2560x1440 marked experimental; transparent backgrounds ([guide](https://developers.openai.com/api/docs/guides/image-generation)).
 - **Google Nano Banana 2.1**: reference-led compositions and conversational revisions at 1K-4K
   ([pricing](https://ai.google.dev/gemini-api/docs/pricing)).
 - **Black Forest Labs FLUX 3 Image and Klein**: layout control with bounding boxes; Klein has open weights under its
