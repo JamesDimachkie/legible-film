@@ -43,6 +43,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Python packages
+        run: python -m pip install numpy Pillow
       - name: Links, anchors and scripts named in SKILL.md
         run: python .github/scripts/check_docs.py
       - name: Agent Skills validator
