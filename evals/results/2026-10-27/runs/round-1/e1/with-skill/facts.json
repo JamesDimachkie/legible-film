@@ -1,0 +1,12 @@
+{
+  "project": "Pocketfern split by item",
+  "source_note": "User brief supplied 2026-10-27; not independently verified. Reconfirm changeable claims before release.",
+  "claims": [
+    {"id":"product", "display":"Pocketfern", "source":"user brief", "read_on":"2026-10-27", "status":"current", "can_change_before_release":true, "approved_by":"user brief"},
+    {"id":"feature", "display":"Split by item", "source":"user brief", "read_on":"2026-10-27", "status":"current", "can_change_before_release":true, "approved_by":"user brief"},
+    {"id":"launch", "display":"Available now on iOS and Android", "source":"user brief: launched today for iOS and Android", "read_on":"2026-10-27", "conditions":"Recheck before release; launch date 2026-10-27", "status":"current", "can_change_before_release":true, "approved_by":"user brief"},
+    {"id":"limit", "display":"Receipts with up to 50 items", "value":50, "unit":"items per receipt", "conditions":"maximum stated in user brief", "label_beside_value":"items per receipt", "source":"user brief", "read_on":"2026-10-27", "status":"current", "can_change_before_release":true, "approved_by":"user brief"},
+    {"id":"price", "display":"Free for all users", "source":"user brief", "read_on":"2026-10-27", "status":"current", "can_change_before_release":true, "approved_by":"user brief"},
+    {"id":"example", "display":"Illustration", "source":"synthetic example created for film", "read_on":"2026-10-27", "conditions":"Not a product recording; interaction must be verified before representing actual behavior", "status":"illustrative", "can_change_before_release":true, "approved_by":"pending"}
+  ]
+}

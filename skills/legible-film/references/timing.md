@@ -67,8 +67,8 @@ when one kind of action gets a sound, give every repeat of it the same sound.
   (sound late), and acceptability at +90 ms and −185 ms. Viewers notice early sound sooner than late sound. These
   are broadcast transport limits, not creative targets.
 - EBU R37 asks each production stage to stay within **5 ms early to 15 ms late**, and an emission chain within
-  40 ms early to 60 ms late. A deliverable whose sync events sit within about one frame of their marks is a
-  defensible reading of those figures.
+  40 ms early to 60 ms late. These are transport limits: set the film's own sync tolerance separately. A frame
+  is 17 ms at 60 fps and 42 ms at 24 fps, so a one-frame tolerance does not by itself meet the per-stage figures.
 - There is no single sync tolerance: a run of repeated hits exposes an offset that an isolated event hides.
 - Measure the delivered offsets with `cue_onsets.py` (sounds against the cue list) and `sync_check.py` (delivered
   audio against the approved mix). In a full mix with music, compare the share of cues answered with chance

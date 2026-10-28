@@ -16,7 +16,8 @@ You are the **[lens]** critic for a short film. Read this brief and follow it ex
 
 ## How to look at a film you cannot play
 - One frame every 0.5 s (`frame_sheet.py --every 0.5`).
-- Every transition at 20-30 frames a second (`frame_sheet.py --around [times]`).
+- Every transition sampled at 20-30 frames a second (`frame_sheet.py --around [times]`), and every frame of a
+  suspect interval (`--frames A-B`).
 - Full resolution where grade, depth, type or alignment matter, and viewing size (`--width 384`) for every text.
 - You cannot listen. Where sound matters, measure it and say so.
 

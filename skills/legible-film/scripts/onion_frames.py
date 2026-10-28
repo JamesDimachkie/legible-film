@@ -8,7 +8,8 @@ viewing too: an overlay hides a single bad frame inside the stack.
 
   python onion_frames.py --out qa/onion.png qa/frames/frame-000118-at-1.967s.png qa/frames/frame-000119-at-1.983s.png
 
-Needs Pillow. Refuses to overwrite an existing output or an input.
+Needs Pillow. Refuses to overwrite an existing output or an input. Exit code 0 when the blend is
+written, 2 when an input is missing or unreadable or the output cannot be written.
 """
 
 import argparse
@@ -32,11 +33,17 @@ def main():
         parser.error('the output must be a PNG')
     if args.out.resolve() in {path.resolve() for path in args.frames}:
         parser.error('the output must differ from the inputs')
+    for path in args.frames:
+        if not path.is_file():
+            parser.error(f'not a file: {path}')
     merged = None
     try:
         for count, path in enumerate(args.frames, start=1):
-            with Image.open(path) as source:
-                frame = source.convert('RGBA')
+            try:
+                with Image.open(path) as source:
+                    frame = source.convert('RGBA')
+            except OSError as e:  # includes Pillow's UnidentifiedImageError
+                parser.error(f'cannot read {path} as an image: {e}')
             if merged is None:
                 merged = frame
                 continue
@@ -47,12 +54,16 @@ def main():
             merged.close()
             frame.close()
             merged = result
-        args.out.parent.mkdir(parents=True, exist_ok=True)
         try:
+            args.out.parent.mkdir(parents=True, exist_ok=True)
             with args.out.open('xb') as output:  # exclusive creation keeps earlier review artifacts
                 merged.save(output, format='PNG')
         except FileExistsError:
-            parser.error(f'output already exists: {args.out}')
+            if args.out.is_file():
+                parser.error(f'output already exists: {args.out}')
+            parser.error(f'cannot write {args.out}: part of its folder path is a file')
+        except OSError as e:
+            parser.error(f'cannot write {args.out}: {e.strerror or e}')
         print(args.out)
     finally:
         if merged is not None:

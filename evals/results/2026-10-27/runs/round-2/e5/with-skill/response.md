@@ -1,0 +1,12 @@
+I could not describe the 300 frames or recommend visual edits: no image-capable local model was identified among the installed Ollama models, and the Legible Film skill requires explicit approval before uploading unreleased material to a hosted service. No frames were uploaded. A local vision model would also allow the review to proceed without an upload.
+
+The file-level checks found two concrete improvements to investigate:
+
+1. The MP4 is not optimized for progressive web playback: its moov atom is not at the front. If this film will play on the web, remux with fast start and verify the resulting file.
+2. The video has no colour primaries, transfer or matrix tags. Confirm the source colour space before converting or tagging it; if it is HD SDR mastered in BT.709, export with an explicit BT.709 conversion and matching tags, then verify the result.
+
+The 10-second file is 1280 × 720, 30 fps, H.264/yuv420p, with 300 decoded frames and mono 48 kHz AAC audio. Full decode was clean. Measured integrated loudness was −21.8 LUFS; true peak was −14.6 dBTP, and −9.7 dBTP after an AAC re-encode. Audio and video lengths matched. Audio has non-silent levels at both ends; inspect the opening and tail for an unintended click or abrupt cutoff, taking the intended sound design into account. The flash screen found no candidate flash sequences; this is a screening result, not certification.
+
+The film remains **unwatched and unheard**. I did not inspect its pictures, text, transitions, product claims, rights, sound quality or picture-to-sound sync; I did not run the blank, motion, cue or sync checks. There was no brief, facts file, cue list or approved mix in evals/files to establish intended cuts, claims or sound cues. The weakest remaining point is the missing visual review, so these checks cannot establish whether the film communicates the product or what creative changes it needs. Local measurement details are in qc-film.json and flash-film.json.
+
+**What I need from you:** Approve uploading this unreleased film or its frames to a specified hosted vision service, or provide an installed local image-capable model. Then the frame descriptions and evidence-based visual recommendations can be completed. The approval requirement comes from [Legible Film SKILL.md](.agents/skills/legible-film/SKILL.md), which says: “Ask the person before you ... upload private, client or unreleased material to any hosted service, including frame describers”.

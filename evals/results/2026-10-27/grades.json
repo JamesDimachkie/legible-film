@@ -1,0 +1,294 @@
+{
+ "final": {
+  "e1": {
+   "without-skill": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    true,
+    false,
+    false,
+    false,
+    true
+   ],
+   "with-skill": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "with-skill",
+     "item": 5,
+     "why": "The four tests are present in substance but not named, and the reasons are brief."
+    },
+    {
+     "run": "without-skill",
+     "item": 7,
+     "why": "Says to stack the layout rather than crop and to reuse the same beats, but never names a shared timing source."
+    },
+    {
+     "run": "with-skill",
+     "item": 9,
+     "why": "Plans an audio peak check after lossy re-encode but does not name loudness and true peak explicitly."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  },
+  "e2": {
+   "without-skill": [
+    true,
+    true,
+    true,
+    false,
+    false,
+    true,
+    false,
+    true
+   ],
+   "with-skill": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "without-skill",
+     "item": 6,
+     "why": "Lists visuals and sound content as unchecked but does not name motion at speed or comprehension."
+    },
+    {
+     "run": "without-skill",
+     "item": 7,
+     "why": "Says it did not assess visuals or sound, not that no person has watched or heard the file; marked FAIL."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  },
+  "e3": {
+   "without-skill": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "with-skill": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "without-skill",
+     "item": 4,
+     "why": "'check the full film for unintended changes' gestures at a regression check but names no comparison against v5 and no restriction to the ending."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  },
+  "e4": {
+   "without-skill": [
+    false,
+    true,
+    false,
+    false,
+    false,
+    true
+   ],
+   "with-skill": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "without-skill",
+     "item": 1,
+     "why": "Names sounds per time block but never decides what leads in each passage; its only ranking is a global 'effects subordinate to music'."
+    },
+    {
+     "run": "without-skill",
+     "item": 5,
+     "why": "Says paid generation or licensing needs approval first, but does not plan to record the asset's terms or plan."
+    },
+    {
+     "run": "without-skill",
+     "item": 6,
+     "why": "Passes only because nothing contradicts it: it says no audio was generated, but never states the result stays unheard until a person listens."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  },
+  "e5": {
+   "without-skill": [
+    false,
+    false,
+    false
+   ],
+   "with-skill": [
+    true,
+    true,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "with-skill",
+     "item": 2,
+     "why": "Offers a local vision model and used the bundled local scripts, but did not offer the frame-sheet route by name."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  }
+ },
+ "superseded_round_1": {
+  "e3": {
+   "without-skill": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "with-skill": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "with-skill",
+     "item": 1,
+     "why": "Names the approved v5 export and says it will preserve the baseline and compare against v5; this is intent rather than a plan, marked PASS."
+    },
+    {
+     "run": "with-skill",
+     "item": 5,
+     "why": "Says changed timing must be checked against the cues and mix but does not plan to re-export and compare the cue lists; marked FAIL."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  },
+  "e4": {
+   "without-skill": [
+    false,
+    true,
+    false,
+    false,
+    false,
+    true
+   ],
+   "with-skill": [
+    false,
+    true,
+    false,
+    false,
+    false,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "without-skill",
+     "item": 6,
+     "why": "Makes no claim about sound but does not say it is unheard; no sound existed to report on, so marked PASS."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  },
+  "e5": {
+   "without-skill": [
+    false,
+    false,
+    true
+   ],
+   "with-skill": [
+    true,
+    true,
+    true
+   ],
+   "borderline": [
+    {
+     "run": "with-skill",
+     "item": 2,
+     "why": "Names a local vision tool as the preferred route but not frame sheets or the bundled scripts."
+    }
+   ],
+   "blind_labels": {
+    "A": "without-skill",
+    "B": "with-skill"
+   }
+  }
+ },
+ "images_reencoded": [
+  {
+   "file": "runs/round-1/e2/with-skill/qa/flags.jpg",
+   "original": "qa/flags.png",
+   "original_bytes": 949740,
+   "original_sha256": "2c8dec03a7a6eb08f9415f3ca6b49016a3f59b67fe845f637c4644567dd68ad9"
+  },
+  {
+   "file": "runs/round-2/e5/without-skill/frames/sheet-03.jpg",
+   "original": "frames/sheet-03.jpg",
+   "original_bytes": 168304,
+   "original_sha256": "9dafd437f3bedca3522235b11eeb2da0f3611d52633e68184e496cb1cc00fce9"
+  },
+  {
+   "file": "runs/round-2/e5/without-skill/frames/sheet-04.jpg",
+   "original": "frames/sheet-04.jpg",
+   "original_bytes": 202599,
+   "original_sha256": "33eca2b3c10cd7a915cb51cc4e77635dd47b181afeb5ede984529389b8a3c878"
+  }
+ ]
+}

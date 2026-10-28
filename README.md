@@ -1,11 +1,18 @@
-# Legible Film
+<h1 align="center"><img src=".github/media/banner.jpg" alt="Legible Film: video production for coding agents" width="100%"></h1>
 
-Video production for coding agents. The name is the standard it holds every film to: legible to the viewer it is
-made for, and honest about what was checked.
+[![CI](https://github.com/JamesDimachkie/legible-film/actions/workflows/ci.yml/badge.svg)](https://github.com/JamesDimachkie/legible-film/actions/workflows/ci.yml)
 
-An Agent Skill that teaches a coding agent (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot and others) to
-make short videos the way a careful director, editor and finisher would: one story, picture and sound composed on one
-clock, every claim traced to a source, and the delivered file checked before anyone ships it.
+Legible Film is an Agent Skill for video production: a folder of instructions, references and scripts that a coding
+agent (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot and others) loads when a task calls for it. Its name
+is the standard it holds every film to: legible to the viewer it is made for, and honest about what was checked.
+
+It teaches the agent to make short videos the way a careful director, editor and finisher would: one story, picture
+and sound composed on one clock, every claim traced to a source, and the delivered file checked before anyone ships
+it.
+
+In a small blind-graded test (five requests, one run each on one model), agents with the skill met 35 of 35
+expectations and agents without it met 10 of 35. Every prompt, output and grade is
+[published](evals/results/2026-10-27/README.md), with what the test could not control.
 
 Created by James Dimachkie. Licensed under Apache-2.0.
 
@@ -14,8 +21,8 @@ Created by James Dimachkie. Licensed under Apache-2.0.
 Coding agents can now build a launch film, a product demo or an explainer from code, generated assets and FFmpeg.
 They can also render something that passes every build check and still fails the viewer: text that leaves before it
 can be read, a brand colour shifted by the encoder, a soundtrack that clips on the platform's re-encode, a picture
-that claims more than the product does, an approved scene quietly broken by a fix somewhere else. And an agent cannot
-watch its own film at speed or hear it.
+that claims more than the product does, or an approved scene broken by a fix somewhere else. Nor can an agent watch
+its own film at speed or hear it.
 
 This skill encodes a working method for those problems. It was built from making launch films, product demos and
 client videos with coding agents in 2026. Its rules come from defects found in real cuts, notes from the people who
@@ -42,20 +49,50 @@ The agent works through nine steps, each ending on a condition it can check:
 9. **Deliver.** The file, its hash, and a report that says what was checked, what was not, and who has watched and
    listened.
 
-Until a named person has watched the delivered file, and listened when it has sound, the agent reports it as
-unwatched and unheard.
-It asks before spending money, uploading private material to a hosted service, or publishing anything.
+Until a named person has watched the delivered file, the agent reports it as unwatched; until someone has listened to
+a file with sound, as unheard. It asks before spending money, uploading private material to a hosted service, or
+publishing anything.
+
+## See it check a file
+
+`evals/make_fixtures.py` builds a four-second clip with three planted defects. Asked to check it before posting, an
+agent following the skill runs the bundled scripts on that exact file:
+
+```
+python skills/legible-film/scripts/qc_file.py evals/files/check-me.mp4 --spec 640x360@30 --duration 4 \
+    --vcodec h264 --pix-fmt yuv420p --color bt709 --audio required
+python skills/legible-film/scripts/flash_scan.py evals/files/check-me.mp4
+```
+
+Their output, shortened to the findings:
+
+```
+check-me.mp4: h264 640x360 yuv420p @ 30 fps, 3.2 s; colour None/None/None; faststart False
+  loudness: -21.8 LUFS integrated, LRA 20.0 LU, true peak -20.8 dBTP
+  warning: colour primaries untagged: players will guess; tag them (e.g. bt709)
+  warning: sound at level in the first 5 ms: a click unless a hit is designed for frame 0
+  warning: the last 10 ms is not near silence: check for a cut-off tail unless the ending is a designed hard stop
+  FAIL duration: expected 4.0 +/- 0.0333 s, got 3.2
+  FAIL color_tags: expected ['bt709', 'bt709', 'bt709'], got [None, None, None]
+  not checked: picture content, motion at playback speed, text legibility at viewing size, flashing (flash_scan.py), how the sound sounds, sync to picture events, claims, rights
+check-me.mp4: 96 frames at 30 fps; busiest second: general 11 transitions (at 1.1 s), red 11 (at 1.1 s); FLAGGED
+```
+
+All three defects are caught: muxing with `-shortest` cut the picture to 3.2 s, the colour tags are missing, and a
+5 Hz full-frame flash fails the WCAG 2.3.1 screen. The report also names what no script checked, which goes into the
+delivery report alongside who has watched and listened.
 
 ## Install
 
-**Claude Code**
+**Claude Code.** In a Claude Code session:
 
 ```
 /plugin marketplace add JamesDimachkie/legible-film
 /plugin install legible-film@jamesdimachkie
 ```
 
-**Any agent that reads Agent Skills** (Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode, Amp, Goose, Claude Code):
+**Any agent that reads Agent Skills** (Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode, Amp, Goose, Claude Code).
+In a terminal with Node.js installed, from your project folder:
 
 ```
 npx skills add JamesDimachkie/legible-film
@@ -78,12 +115,13 @@ python skills/legible-film/scripts/selftest.py
 ```
 
 If you installed through a plugin or `npx skills`, the same script sits in the installed skill's `scripts/` folder;
-ask your agent to run the Legible Film skill's self-test. It builds synthetic media with known answers and checks
-every script against them in about twenty seconds, writing only to a temporary folder.
+ask your agent to run the Legible Film skill's self-test. It builds synthetic media with known answers and runs 38
+checks across every script in about half a minute, writing only to a temporary folder.
 
 ## Use it
 
-Ask for what you want; the skill loads when the task is video work. For example:
+Ask for what you want. Agents that support skills load this one from its description when a request is video work;
+to be certain, name it: "Use Legible Film to check this cut." For example:
 
 - "Make a 30-second launch film for our release, 16:9 for the post and 9:16 for stories. Facts are in `docs/`."
 - "Here is the cut. Check it before I post it."
@@ -123,15 +161,16 @@ evals/                behaviour and trigger evaluations for the skill itself
 - `flash_scan.py` screens for WCAG 2.3.1 flashing. It is not a Harding, IRIS or broadcast PSE certification.
 - Tool versions, platform specs and provider terms in the references were checked on 2026-10-27 and change often;
   each is dated, and linked to its source wherever a stable page exists, so it can be re-checked.
-- Evaluations so far are small: three requests, one run each with and without the skill on one model, graded
-  blind by another model family. With the skill, runs met 25 of 26 expectations; without it, 10. The details,
-  including what was not run, are in [evals/README.md](evals/README.md).
+- Evaluations are small: five requests, one run each with and without the skill on one model, graded blind by
+  another model family against expectations written by the skill's author. They measure whether an agent follows
+  the method, not how good its film is, and whether agents load the skill unprompted has not been tested. Details
+  are in [evals/README.md](evals/README.md).
 
 ## Contributing
 
 Suggestions and fixes are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Rules change only with evidence (a
 defect, a measurement, a source), and every script change keeps `selftest.py` passing.
 
-## License
+## Licence
 
 Apache-2.0. Copyright 2026 James Dimachkie. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

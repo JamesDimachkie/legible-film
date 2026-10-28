@@ -1,0 +1,97 @@
+{
+  "file": "evals/files/film-v3.mp4",
+  "container": {
+    "format": "mov,mp4,m4a,3gp,3g2,mj2",
+    "duration_s": 10.0,
+    "size_bytes": 4466214,
+    "bit_rate": 3572971.0
+  },
+  "video": {
+    "codec": "h264",
+    "profile": "High",
+    "width": 1280,
+    "height": 720,
+    "pix_fmt": "yuv420p",
+    "sample_aspect_ratio": "1:1",
+    "fps": "30",
+    "fps_float": 30.0,
+    "variable_frame_rate_suspected": false,
+    "frames_in_metadata": 300,
+    "duration_s": 10.0,
+    "rotation_deg": null,
+    "color_primaries": null,
+    "color_transfer": null,
+    "color_space": null,
+    "color_range": null
+  },
+  "audio": [
+    {
+      "codec": "aac",
+      "sample_rate": 48000,
+      "channels": 1,
+      "channel_layout": "mono",
+      "duration_s": 10.0
+    }
+  ],
+  "extra_video_streams": 0,
+  "faststart": false,
+  "decode": {
+    "ok": true,
+    "returncode": 0,
+    "errors": [],
+    "error_count": 0,
+    "decoded_video_frames": 300,
+    "decoded_length_s": 10.0
+  },
+  "loudness": {
+    "integrated_lufs": -21.8,
+    "loudness_range_lu": 0.0,
+    "true_peak_dbtp": -14.6,
+    "decoded_audio_length_s": 10.0
+  },
+  "audio_edges": {
+    "head_first_5ms_peak_dbfs": -18.0,
+    "head_50ms_rms_dbfs": -20.6,
+    "tail_50ms_rms_dbfs": -21.1,
+    "tail_last_10ms_peak_dbfs": -18.1,
+    "notes": [
+      "sound at level in the first 5 ms: a click unless a hit is designed for frame 0",
+      "the last 10 ms is not near silence: check for a cut-off tail unless the ending is a designed hard stop"
+    ]
+  },
+  "lossy_reencode": {
+    "bitrate": "128k",
+    "true_peak_dbtp": -9.7,
+    "integrated_lufs": -21.8
+  },
+  "audio_minus_video_s": 0.0,
+  "warnings": [
+    "colour primaries untagged: players will guess; tag them (e.g. bt709)",
+    "sound at level in the first 5 ms: a click unless a hit is designed for frame 0",
+    "the last 10 ms is not near silence: check for a cut-off tail unless the ending is a designed hard stop"
+  ],
+  "checks": {
+    "true_peak_after_lossy_reencode": {
+      "pass": true,
+      "expected": "<= 0.0 dBTP after AAC 128k",
+      "actual": -9.7
+    },
+    "av_length": {
+      "pass": true,
+      "expected": "|audio - video| <= 0.05 s",
+      "actual": 0.0
+    },
+    "faststart": {
+      "pass": false,
+      "expected": true,
+      "actual": false
+    },
+    "full_decode": {
+      "pass": true,
+      "expected": "no decode errors",
+      "actual": "0 error line(s)"
+    }
+  },
+  "checks_passed": false,
+  "not_checked": "picture content, motion at playback speed, text legibility at viewing size, flashing (flash_scan.py), how the sound sounds, sync to picture events, claims, rights"
+}

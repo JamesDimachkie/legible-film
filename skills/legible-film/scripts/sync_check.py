@@ -41,7 +41,9 @@ def decode(ffmpeg, path, stream):
     r = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-i', path, '-map', stream, '-ac', '1', '-ar', str(RATE),
                         '-f', 'f32le', '-'], capture_output=True, check=False)
     if r.returncode:
-        raise SystemExit(f'could not decode audio from {path}: {r.stderr.decode(errors="replace").strip()[-200:]}')
+        reason = (r.stderr.decode(errors='replace').strip().splitlines() or ['?'])[-1]
+        print(f'sync_check.py: could not decode audio from {path}: {reason}', file=sys.stderr)
+        raise SystemExit(2)
     return np.frombuffer(r.stdout, np.float32).astype(np.float64)
 
 

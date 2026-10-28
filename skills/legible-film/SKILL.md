@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. No network access or accounts required."
 metadata:
   author: "James Dimachkie"
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Legible Film
@@ -120,7 +120,9 @@ short motion render, and the engine's own checks pass.
 
 ### 5. Sound
 
-Read [sound](references/sound.md). For a silent deliverable, confirm there is no audio stream and go to step 6.
+Read [sound](references/sound.md). For a planned silent deliverable, record audio as intentionally absent and go to
+step 6; step 7 verifies the exported file with `qc_file.py --audio none`, unless the destination requires a silent
+track.
 
 - Decide what the sound does: for each passage what leads (music, effects, voice or quiet), which events sound, and
   how it ends.
@@ -165,7 +167,8 @@ Read [review](references/review.md).
   outrank the person's approved choices.
 
 Done when no blocking or visible finding is open and a named person has watched the delivered file at normal speed,
-muted and, if it has sound, with sound; otherwise the report says **unwatched**, and **unheard** for sound.
+muted and, if it has sound, with sound. While a pass is pending this step stays open, and the report says
+**unwatched** for a missing viewing and **unheard** for a missing listening, each on its own.
 
 ### 9. Deliver
 
@@ -223,12 +226,16 @@ Each was hit in real production or measured while building this skill.
 - A two-frames-a-second overview passed defects that full-resolution frames caught, and a frame-by-frame check passed
   an ending that looked wrong at speed. Use each check for what it can see.
 - In FFmpeg filter arguments, a Windows drive-letter colon breaks the graph; run from the file's folder.
+- Screen recordings and GIFs often vary their frame timing, so frame number divided by frame rate is not when a
+  frame plays; a flash screen that assumed it cleared a 4 Hz flash. Time frames by their presentation timestamps,
+  as the scripts do.
 
 ## Scripts
 
 In `scripts/`; each prints `--help`. The measuring scripts also write JSON with `--json`; `frame_sheet.py` and
-`onion_frames.py` write PNG images. Run `python scripts/selftest.py` once to confirm the environment (about 20
-seconds, synthetic media only).
+`onion_frames.py` write PNG images. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2 the
+check could not run, which the report lists as not checked. Run `python scripts/selftest.py` once to confirm the
+environment (about half a minute, synthetic media only).
 
 | Script | Answers |
 |---|---|

@@ -1,0 +1,3 @@
+The v5 revision is blocked because this folder contains no HyperFrames composition, approved v5 export, cue list, or separately mastered mix. No film files were changed and no render or audiovisual checks were possible.
+
+Please place the complete v5 project and its assets in this folder, together with the approved v5 export, the cue list used for the mix, and the mastered mix. Include the render instructions and delivery specification if they are not in the project. I can then inspect the ending, preserve the approved baseline, make a targeted revision, and compare the result against v5. Any changed timing must be checked against the cues and mix; the finished revision will still need a normal-speed viewing and listening pass.

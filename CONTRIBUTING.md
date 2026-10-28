@@ -14,7 +14,7 @@ Thank you for helping improve this skill. It stays useful by staying evidence-ba
 
 ## Scripts
 
-- Python 3.9 or later, the standard library plus numpy and Pillow, and FFmpeg found on `PATH` (or through
+- Python 3.9 or later, the standard library plus numpy and Pillow, and FFmpeg and ffprobe found on `PATH` (or through
   `--ffmpeg` / `--ffprobe` and the `FFMPEG` / `FFPROBE` environment variables).
 - Every script prints `--help` and states in its docstring what it cannot establish; measuring scripts write JSON
   with `--json`, and image tools write PNGs.

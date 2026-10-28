@@ -1,0 +1,33 @@
+{
+ "video": "evals/files/film-v3.mp4",
+ "frames": 300,
+ "fps": 30.0,
+ "scan_size": [
+  192,
+  108
+ ],
+ "windows": 25,
+ "busiest_general": {
+  "transitions_in_1s": 2,
+  "at_s": 3.5,
+  "window": [
+   0,
+   36,
+   64,
+   36
+  ]
+ },
+ "busiest_red": {
+  "transitions_in_1s": 0,
+  "at_s": null,
+  "window": [
+   0,
+   0,
+   64,
+   36
+  ]
+ },
+ "flagged": [],
+ "verdict": "no candidate flash sequences",
+ "limit": "Screening only; not a Harding FPA, IRIS or PEAT certification."
+}

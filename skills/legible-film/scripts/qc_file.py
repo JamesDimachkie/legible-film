@@ -416,6 +416,13 @@ def main():
         check('audio_present', bool(audios), True, bool(audios))
     elif args.audio == 'none':
         check('audio_absent', not audios, True, not audios)
+    asked = [flag for flag, on in [('--acodec', args.acodec), ('--sample-rate', args.sample_rate),
+                                   ('--channels', args.channels), ('--max-true-peak', args.max_true_peak is not None),
+                                   ('--loudness', args.loudness is not None), ('--lossy-check', args.lossy_check)] if on]
+    if asked and not audios:
+        # Requested audio checks that cannot run are a failure to report, never a silent pass.
+        check('audio_checks_runnable', False, 'an audio stream for ' + ', '.join(asked),
+              'no audio stream: ' + ', '.join(asked) + ' could not run')
     if audios:
         a = report['audio'][0]
         if args.acodec:

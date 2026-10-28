@@ -13,9 +13,12 @@ Two renders of the same source are rarely bit-identical after a lossy encode, so
 means "within this pipeline's normal range" (one HTML-render pipeline measured about 42-45 dB on
 unchanged windows; establish yours). PSNR averages the whole frame: a small text change can move
 it only a little, so inspect the changed moment and every important text at full size as well.
-Frames are aligned by index; an inserted or removed frame shifts everything after it (use
---offset-frames or compare windows separately). Needs FFmpeg. Exit code 1 when a change is found
-outside --expect ranges, 2 on error.
+Frames are paired by index, whatever each file's own timing; an inserted or removed frame shifts
+everything after it (use --offset-frames or compare windows separately). Reported times are NEW's
+own presentation times. When one render has more frames than the other,
+the frames without a counterpart are reported as a change at the end, never as identical.
+Needs FFmpeg. Exit code 0 when changes fall only inside --expect ranges, 1 when a change is found
+outside them, 2 on error.
 """
 
 import argparse
@@ -37,20 +40,52 @@ def find_tool(name, explicit=None):
     return shutil.which(name)
 
 
+PTS = re.compile(r'pts_time:\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)')
+
+
 def stream_info(ffprobe, path):
-    out = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-                          'stream=width,height,avg_frame_rate', '-of', 'json', path],
-                         capture_output=True, text=True, check=True).stdout
-    s = json.loads(out)['streams'][0]
+    """(width, height, declared frame rate); raises RuntimeError when unreadable."""
+    r = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+                        'stream=width,height,avg_frame_rate', '-of', 'json', path], capture_output=True, text=True)
+    streams = json.loads(r.stdout or '{}').get('streams') if r.returncode == 0 else None
+    if not streams:
+        raise RuntimeError(f'cannot read {path}: ' + (r.stderr.strip().splitlines() or ['no video stream'])[-1])
+    s = streams[0]
     return int(s['width']), int(s['height']), Fraction(s['avg_frame_rate'])
 
 
+def passthrough(ffmpeg):
+    """Frame-exact output: -fps_mode passthrough (FFmpeg 5.1 and later), -vsync passthrough before it."""
+    try:
+        head = subprocess.run([ffmpeg, '-hide_banner', '-version'], capture_output=True, text=True).stdout
+    except OSError:
+        head = ''
+    m = re.search(r'version n?(\d+)\.(\d+)', head)
+    old = m is not None and (int(m.group(1)), int(m.group(2))) < (5, 1)
+    return ['-vsync' if old else '-fps_mode', 'passthrough']
+
+
+def frame_times(ffmpeg, path):
+    """Every decoded frame's time on the film clock, from a small fast decode; raises RuntimeError when unreadable."""
+    r = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-nostats', '-i', path, '-map', '0:v:0',
+                        '-vf', 'scale=32:-2,showinfo', *passthrough(ffmpeg), '-f', 'null', '-'],
+                       capture_output=True, text=True, encoding='utf-8', errors='replace')
+    pts = [float(m.group(1)) for line in r.stderr.splitlines() if 'showinfo' in line
+           for m in [PTS.search(line)] if m]
+    if r.returncode or not pts:
+        raise RuntimeError(f'cannot decode {path}: ' + (r.stderr.strip().splitlines() or ['?'])[-1])
+    return pts
+
+
 def parse_ranges(text):
+    """'19-21.5,30-31' -> [(19.0, 21.5), (30.0, 31.0)]; raises ValueError naming the bad part."""
     out = []
     for part in (text or '').split(','):
         if part.strip():
-            a, _, b = part.partition('-')
-            out.append((float(a), float(b)))
+            m = re.fullmatch(r'\s*(\d+(?:\.\d*)?)\s*-\s*(\d+(?:\.\d*)?)\s*', part)
+            if not m or float(m.group(1)) > float(m.group(2)):
+                raise ValueError(f'{part.strip()!r} is not a range START-END in seconds, e.g. 19-21.5')
+            out.append((float(m.group(1)), float(m.group(2))))
     return out
 
 
@@ -67,20 +102,39 @@ def main():
     p.add_argument('--ffmpeg')
     p.add_argument('--ffprobe')
     a = p.parse_args()
+    try:
+        expect = parse_ranges(a.expect)
+    except ValueError as e:
+        p.error(f'--expect: {e}')
     ffmpeg, ffprobe = find_tool('ffmpeg', a.ffmpeg), find_tool('ffprobe', a.ffprobe)
     if not ffmpeg or not ffprobe:
         print('ffmpeg and ffprobe are required (PATH, FFMPEG/FFPROBE, or --ffmpeg/--ffprobe)', file=sys.stderr)
         return 2
-    nw, nh, nfps = stream_info(ffprobe, a.new)
-    bw, bh, bfps = stream_info(ffprobe, a.baseline)
+    try:
+        nw, nh, nfps = stream_info(ffprobe, a.new)
+        bw, bh, bfps = stream_info(ffprobe, a.baseline)
+        new_times = frame_times(ffmpeg, a.new)
+        base_times = frame_times(ffmpeg, a.baseline)
+    except RuntimeError as e:
+        print(f'compare_versions.py: {e}', file=sys.stderr)
+        return 2
     if (nw, nh) != (bw, bh):
         print(f'sizes differ ({nw}x{nh} vs {bw}x{bh}); compare renditions of the same size', file=sys.stderr)
         return 2
     if nfps != bfps:
         print(f'warning: frame rates differ ({nfps} vs {bfps}); frames are compared by index', file=sys.stderr)
-    trim_new = f'trim=start_frame={a.offset_frames},setpts=PTS-STARTPTS,' if a.offset_frames > 0 else ''
-    trim_base = f'trim=start_frame={-a.offset_frames},setpts=PTS-STARTPTS,' if a.offset_frames < 0 else ''
-    graph = f'[0:v]{trim_new}format=yuv420p[n];[1:v]{trim_base}format=yuv420p[b];[n][b]psnr=stats_file=psnr.log'
+    skip_new, skip_base = max(a.offset_frames, 0), max(-a.offset_frames, 0)
+    new_left, base_left = len(new_times) - skip_new, len(base_times) - skip_base
+    if new_left <= 0 or base_left <= 0:
+        print('compare_versions.py: --offset-frames leaves no frames to compare', file=sys.stderr)
+        return 2
+    # Both inputs get the same frame-index clock, so frame i of NEW meets frame i of BASELINE whatever the files'
+    # own timing; shortest=1 stops at the shorter render instead of repeating its last frame.
+    index_clock = 'setpts=N/(30*TB)'
+    trim_new = f'trim=start_frame={skip_new},' if skip_new else ''
+    trim_base = f'trim=start_frame={skip_base},' if skip_base else ''
+    graph = (f'[0:v]{trim_new}{index_clock},format=yuv420p[n];[1:v]{trim_base}{index_clock},format=yuv420p[b];'
+             f'[n][b]psnr=stats_file=psnr.log:shortest=1')
     # Run inside a temporary folder with a relative stats_file name: a Windows drive-letter path's
     # colon is read as a filter-option separator ("Error parsing filterchain").
     with tempfile.TemporaryDirectory() as tmp:
@@ -98,31 +152,48 @@ def main():
         if m:
             v = m.group(1)
             values.append(99.0 if v == 'inf' else float(v))
-    if not values:
-        print('no frames were compared', file=sys.stderr)
+    pairs = min(new_left, base_left)
+    if len(values) != pairs:
+        print(f'compare_versions.py: compared {len(values)} frame pairs but expected {pairs}; '
+              'the change proof is incomplete', file=sys.stderr)
         return 2
-    fps = float(nfps)
     finite = [v for v in values if v < 99.0]
     median = statistics.median(values)
     threshold = max(min(median - a.drop_db, 99.0), a.floor_db) if finite else a.floor_db
-    expect = parse_ranges(a.expect)
-    offset_t = max(a.offset_frames, 0) / fps
+
+    def at(i):  # NEW's own time for compared pair i
+        return new_times[skip_new + i]
+
     runs, i = [], 0
     while i < len(values):
         if values[i] < threshold:
             j = i
             while j < len(values) and values[j] < threshold:
                 j += 1
-            start, end = i / fps + offset_t, (j - 1) / fps + offset_t
+            start, end = at(i), at(j - 1)
             inside = any(s - 1e-6 <= start and end <= e + 1e-6 for s, e in expect)
             runs.append({'start_s': round(start, 3), 'end_s': round(end, 3), 'frames': j - i,
                          'min_psnr_db': round(min(values[i:j]), 2), 'expected': inside})
             i = j
         else:
             i += 1
+    # Frames with no counterpart: a missing or added tail is a change, whatever the PSNR of the pairs.
+    extra = new_left - base_left
+    if extra > 0:
+        start, end = at(pairs), new_times[-1]
+    elif extra < 0:  # where NEW ends; the baseline's remaining frames are timed on its own clock
+        start = new_times[-1] + (new_times[-1] - new_times[-2] if len(new_times) > 1 else 1 / float(nfps))
+        end = start + (base_times[-1] - base_times[skip_base + pairs - 1])
+    if extra:
+        inside = any(s - 1e-6 <= start and end <= e + 1e-6 for s, e in expect)
+        runs.append({'start_s': round(start, 3), 'end_s': round(end, 3), 'frames': abs(extra),
+                     'min_psnr_db': None, 'expected': inside,
+                     'unmatched': ('NEW has frames the baseline lacks' if extra > 0
+                                   else 'the baseline continues after NEW ends')})
     unexpected = [r for r in runs if not r['expected']]
     identical = sum(1 for v in values if v >= 99.0)
-    result = {'new': a.new, 'baseline': a.baseline, 'frames_compared': len(values),
+    result = {'new': a.new, 'baseline': a.baseline, 'frames_new': len(new_times), 'frames_baseline': len(base_times),
+              'frames_compared': len(values),
               'identical_frames': identical, 'median_psnr_db': round(median, 2),
               'min_psnr_db': round(min(values), 2), 'threshold_db': round(threshold, 2), 'changed_runs': runs,
               'verdict': (f'{len(unexpected)} change(s) outside the expected ranges' if unexpected
@@ -135,8 +206,9 @@ def main():
           f"{result['median_psnr_db']} dB, min {result['min_psnr_db']} dB, {identical} identical; threshold "
           f"{result['threshold_db']} dB")
     for r in runs:
+        what = r['unmatched'] if 'unmatched' in r else f"min {r['min_psnr_db']} dB"
         print(f"  {'expected' if r['expected'] else 'UNEXPECTED'} change {r['start_s']:.3f}-{r['end_s']:.3f} s "
-              f"({r['frames']} frames, min {r['min_psnr_db']} dB)")
+              f"({r['frames']} frames, {what})")
     print('  ' + result['verdict'])
     return 1 if unexpected else 0
 

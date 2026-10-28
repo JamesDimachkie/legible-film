@@ -7,7 +7,7 @@ Adapt these to your project. Point the agent at your brief, your facts and the a
 > Make a 30-second launch film for [product], 1920x1080 at 60 fps for an X post, plus a 1080x1920 version for
 > stories. It autoplays muted in the feed, so the story must read without sound; sound is for people who unmute.
 > Facts and figures are in `docs/facts.md`; use nothing else as a claim. The brand is on [site]: take colours, logo
-> and fonts from the live site. No paid generation above [amount] without asking. Show me the treatment and a short
+> and fonts from the live site. Ask before any paid generation; the budget cap is [amount]. Show me the treatment and a short
 > motion study before building the whole film.
 
 ## A product demo from real interface code

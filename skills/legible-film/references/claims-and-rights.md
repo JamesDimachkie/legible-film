@@ -107,7 +107,7 @@ Provider terms change often. As read on 2026-10-27 (re-check before relying on a
 | OpenAI API | rights in output assigned to the user (per terms; page not machine-readable at check time) | API: no, unless you opt in; consumer apps: may be used unless you opt out | [terms](https://openai.com/policies/terms-of-use/); [API data use](https://developers.openai.com/api/docs/guides/your-data) |
 | Google Gemini API (incl. image and video models) | Google does not claim ownership; preview products can restrict commercial use | unpaid tier: yes; paid tier: no | [Gemini API terms](https://ai.google.dev/gemini-api/terms) |
 | Runway | Runway does not claim ownership of inputs or outputs | yes (no opt-out described in the terms) | [terms](https://runway.com/terms-of-use) |
-| Luma | customer owns output; commercial use only for output made during an active subscription | yes | [terms](https://lumalabs.ai/legal/tos) |
+| Luma | customer owns output; commercial use only for output made during an active subscription | yes | [terms](https://lumalabs.ai/legal/terms-of-service) |
 | Adobe Firefly | Adobe claims no ownership; marketed as commercially safe | no: Adobe states it does not train Firefly on user content | [Firefly approach](https://www.adobe.com/ai/overview/firefly/gen-ai-approach.html) |
 | ElevenLabs | user retains rights; free plan non-commercial, paid plans commercial | yes, with an opt-out | [terms](https://elevenlabs.io/terms-of-use) |
 | Stability AI | rights assigned to the user; community licence free up to USD 1M annual revenue | yes, with an opt-out | [terms](https://stability.ai/terms-of-service) |

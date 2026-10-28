@@ -3,6 +3,7 @@
   "fps": 60,
   "version": "v1",
   "exported_from": "the timing source the picture code reads",
+  "fields": "t: seconds; sound: required, silent or optional; sync: attack or apex; tolerance_ms: largest offset still on cue; window_ms: how far either side of t to check (t 6.0 with window_ms 800 checks 5.2-6.8 s)",
   "events": [
     {"id": "send-contact", "t": 3.0, "picture": "the send button is pressed", "sound": "required", "sync": "attack", "tolerance_ms": 17},
     {"id": "whip-to-result", "t": 5.2, "picture": "camera whip at its peak velocity", "sound": "required", "sync": "apex", "tolerance_ms": 25},

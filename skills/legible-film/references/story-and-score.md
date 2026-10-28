@@ -130,10 +130,10 @@ look-alike from the frame edge, and never connects two things whose relation the
 
 ## 7. The score
 
-Lay the film out as a score before building: moments across, channels down. The template is
+Lay the film out as a score before building: one moment per row, with a column for each channel. The template is
 [score.csv](../assets/templates/score.csv).
 
-| Row | Write |
+| Column | Write |
 |---|---|
 | Story beat | what changes, and what question stays open |
 | Picture | the object or state the viewer can inspect |
@@ -146,8 +146,8 @@ Lay the film out as a score before building: moments across, channels down. The 
 | Feeling | the intended change, a hypothesis until someone watches |
 | Lead and anchor | which channel leads, what must coincide, what may drift |
 
-Fill story, truth and understanding first, then decide what each channel adds; leave a row empty when its channel
-adds nothing. Give the decisive events IDs that picture and sound share ("the confirmation sound's attack coincides
+Fill story, truth and understanding first, then decide what each channel adds; leave a channel's cell empty when
+it adds nothing. Give the decisive events IDs that picture and sound share ("the confirmation sound's attack coincides
 with `published-visible`", not "sound at 28 s"); those IDs become the cue list in [timing](timing.md).
 
 Musical structure applied to story helps: a **motif** (a small recognisable action or contour), **variation** (the

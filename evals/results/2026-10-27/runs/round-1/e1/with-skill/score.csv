@@ -1,0 +1,7 @@
+beat_id,start_s,end_s,story_beat,picture,motion,exact_text,music,effects_voice_or_quiet,product_truth_and_boundary,viewer_understanding,intended_feeling,lead_and_anchor,facts_ids,status
+01,0,4,Introduce,Receipt and name,Receipt settles,"Pocketfern | Split by item | Illustration",Light bed,Quiet,Illustrative receipt,Identify feature,Curiosity,Action then hold,product;feature;example,draft
+02,4,9,Set up,A synthetic receipt with distinct items and two people,Hold then isolate a line,"Illustration",Bed,Quiet,No actual UI implied,One shared receipt,Recognition,Action,example,draft
+03,9,16,Turn,Individual lines group under different people,Two deliberate assignments and holds,"Illustration",Bed,Subtle assignment accents,Concept only; no gesture or automation claim,Items can be split by person,Clarity,Action,feature;example,draft
+04,16,21,Peak,Two groups beside original receipt,Hold on result,"Split by item | Illustration",Bed opens,Quiet,No calculation or payment shown,See the distinction from an equal split,Relief,Deliberate hold,feature;example,draft
+05,21,25,Limit,Large type and restrained receipt motif,Text settles,"Receipts with up to 50 items",Bed,Quiet,User-stated maximum,Know the limit,Confidence,Reading hold,limit,draft
+06,25,30,Close,Name and availability card,Settle and hold,"Pocketfern | Available now on iOS and Android | Free for all users",Resolve bed,Soft finish,Verify current availability and price before release,Know where and cost,Invitation,Reading hold,product;launch;price,draft

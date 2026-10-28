@@ -3,7 +3,7 @@
 
 Run it once after installing, and after changing any script:
 
-  python selftest.py            # about a minute; writes only to a temporary folder
+  python selftest.py            # about half a minute; writes only to a temporary folder
   python selftest.py --keep DIR # keep the generated media and reports in DIR
 
 Each case states what it proves. A pass shows the scripts measure these synthetic answers on this
@@ -44,6 +44,16 @@ def ff(*args, stdin=None):
 
 TAG709 = 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,' \
          'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv'
+
+
+def ff_timed(*args):
+    """ff() with an -fps_mode option, falling back to -vsync on FFmpeg older than 5.1."""
+    try:
+        ff(*args)
+    except RuntimeError:
+        if '-fps_mode' not in args:
+            raise
+        ff(*['-vsync' if x == '-fps_mode' else x for x in args])
 
 
 def encode_frames(path, frames, fps, extra=()):
@@ -317,6 +327,99 @@ def main():
         if not good:
             record(f'flash_scan golden case {name}', False, out.strip()[-160:])
     record('flash_scan: all 11 golden cases', flash_ok)
+
+    # 13. Variable frame timing: the 4 Hz flash with its last half-second re-timed to 10 fps still flashes eight
+    #     times inside its first second, measured on the clock it plays on; a time picks the frame on screen then.
+    retime = "setpts='if(lt(N,150),N/(60*TB),(2.5+(N-150)/10)/TB)'"
+    ff_timed('-i', j('flash_A_fullframe_4Hz_white.mp4'), '-vf', retime, '-fps_mode', 'vfr', '-c:v', 'libx264',
+             '-crf', '12', j('flash_vfr.mp4'))
+    code, out = tool('flash_scan.py', j('flash_vfr.mp4'), '--json', j('flash_vfr.json'))
+    vfr = json.load(open(j('flash_vfr.json'), encoding='utf-8')) if os.path.isfile(j('flash_vfr.json')) else {}
+    record('flash_scan: flags the flash in a variable-frame-rate file', code == 1 and vfr.get('frame_timing') == 'variable',
+           (out.strip().splitlines() or [''])[0][:110])
+    code, out = tool('frame_sheet.py', j('flash_vfr.mp4'), '--at', 3.05, '--out', j('vfr_sheet.png'),
+                     '--keep-frames', j('vfr_frames'))
+    kept = sorted(os.listdir(j('vfr_frames'))) if os.path.isdir(j('vfr_frames')) else []
+    record('frame_sheet: a time picks the frame on screen when frame timing varies',
+           code == 0 and kept == ['frame-000155-at-3.000s.png'], kept[0] if kept else out[-120:])
+
+    # 14. A render blank throughout is near-empty, not a clean pass.
+    ff('-f', 'lavfi', '-i', 'color=c=gray:s=320x180:r=30:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', j('flat.mp4'))
+    code, out = tool('blank_scan.py', j('flat.mp4'))
+    record('blank_scan: a render blank throughout is flagged', code == 1,
+           next((x.strip() for x in out.splitlines() if 'INSPECT' in x), out[-100:]))
+
+    # 15. A revision that lost its tail is a change, never "identical".
+    ff('-i', j('flat.mp4'), '-t', '1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', j('flat_short.mp4'))
+    code, out = tool('compare_versions.py', j('flat_short.mp4'), j('flat.mp4'), '--json', j('tail.json'))
+    tail = json.load(open(j('tail.json'), encoding='utf-8')) if os.path.isfile(j('tail.json')) else {}
+    record('compare_versions: a missing tail is reported as a change',
+           code == 1 and any('unmatched' in r for r in tail.get('changed_runs', [])),
+           next((x.strip() for x in out.splitlines() if 'UNEXPECTED' in x), out[-100:]))
+
+    # 16. Cue lists: two required cues on one instant are linted and measured; a list that cannot be checked as
+    #     written is rejected before any audio is judged.
+    with open(j('cues_same.json'), 'w', encoding='utf-8') as fh:
+        json.dump({'events': [{'id': 'a', 't': 0.5}, {'id': 'b', 't': 0.5}]}, fh)
+    code, out = tool('cue_onsets.py', j('master.wav'), j('cues_same.json'))
+    record('cue_onsets: two cues on one instant are linted, not a crash', code in (0, 1) and '0 ms apart' in out)
+    with open(j('cues_bad.json'), 'w', encoding='utf-8') as fh:
+        json.dump({'events': [{'id': 'a', 't': 0.5, 'sound': 'requred'}, {'id': 'b', 'sound': 'required'}]}, fh)
+    code, out = tool('cue_onsets.py', j('master.wav'), j('cues_bad.json'))
+    record('cue_onsets: an unknown sound kind or a cue without a time is rejected', code == 2 and 'requred' in out
+           and 'no time' in out)
+
+    # 17. Audio checks requested on a file without audio fail visibly instead of passing by omission.
+    code, out = tool('qc_file.py', j('flat.mp4'), '--max-true-peak', -1, '--lossy-check')
+    record('qc_file: audio checks on a file without audio fail', code == 1 and 'audio_checks_runnable' in out)
+
+    # 18. Input that cannot be read is exit 2 (could not check), never 1 (checked and found a problem).
+    gone = j('does-not-exist.mp4')
+    calls = {'qc_file.py': [gone], 'frame_sheet.py': [gone, '--at', 1, '--out', j('gone.png')],
+             'flash_scan.py': [gone], 'blank_scan.py': [gone], 'motion_scan.py': [gone],
+             'sync_check.py': [gone, j('master.wav')], 'cue_onsets.py': [gone, j('cues.json')],
+             'compare_versions.py': [gone, j('good.mp4')],
+             'onion_frames.py': ['--out', j('gone-onion.png'), j('gone-1.png'), j('gone-2.png')]}
+    codes = {s: tool(s, *args)[0] for s, args in calls.items()}
+    wrong = [f'{s} {c}' for s, c in codes.items() if c != 2]
+    record('every script returns 2 for an input it cannot read', not wrong, ', '.join(wrong) or f'{len(codes)} scripts')
+    with open(j('cues_not_utf8.json'), 'wb') as fh:
+        fh.write(b'\xff\xfe\x00')
+    open(j('a_file'), 'w').close()
+    frames_dir = sorted(os.listdir(j('frames'))) if os.path.isdir(j('frames')) else []
+    odd = {'cue file not UTF-8': tool('cue_onsets.py', j('master.wav'), j('cues_not_utf8.json'))[0],
+           '--window-ms nan': tool('cue_onsets.py', j('master.wav'), j('cues.json'), '--window-ms', 'nan')[0],
+           '--every 0': tool('frame_sheet.py', j('good.mp4'), '--every', 0, '--out', j('every0.png'))[0],
+           'output folder is a file': tool('onion_frames.py', '--out', os.path.join(j('a_file'), 'x.png'),
+                                           *[j('frames', f) for f in frames_dir[:2]])[0]}
+    wrong = [f'{k} {c}' for k, c in odd.items() if c != 2]
+    record('bad options and unwritable outputs return 2', not wrong and len(frames_dir) >= 2,
+           ', '.join(wrong) or f'{len(odd)} cases')
+
+    # 19. Interlaced video: two fields alternating black and white flash 50 times a second when shown field by
+    #     field, though each woven frame looks steady.
+    ff('-f', 'lavfi', '-i', "color=c=black:s=320x180:r=50:d=1,drawbox=color=white:t=fill:enable='mod(n,2)'",
+       '-vf', 'tinterlace=mode=interleave_top', '-c:v', 'ffv1', j('field_flash.mkv'))
+    code, out = tool('flash_scan.py', j('field_flash.mkv'))
+    record('flash_scan: screens interlaced video field by field', code == 1 and 'field by field' in out,
+           (out.strip().splitlines() or [''])[0][:110])
+
+    # 20. Pairing by index: a revision whose last ten frames changed is caught although its timing also changed.
+    ff('-f', 'lavfi', '-i', 'color=c=gray:s=320x180:r=30:d=2', '-c:v', 'ffv1', j('flat_lossless.mkv'))
+    ff_timed('-i', j('flat_lossless.mkv'), '-vf', "drawbox=color=red:t=fill:enable='gte(n,50)',"
+             "setpts='if(lt(N,30),N/(30*TB),(1+(N-30)/10)/TB)'", '-fps_mode', 'vfr', '-c:v', 'ffv1',
+             j('tail_changed_retimed.mkv'))
+    code, out = tool('compare_versions.py', j('tail_changed_retimed.mkv'), j('flat_lossless.mkv'))
+    record('compare_versions: pairs frames by index and finds a changed, re-timed tail',
+           code == 1 and '3.000-3.900' in out, next((x.strip() for x in out.splitlines() if 'UNEXPECTED' in x), out[-100:]))
+
+    # 21. The film clock: when the picture starts half a second after the sound, times stay on the film's clock.
+    ff_timed('-i', j('blank.mp4'), '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-filter_complex',
+             '[0:v]setpts=PTS+0.5/TB[v]', '-map', '[v]', '-map', '1:a', '-c:v', 'libx264', '-fps_mode', 'passthrough',
+             '-c:a', 'aac', '-t', '3.5', j('late_picture.mp4'))
+    code, out = tool('blank_scan.py', j('late_picture.mp4'), '--ignore', '2.0-2.5')
+    record('blank_scan: times stay on the film clock when the picture starts late',
+           code == 0 and '2.000-  2.500' in out, next((x.strip() for x in out.splitlines() if 'near-empty' in x), ''))
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     print(f'\n{passed}/{len(RESULTS)} checks passed. Files: {work}' if a.keep else

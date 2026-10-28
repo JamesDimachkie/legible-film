@@ -12,12 +12,19 @@ Contents: [1. Declare intent first](#1-declare-intent-first) · [2. The battery]
 ## 1. Declare intent first
 
 Before running detectors, write `qa/declared.md`: every designed cut, freeze, hold, flash, blank breath and
-silence, with its time range and the reason it is there. Pass the ranges as `--ignore` and the silences as silent
-cues. A flag inside a declared range is expected; a flag anywhere else is a candidate to inspect. A declaration is
+silence, with its time range and the reason it is there. Pass designed blanks to `blank_scan.py --ignore`, designed
+holds, freezes and cuts to `motion_scan.py --ignore`, and silences as silent cues. Run `flash_scan.py` over the whole
+file: a designed flash is still held to the hard limit. A flag inside a declared range is expected; a flag anywhere
+else is a candidate to inspect. A declaration is
 only for what was designed: listing an accident as intended turns a defect into a false report. Tune a
 threshold only with representative evidence and a stated reason.
 
 ## 2. The battery
+
+The commands show a 1080p60 MP4 with sound; substitute each rendition's own spec. For a GIF, leave out fast start,
+the YUV pixel format, BT.709 tags and audio; for an alpha version, use the agreed alpha codec and pixel format. Run
+the brand-patch check only where a flat brand patch is defined, and record any check that does not apply, with the
+reason. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2 the check could not run.
 
 | # | Check | Command | Proves | Does not prove |
 |---|---|---|---|---|
@@ -27,21 +34,21 @@ threshold only with representative evidence and a stated reason.
 | 4 | Near-empty frames | `python scripts/blank_scan.py film.mp4 --ignore <designed> --json qa/blank.json` | runs of flat or failed frames outside declared ranges | that a declared breath reads as intended |
 | 5 | Cuts, one-frame intrusions, stutter, holds, loop seam | `python scripts/motion_scan.py film.mp4 [--loop] --ignore <designed> --json qa/motion.json` | where the cuts are, stray single frames, repeated frames inside motion, when motion first starts, long holds, the film's motion-energy profile, seam continuity | whether a move or a hold feels right at speed |
 | 6 | Overview | `python scripts/frame_sheet.py film.mp4 --every 0.5 --out qa/overview.png` | what is on screen every half second | anything between the samples |
-| 7 | Every transition | `python scripts/frame_sheet.py film.mp4 --around <cut times> --span 1.6 --rate 20 --out qa/joins.png` | each join frame by frame | rhythm |
+| 7 | Every transition | `python scripts/frame_sheet.py film.mp4 --around <cut times> --span 1.6 --rate 20 --out qa/joins.png` | sampled states around each join; `--frames A-B` shows every decoded frame of a suspect interval | rhythm |
 | 8 | Viewing size | `python scripts/frame_sheet.py film.mp4 --at <text moments> --width 384 --out qa/phone.png` | what essential text looks like at feed size | that someone can read it in time |
 | 9 | Full-resolution moments | `python scripts/frame_sheet.py film.mp4 --at <changed and busiest moments> --width 1920 --keep-frames qa/frames --out qa/full.png` | margins, overlaps, print over illustration, qualifiers beside numbers, every rendition | motion |
 | 10 | Sounds on cue | `python scripts/cue_onsets.py stems/effects.wav cues.json --json qa/cues.json` (or the delivered file) | each required sound's onset offset, silent cues quiet | that the cue list matches the picture, or that it sounds right |
 | 11 | Delivered audio vs approved mix | `python scripts/sync_check.py film.mp4 audio/master.wav --json qa/sync.json` | transport offset or drift introduced by mux and encode | picture-event sync |
 | 12 | Motion path | `python scripts/onion_frames.py --out qa/onion.png qa/frames/<consecutive frames>` | spacing, overshoot and jumps across a move | a single bad frame inside the stack |
 
-Run 1-9 on every delivered rendition (each aspect ratio, the loop, the alpha version, the GIF); 10-11 when there
-is sound; the change proof in §6 on every revision.
+Run 1-9 on every delivered rendition (each aspect ratio, the loop, the alpha version, the GIF), adapted as above;
+10-11 when there is sound; the change proof in §6 on every revision.
 
 ## 3. Looking at a film you cannot play
 
 - An overview every 0.5 s finds missing assets, wrong scenes and layout drift.
-- Every transition at 20-30 frames a second, from just before to just after the cut, finds blinks, overlaps and
-  jumps at the join.
+- Sample every transition at 20-30 frames a second, from just before to just after the cut, to find blinks,
+  overlaps and jumps at the join; look at a suspect interval frame by frame with `--frames A-B`.
 - Full-resolution frames at every changed moment and at each scene's busiest moment find the defects
   low-resolution sheets hide (a plate 30 px from the edge, a dot on body text, two texts overlapping for three
   frames). Audit every rendition and still at full resolution, not just the master.

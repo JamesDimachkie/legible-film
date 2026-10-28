@@ -82,7 +82,7 @@ are reproduced by `scripts/selftest.py` where noted.
 
 - LinkedIn video ads specs: https://www.linkedin.com/help/lms/answer/a424737
 - Meta ads guide, Instagram Reels video ads: https://www.facebook.com/business/ads-guide/
-- TikTok video ads specifications: https://ads.tiktok.com/help/article/video-ads-specifications
+- TikTok in-feed ads specifications: https://ads.tiktok.com/resources/help/article/tiktok-auction-in-feed-ads
 
 ## Tools
 

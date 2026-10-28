@@ -66,9 +66,10 @@ idea per bar, and every scene then had room to land.
 ## 5. GIFs
 
 GIF stores each frame's display time in hundredths of a second. At 25 fps a frame lasts exactly 4/100 s, and at
-50 fps exactly 2/100 s, so both play at their true speed; 30 fps would need 3.33/100 s and cannot be stored, so it
-plays fast. Export GIFs at 25 or 50 fps from the master, with a palette generated for the clip
-([ffmpeg-cookbook](ffmpeg-cookbook.md#encode)).
+50 fps exactly 2/100 s, so every frame gets the same delay. 30 fps would need 3.33/100 s, so encoders alternate
+3/100 and 4/100 to keep the average, which spaces the frames unevenly. Export GIFs at 25 or 50 fps from the master,
+with a palette generated for the clip ([ffmpeg-cookbook](ffmpeg-cookbook.md#encode)), and check the encoded
+duration.
 
 ## 6. Logo stings, intros and outros
 
@@ -109,7 +110,7 @@ Platforms change limits without notice; re-read the page before relying on a num
 | YouTube | MP4 with the moov atom at the front; H.264 High, progressive, 4:2:0, BT.709 for SDR; AAC-LC 48 kHz; upload at the recorded frame rate; SDR guidance about 8 Mbps for 1080p at 24-30 fps and 12 Mbps at 48-60 fps | [YouTube help](https://support.google.com/youtube/answer/1722171) |
 | LinkedIn (ads) | MP4; 75 KB-500 MB; 3 s-30 min (15-30 s recommended); 16:9, 1:1, 4:5 and 9:16; under 30 fps; H.264 or VP8 with AAC or MPEG-4 audio | [LinkedIn help](https://www.linkedin.com/help/lms/answer/a424737) |
 | Instagram Reels (ads) | 9:16; 1440x2560 recommended; up to 15 min and 4 GB; H.264, square pixels, fixed frame rate, progressive; stereo AAC at 128 kbps or more; the safe zones in §3 | [Meta ads guide](https://www.facebook.com/business/ads-guide/update/video/instagram-reels) |
-| TikTok (ads) | 9:16 recommended at 540x960 or more; up to 10 min and 500 MB; at least 516 kbps | [TikTok ads help](https://ads.tiktok.com/help/article/video-ads-specifications) |
+| TikTok (in-feed ads, non-Spark) | 9:16 recommended at 540x960 or more; up to 10 min and 500 MB; at least 516 kbps | [TikTok ads help](https://ads.tiktok.com/resources/help/article/tiktok-auction-in-feed-ads) |
 | X | the help pages could not be read at check time, and third-party figures conflict | [X help](https://help.x.com) |
 
 Organic (non-ad) limits are not published consistently. Without a current official figure, deliver a conservative

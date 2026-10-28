@@ -1,0 +1,21 @@
+# Sound plan for demo.mp4
+
+The fixed picture is a 20.000-second H.264 video, 1280 × 720 at 30 fps, with no audio stream. The destination, audience, whether it loops, brand sound and available music licences are unspecified. Assume a standalone product demo that must also work muted; preserve the picture and its duration. Sampled frames show an abstract white panel, a blue element, a small white moving element and a green line. Their product meaning is not established, so sound should support visible changes without implying a specific operation or a real product sound.
+
+The intended progression is from a spare opening through a focused interaction to a calm sense of completion. Music supplies continuity; a small, consistent family of rounded, tactile electronic accents gives selected changes definition. Avoid sounding every movement, pronounced risers, literal keyboard noises, or a celebratory sting that invents a result. No voice is planned.
+
+| Approximate time | Picture in sampled stills | Sound job and lead |
+| --- | --- | --- |
+| 0–4 s | Dark opening; white panel appears and holds | Music leads: a soft entry and restrained pulse establish space. One subtle accent may mark the panel's arrival; let the hold breathe. |
+| 4–8 s | Blue element appears; small white element moves toward it | Action leads briefly: a short, rounded accent for the blue element and a light gesture for the moving element, if its actual motion supports it. Music stays understated. |
+| 8–12 s | White element overlaps blue; blue changes shade | One precise, soft contact or selection accent at the meaningful change, then no new effects through the hold. Do not imply a click unless the motion reads as one. |
+| 12–16 s | White element disappears; green line extends | Music and one continuous, restrained texture can follow the line's growth; avoid repeated ticks. A gentle harmonic change gives a sense of progress without claiming success. |
+| 16–20 s | Panel and extended green line hold | Music leads into a modest resolution and smooth tail within the existing duration. No oversized final hit. If a loop is intended, redesign the ending as a seamless join instead of a fade. |
+
+These are approximate one-second-sampled observations, not frame-accurate sync points. Before placing effects, inspect consecutive frames around each change and derive cue times from the decoded picture; if editable source and timing data exist, use those as the shared clock. Place each effect by its measured attack or other relevant internal sync point. Compare each cue in context with and without the effect, especially around the blue element and green line.
+
+For music, audition two picture-matched treatments at similar perceived level: (1) a warm, restrained electronic pulse with soft harmonic motion, recommended; (2) a sparser ambient texture with less rhythmic emphasis. Keep picture and effects fixed for the comparison. If using generated music, request roughly 24 seconds of raw material and shape the 20-second structure in the edit; record the actual source, terms, plan, date and rights. Obtain permission and a spending cap before paid generation, and permission before uploading private or unreleased footage to any hosted service. No asset has been selected or licensed yet.
+
+When production is authorized, assemble and audition individual effects and the complete mix against the fixed picture, with gain ramps and a light safety limiter. Check cue alignment, clicks, clipping, mono compatibility, head and tail, and true peak on both the encoded output and a lossy re-encode; keep the latter below 0 dBTP. Verify the final file still has the full 20 seconds and unchanged picture, and record asset provenance and licences. A named person should watch and listen at normal speed, including on a phone speaker; measurements cannot decide whether the result sounds right. Until then, the result is unwatched and unheard.
+
+No audio has been generated, sourced, or mixed. The one-second contact sheet supports a treatment but cannot establish motion quality or exact event timing. Before production, confirm the intended destination and whether this is a loop, and provide any brand or music rights constraints. Approval and a cap are also needed if paid generation is desired.
