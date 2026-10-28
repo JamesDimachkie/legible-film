@@ -1,0 +1,61 @@
+{
+  "project": "Pocketfern split by item",
+  "policy": "Recheck changeable claims and exact wording before release. User brief is the present source, not independently verified.",
+  "claims": [
+    {
+      "id": "product",
+      "display": "Pocketfern",
+      "source": "User brief in this session",
+      "read_on": "2026-10-28",
+      "conditions": "Shared-budget app",
+      "label_beside_value": null,
+      "status": "current",
+      "can_change_before_release": true,
+      "approved_by": "User supplied; final wording and release approval pending"
+    },
+    {
+      "id": "feature",
+      "display": "Split by item",
+      "source": "User brief in this session",
+      "read_on": "2026-10-28",
+      "conditions": "Feature name",
+      "label_beside_value": null,
+      "status": "current",
+      "can_change_before_release": true,
+      "approved_by": "User supplied; final wording and release approval pending"
+    },
+    {
+      "id": "launch",
+      "display": "Available now on iOS and Android",
+      "source": "User brief in this session",
+      "read_on": "2026-10-28",
+      "conditions": "Launched today, per user; reconfirm at release",
+      "label_beside_value": null,
+      "status": "current",
+      "can_change_before_release": true,
+      "approved_by": "User supplied; final wording and release approval pending"
+    },
+    {
+      "id": "capacity",
+      "display": "Receipts with up to 50 items",
+      "source": "User brief in this session",
+      "read_on": "2026-10-28",
+      "conditions": "Maximum receipt size, per user",
+      "label_beside_value": "per receipt",
+      "status": "current",
+      "can_change_before_release": true,
+      "approved_by": "User supplied; final wording and release approval pending"
+    },
+    {
+      "id": "price",
+      "display": "Free for all users",
+      "source": "User brief in this session",
+      "read_on": "2026-10-28",
+      "conditions": "Feature free for all users, per user",
+      "label_beside_value": null,
+      "status": "current",
+      "can_change_before_release": true,
+      "approved_by": "User supplied; final wording and release approval pending"
+    }
+  ]
+}

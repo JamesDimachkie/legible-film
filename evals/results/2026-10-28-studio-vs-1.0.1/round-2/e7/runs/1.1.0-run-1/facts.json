@@ -1,0 +1,11 @@
+{
+  "project": "Atlasfold 1.0 launch film",
+  "policy": "Brief-supplied claims are provisional; independently verify before release. No unsupported behavior in words or pictures.",
+  "claims": [
+    {"id":"F1","display":"Atlasfold builds a searchable map from a folder of photos","source":"User brief in this session","read_on":"2026-10-28","conditions":"Actual commands, map and search behavior unverified","status":"user supplied; verification pending"},
+    {"id":"F2","display":"Runs offline","source":"User brief in this session","read_on":"2026-10-28","conditions":"Scope and setup conditions unverified","status":"user supplied; verification pending"},
+    {"id":"F3","display":"macOS · Windows · Linux","source":"User brief in this session","read_on":"2026-10-28","conditions":"Version 1.0 platform support unverified","status":"user supplied; verification pending"},
+    {"id":"F4","display":"Atlasfold 1.0 is out","source":"User brief in this session","read_on":"2026-10-28","conditions":"User says released today; recheck release before publication","status":"user supplied; time-sensitive; verification pending"},
+    {"id":"F5","display":"Open source · MIT licensed","source":"User brief in this session","read_on":"2026-10-28","conditions":"Check repository and licence for version 1.0","status":"user supplied; verification pending"}
+  ]
+}

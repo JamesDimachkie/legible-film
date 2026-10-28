@@ -1,0 +1,30 @@
+{
+ "e6": {
+  "pair1": {
+   "creative": "1.0.1-run-1",
+   "newcomer": "no clear difference",
+   "money_rights": "1.1.0-draft-run-1",
+   "craft": "1.0.1-run-1",
+   "honesty": "1.1.0-draft-run-1",
+   "overall": "1.0.1-run-1",
+   "confidence": "low",
+   "blind_labels": {
+    "P": "1.0.1-run-1",
+    "Q": "1.1.0-draft-run-1"
+   }
+  },
+  "pair2": {
+   "creative": "1.0.1-run-2",
+   "newcomer": "1.1.0-draft-run-2",
+   "money_rights": "1.1.0-draft-run-2",
+   "craft": "1.0.1-run-2",
+   "honesty": "1.1.0-draft-run-2",
+   "overall": "1.1.0-draft-run-2",
+   "confidence": "medium",
+   "blind_labels": {
+    "P": "1.1.0-draft-run-2",
+    "Q": "1.0.1-run-2"
+   }
+  }
+ }
+}

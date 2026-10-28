@@ -1,0 +1,13 @@
+# Atlasfold launch film — brief
+
+Deliverable: one 45-second 16:9 film, 1920 × 1080, 30 fps, H.264/yuv420p, BT.709, stereo AAC 48 kHz; a cover still, lightweight review copy and captions if speech is used. Proposed music and restrained effects; no narration in the first treatment. The film must work muted. This is a plan, not an approved brief or rendered film.
+
+Audience: developers and technically curious people encountering Atlasfold in a GitHub README or LinkedIn feed. Assume they know what a folder of photos is, but not what a searchable map means here. The intended change: understand that Atlasfold turns a photo folder into a searchable map, and want to inspect the repository. The film does not establish search methods, map type, speed, installation steps, supported photo formats, location handling, or that every photo is mapped.
+
+Destination: LinkedIn feed and GitHub README, with essential copy and the result legible at approximately 384 px wide; no loop required. Verify current destination constraints and README embedding method before delivery. A linked video or hosted player may be needed for the README; do not assume an MP4 embeds directly. 30 fps is a conservative working choice, subject to current platform verification and motion tests.
+
+Fixed facts are recorded in facts.json, sourced to the user's brief on 2026-10-28. Brand assets, actual repository, command syntax, sample data, output and a public URL were not supplied. Do not fabricate them. Use synthetic photos and filenames with appropriate rights, and capture the actual product once available. Label any conceptual visualization or reconstruction. The owner approves creative and claims; publication and any spending require separate explicit approval. Budget ceiling is $400; current authorized spend is $0. No private or unreleased material goes to a hosted service without permission.
+
+QC plan: verify full decode, 45 seconds, dimensions, frame rate, colour tags, audio and true peak including a lossy re-encode; scan flashes, blanks and motion; inspect full-size and 384 px sheets at every transition and text boundary; check every claim and asset licence; compare cue onsets and mix sync. A named person should watch the final file at normal speed, first muted at feed size and then with sound. Until that happens it is unwatched and unheard. Confirm release-day facts and destination specs before publishing.
+
+Assumptions: developer-oriented audience; one shared 16:9 master; no voice unless testing shows it helps. The actual interaction determines demo timing and may change the visual design. No brief or story approval has yet been given.

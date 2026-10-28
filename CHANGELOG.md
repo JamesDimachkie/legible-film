@@ -5,17 +5,20 @@
 Studio grade: an opt-in path to the best film the budget allows, on top of the unchanged method.
 
 - `references/studio.md`:
+  - a first reply that leads with two or three directions the person can picture, then the route in plain words;
   - opening questions in plain words about the use, the material, the cap, references, who judges and what is owed,
     with a running total against the cap before every approval;
-  - a study of comparable work before design, which also supplies references when the person has none;
-  - leading someone new to video by showing choices instead of asking: one script for presenting every gate, and a
-    table that turns common feedback ("make it more premium", "it feels rushed") into something to show;
+  - a bounded study of comparable work before design, from which the directions come, which also supplies
+    references when the person has none;
+  - leading someone new to video by showing choices instead of asking: scripts for presenting development and final
+    gates, and a table that turns common feedback ("make it more premium", "it feels rushed") into something to show;
   - gates the person can watch: concept sketches, styleframes of the hardest frames, an animatic and sound direction,
     with a branch for silent films;
   - spending on the film's actual bottleneck, with product truth never the place to save;
   - specialist craft passes for story, picture, type, editing, sound design, music, voice, mix, finishing and
-    product demonstrations, each judgement that needs eyes or ears assigned to a named person;
-  - a loop that keeps raising the weakest moment until six bar questions are answered "yes" with a named viewer's
+    product demonstrations, offered as options while the design can still change, with each judgement that needs
+    eyes or ears assigned to a named person;
+  - a loop that keeps raising the weakest moment until each of six bar questions is met with a named viewer's
     evidence, or the person decides to stop;
   - studio deliverables agreed at the brief, each with its own check: master, stems that reconstruct the mix,
     localisation material, captions, and an archive split into what the maker keeps and what the client may receive.
@@ -34,8 +37,16 @@ Studio grade: an opt-in path to the best film the budget allows, on top of the u
 - `references/claims-and-rights.md`: font files go to a client only where the licence allows it; otherwise the
   handover lists each font and how to licence it.
 - README: what studio grade asks of the person, and a plain-language way to check the installation.
-- Evaluations: eval 6, a studio-grade plan for someone new to video, run once per arm on 1.1.0 and graded blind: 9/9
-  with the skill, 2/9 without. The prompts, outputs and grades are in `evals/results/2026-10-27-studio-grade/`.
+- Evaluations:
+  - Two studio-grade requests: eval 6 (a consumer app) and eval 7 (an open-source command-line tool).
+  - Both were compared blind with 1.0.1, two runs per version, on the same runner. The checklist gave 1.1.0 7-9/9 and
+    1.0.1 2-4/9. A judge who never saw the expectations preferred the 1.1.0 plan in all four pairs, at medium
+    confidence, but found the 1.0.1 plans more concrete about what appears on screen. The record is in
+    `evals/results/2026-10-28-studio-vs-1.0.1/`.
+  - An earlier run of eval 6 on a draft, with the skill against no skill, is in
+    `evals/results/2026-10-27-studio-grade/`.
+  - The eval records now state that one MCP server tried to start in every session and failed, so no MCP tool was
+    available.
 
 ## 1.0.1 (2026-10-27)
 

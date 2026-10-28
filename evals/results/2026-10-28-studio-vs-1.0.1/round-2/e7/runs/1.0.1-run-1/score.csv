@@ -1,0 +1,7 @@
+start_s,end_s,story_beat,picture,exact_text_draft,sound,facts_ids,boundary
+0,5,Hook,Atlasfold title; illustrative photos resolve toward an abstract field,Atlasfold / A searchable map from a folder of photos,Quiet opening; music begins,product;purpose,Illustration only; no invented map
+5,11,Input,"Real sample photo folder, framed close",A folder of photos,Music builds gently,purpose,Synthetic or licensed inputs
+11,19,Action,"Real terminal invocation, then real response",Atlasfold / Command-line tool,Soft action accent,product;cli,Actual command and timing await verification
+19,27,Turn,Real output appears; label any compressed wait,A searchable map,Music opens,purpose,No simulated processing speed
+27,36,Payoff,"Real query and resulting view, crop to action and result",Search the map,Music peaks subtly,purpose,Query and result must match verified behavior
+36,45,End,Clear end card and repository destination when supplied,"Atlasfold 1.0 / Offline on macOS, Windows and Linux / MIT licensed",Music resolves; tail ends cleanly,product;release;offline;license,Verify release and license before publishing

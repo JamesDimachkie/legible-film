@@ -1,0 +1,6 @@
+line,gate,viewer_benefit,item_or_route,max_cost_usd,commitment,licence_requirement,fallback,status
+cap,all,User-set maximum,total,400,cap including tax and full term,as appropriate,,not authorization to spend
+1,sound direction,Music supports story,One cleared music licence,150,one-off maximum including tax,README and LinkedIn organic use plus any confirmed paid territories and term,cleared free or original track,estimate only
+2,sound direction,Optional intelligible voice,Voice performer or licensed voice,100,one-off maximum including tax,confirmed channels territories term and editing rights,no voice,estimate only
+3,styleframes,Optional supplemental imagery,Stock or bounded generation,75,one-off or single batch maximum including tax,confirmed commercial uses and applicable releases,real capture and procedural graphics,estimate only
+4,clearance,Replacement if rights or fit fail,Reserve,75,no commitment,as appropriate,use approved no-cost alternative,estimate only

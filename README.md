@@ -137,8 +137,10 @@ More are in [examples/prompts.md](examples/prompts.md).
 For the best film the budget allows, ask for it by name: "Use Legible Film at studio grade for our launch film.
 Budget up to $800 for music, voice and stock." The agent then works the way a small studio would:
 
-- **It studies first.** It finds comparable pieces whose makers explained their decisions, annotates what to borrow
-  from each and what must not transfer, and mines your product's own material for the idea.
+- **It leads with the film.** Its first reply describes two or three directions you can picture, then what you will
+  see and decide at each step, in plain words.
+- **It studies before it designs.** It finds comparable pieces whose makers explained their decisions, annotates what
+  to borrow from each and what must not transfer, and mines your product's own material for the idea.
 - **It shows instead of asking.** You choose between things you can watch and hear: three short, rough idea videos
   with temporary sound, sample stills of the look made from the hardest frames in every shape you will post, and a
   rough timed version of the whole film before anything is polished. Everything temporary is labelled.
@@ -146,16 +148,21 @@ Budget up to $800 for music, voice and stock." The agent then works the way a sm
   what is payable now, what is already committed and what remains under your cap, with each licence checked for the
   real use ([finding assets](skills/legible-film/references/assets.md),
   [making them](skills/legible-film/references/generation.md)).
-- **It runs specialist passes** on story, picture, type, editing, sound design, music, voice, mix and finishing.
+- **It brings specialist craft** to story, picture, type, editing, sound design, music, voice, mix and finishing,
+  while the design can still change.
 - **It leaves the watching and listening to people.** It prepares and measures; you, or viewers you name, judge how
   the film moves and sounds, and nothing is reported as watched or heard until someone has.
 - **It keeps raising the weakest moment** until viewers can answer six questions with evidence (understanding,
   specificity, experience, earned payoff, truth and afterimage) or you decide to stop.
 
 Every gate still applies: nothing is bought, uploaded or published without you. The full method is in
-[studio](skills/legible-film/references/studio.md). In one blind-graded test of a studio-grade request, run once per
-arm on one model, the plan made with the skill met 9 of 9 expectations and the plan made without it met 2 of 9
-([evidence](evals/results/2026-10-27-studio-grade/README.md)). That measures the plan, not a finished film.
+[studio](skills/legible-film/references/studio.md).
+
+In a blind comparison with 1.0.1, which has the method but not studio grade, the plans 1.1.0 made won all four
+pairs: two studio-grade requests, two runs each, one model. The judge, a different model family, rated each
+preference medium confidence. It preferred 1.1.0 for leading a newcomer and for money and rights, and found the
+1.0.1 plans more concrete about what appears on screen
+([evidence](evals/results/2026-10-28-studio-vs-1.0.1/README.md)). That measures plans, not finished films.
 
 ## What is inside
 
@@ -189,12 +196,15 @@ evals/                behaviour and trigger evaluations for the skill itself
 - The scripts measure; they do not watch or listen. Rhythm, feel, comprehension and how the sound sounds are decided
   by people, and the skill says so in every report.
 - `flash_scan.py` screens for WCAG 2.3.1 flashing. It is not a Harding, IRIS or broadcast PSE certification.
-- Tool versions, platform specs and provider terms in the references were checked on 2026-10-27 and change often;
-  each is dated, and linked to its source wherever a stable page exists, so it can be re-checked.
-- Evaluations are small: six requests (five on 1.0.0, the studio-grade one on 1.1.0), one run each with and without
-  the skill on one model, graded blind by another model family against expectations written by the skill's author. They measure whether an agent follows
-  the method, not how good its film is, and whether agents load the skill unprompted has not been tested. Details
-  are in [evals/README.md](evals/README.md).
+- Tool versions, platform specs and provider terms in the references were checked on 2026-10-27 and 2026-10-28 and
+  change often; each is dated, and linked to its source wherever a stable page exists, so it can be re-checked.
+- Evaluations are small:
+  - seven requests: five on 1.0.0, with and without the skill, and two studio-grade ones comparing 1.1.0 with 1.0.1;
+  - one or two runs per arm, on one model;
+  - graded blind by another model family, against expectations written by the skill's author.
+
+  They measure plans and behaviour, not how good a finished film is. Whether agents load the skill unprompted has not
+  been tested. Details are in [evals/README.md](evals/README.md).
 
 ## Contributing
 

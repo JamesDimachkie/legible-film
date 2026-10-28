@@ -1,0 +1,86 @@
+{
+ "e6": {
+  "1.1.0-run-1": [
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true
+  ],
+  "1.1.0-run-2": [
+   false,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   false,
+   true
+  ],
+  "1.0.1-run-1": [
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   true,
+   true
+  ],
+  "1.0.1-run-2": [
+   false,
+   false,
+   false,
+   false,
+   false,
+   true,
+   false,
+   true,
+   true
+  ],
+  "borderline": [
+   {
+    "run": "1.1.0-run-2",
+    "item": 1,
+    "why": "A fallback is named, but only as one generic sentence covering all lines rather than one per line, so I scored it FAIL."
+   },
+   {
+    "run": "1.1.0-run-2",
+    "item": 2,
+    "why": "References are named with a one-phrase gloss and 'study references' is route step one, but the source is the skill's case library with no links and the properties to borrow are still unrecorded, so I scored it PASS."
+   },
+   {
+    "run": "1.1.0-run-2",
+    "item": 8,
+    "why": "The three facts are recorded with source and date inside plan.md, but there is no facts file, so I scored it FAIL."
+   },
+   {
+    "run": "1.0.1-run-1",
+    "item": 6,
+    "why": "'check social commercial rights' names a right type but says nothing on paid use, territory or term, so I scored it FAIL as too generic."
+   },
+   {
+    "run": "1.0.1-run-2",
+    "item": 5,
+    "why": "Paid promotion is flagged only as a conditional check under an organic assumption, with no question to the user and nothing on countries or term, so I scored it FAIL."
+   },
+   {
+    "run": "1.0.1-run-2",
+    "item": 6,
+    "why": "It names paid promotion and commercial use on X as required licence coverage, but nothing on territory or term, so I scored it PASS."
+   }
+  ],
+  "blind_labels": {
+   "A": "1.1.0-run-1",
+   "B": "1.1.0-run-2",
+   "C": "1.0.1-run-1",
+   "D": "1.0.1-run-2"
+  }
+ }
+}

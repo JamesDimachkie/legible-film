@@ -4,10 +4,10 @@ Two kinds of evaluation for the skill itself.
 
 ## Behaviour (`evals.json`)
 
-Six realistic requests, each paired with expectations describing what the skill should change in an agent's
+Seven realistic requests, each paired with expectations describing what the skill should change in an agent's
 behaviour: honest status (unwatched, unheard), the approval gates, a facts file, QC on the delivered file, baselines
-for revisions, treatments chosen by listening, and (eval 6, added in 1.1.0) a studio-grade plan for someone new to
-video.
+for revisions, treatments chosen by listening, and (evals 6 and 7, added in 1.1.0) studio-grade plans for someone new
+to video, for a consumer app and for an open-source command-line tool.
 
 To run one:
 
@@ -27,10 +27,27 @@ not.
 
 Each round is recorded with its date, models and skill version. An evaluation without a row here has not been run.
 
-### 2026-10-27: behaviour eval 6 (studio grade) on Legible Film 1.1.0
+### 2026-10-28: studio grade against 1.0.1, evals 6 and 7
 
-Same runner, grader and protocol as the round below, on the skill at commit `fe30898`. With the skill 9/9, without
-2/9, from one run per arm. The full record is in
+This round compares versions, not skill against no skill: two runs per eval with 1.1.0 and two with 1.0.1, which has
+the method but not studio grade, on the same runner. A checklist grader and a judge who never saw the expectations
+both worked blind to the version. The full record is in
+[results/2026-10-28-studio-vs-1.0.1](results/2026-10-28-studio-vs-1.0.1/README.md).
+
+| Eval | Checklist, 1.1.0 | Checklist, 1.0.1 | Pairs the judge gave to 1.1.0 |
+|---|---|---|---|
+| 6 Studio-grade plan, consumer app | 9/9, 7/9 | 2/9, 3/9 | 2 of 2 |
+| 7 Studio-grade plan, command-line tool | 9/9, 8/9 | 3/9, 4/9 | 2 of 2 |
+
+The judge preferred 1.1.0 for leading a newcomer and for money and rights. It found the 1.0.1 plans more concrete
+about what appears on screen.
+
+An earlier draft of 1.1.0 split the judge's pairs one each. The changes that followed are described in the record.
+
+### 2026-10-27: behaviour eval 6 (studio grade) on a 1.1.0 draft
+
+Same runner, grader and protocol as the round below, on the skill at commit `fe30898`, before the changes above.
+With the skill 9/9, without 2/9, from one run per arm. The full record is in
 [results/2026-10-27-studio-grade](results/2026-10-27-studio-grade/README.md).
 
 ### 2026-10-27: behaviour evals 1-5 on Legible Film 1.0.0

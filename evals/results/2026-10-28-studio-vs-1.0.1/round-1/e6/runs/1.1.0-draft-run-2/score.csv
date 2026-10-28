@@ -1,0 +1,7 @@
+beat_id,start_s,end_s,story_beat,picture,exact_text,facts_ids,viewer_understanding,why_viewer_stays,sound_lead,status
+01,0,3,Hook,Receipt and feature title,Split by item,launch,Notice the feature,Follow the receipt to its result,Music; interaction accents provisional,draft
+02,3,8,Set up,Real receipt in verified product context,One receipt. Individual items.,launch,Recognise the input,Follow the receipt to its result,Music; interaction accents provisional,draft
+03,8,17,Demonstrate,Real captured or verified reconstructed interaction; hold readable result,Split by item,launch,Understand action and result,Follow the receipt to its result,Music; interaction accents provisional,draft
+04,17,22,Capacity,Hold the product result with a clear qualifier,Receipts with up to 50 items,limit,Understand the limit,Follow the receipt to its result,Music; interaction accents provisional,draft
+05,22,27,Availability,Simple product and brand end card,Free for all users · iOS + Android,price;platforms,Know who can use it,Follow the receipt to its result,Music; interaction accents provisional,draft
+06,27,30,Close,Hold Pocketfern and feature name,Pocketfern · Split by item,launch,Remember the product,Follow the receipt to its result,Music; interaction accents provisional,draft

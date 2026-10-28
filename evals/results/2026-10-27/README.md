@@ -20,7 +20,9 @@ installed and one without. A grader from another model family scored both blind 
   - GPT-6.1 Terra at low reasoning effort, through the Codex CLI (`codex exec`), one fresh session per eval and arm.
   - Each session ran in its own folder holding only the eval's input file and, for the skill arm, the skill at
     `.agents/skills/legible-film/`.
-  - Sessions ran in full access, without user configuration, MCP servers or plugins (`--ignore-user-config`).
+  - Sessions ran in full access, without user configuration or plugins (`--ignore-user-config`). One MCP server from
+    the machine's configuration tried to start in every session and failed for want of authorisation, so no MCP tool
+    was available.
   - The exact text each session received is in [prompts.md](prompts.md). The skill arm was told to read and follow
     SKILL.md; the other was told to use no installed skills.
 - **Grader:** Claude Sonnet 5.5, a different model family from the runners.

@@ -1,0 +1,51 @@
+{
+  "project": "Pocketfern",
+  "policy": "User-supplied claims; reverify before release. No inferred product behavior.",
+  "claims": [
+    {
+      "id": "feature",
+      "display": "Split by item",
+      "source": "User brief; 2026-10-28",
+      "read_on": "2026-10-28",
+      "conditions": "Feature launched today on iOS and Android",
+      "status": "user supplied; verification pending",
+      "can_change_before_release": true
+    },
+    {
+      "id": "limit",
+      "display": "Up to 50 items per receipt",
+      "source": "User brief; 2026-10-28",
+      "read_on": "2026-10-28",
+      "conditions": "Maximum per receipt; do not imply unlimited",
+      "status": "user supplied; verification pending",
+      "can_change_before_release": true
+    },
+    {
+      "id": "price",
+      "display": "Free for all users",
+      "source": "User brief; 2026-10-28",
+      "read_on": "2026-10-28",
+      "conditions": "Feature is free for all users",
+      "status": "user supplied; verification pending",
+      "can_change_before_release": true
+    },
+    {
+      "id": "availability",
+      "display": "Available on iOS and Android",
+      "source": "User brief; 2026-10-28",
+      "read_on": "2026-10-28",
+      "conditions": "Launched on both platforms today",
+      "status": "user supplied; verification pending",
+      "can_change_before_release": true
+    },
+    {
+      "id": "launch",
+      "display": "New today",
+      "source": "User brief; 2026-10-28",
+      "read_on": "2026-10-28",
+      "conditions": "Only valid on launch day; recheck before release",
+      "status": "user supplied; verification pending",
+      "can_change_before_release": true
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+# Pocketfern — launch film brief (proposed; approval pending)
+
+Deliverable: 30 seconds, 1920 × 1080, 16:9, 60 fps; H.264 MP4, yuv420p, BT.709, AAC 48 kHz; music and restrained effects, no voice proposed; finished cover still and lighter review copy. No captions needed without speech; essential copy is on screen. Confirm current X upload requirements before export.
+
+Audience: people who share expenses, including newcomers seeing a muted phone feed. They may assume a receipt can only be divided as a single total. They should understand that Pocketfern now offers split by item because they see individual items associated with people. The film does not establish the precise interface, scanning, payment, automatic calculations, tax handling, speed, or any workflow not verified in the product.
+
+Destination: X, organic launch; must work muted at roughly 384 px feed width. No seamless loop required. First frame also works as a cover. User supplied claims and $600 ceiling; no spending is authorized yet. The user approves the brief, story, spending and publication. No private or unreleased material goes to a hosted service without permission. No external publishing or sending without explicit approval.
+
+Brand, real interface, workflow, approved logo and product recording are not supplied. Use synthetic examples only. Proposed product illustration must be labelled and checked against real behavior before production; prefer a real recording with synthetic data. Assumptions: audience is a general consumer audience; no voice is needed; a direct product action is the strongest story. These are proposals, not approved decisions.
+
+Delivery QC: check full decode, duration, frame rate, dimensions, codec, color conversion and tags; inspect every string against facts.json, contrast at actual backgrounds, first frame and 384 px sheets; scan for flashes, blanks and motion defects; check cue timing, loudness and true peak including lossy re-encode and audio sync. A named person must watch the delivered file at normal speed muted and listen to it with sound. Until then report unwatched and unheard. Reconfirm launch, platform, limits, price and asset licences at release. No film has been rendered or reviewed.

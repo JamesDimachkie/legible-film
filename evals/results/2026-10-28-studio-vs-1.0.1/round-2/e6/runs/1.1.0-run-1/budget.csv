@@ -1,0 +1,5 @@
+line,gate,purpose,max_cost_usd_including_tax,commitment,rights_required,fallback,status
+Music,sound direction,Licensed track for story structure,200,one-off allowance; vendor and exact price TBD,"organic and any paid X use, territories and term TBD",cleared free track or original local sound,unapproved
+Voice,sound direction,Optional performance if it improves comprehension,150,one-off allowance; route TBD,"commercial use and intended media, territories and term TBD",no voice; readable text,unapproved
+Stock or generation,styleframes,Optional atmosphere only,100,bounded one-off allowance; route TBD,"commercial use and intended media, territories and term TBD",locally made graphics,unapproved
+Reserve,clearance,Replacement or tax uncertainty,150,unallocated,same intended use,reduce scope,unapproved

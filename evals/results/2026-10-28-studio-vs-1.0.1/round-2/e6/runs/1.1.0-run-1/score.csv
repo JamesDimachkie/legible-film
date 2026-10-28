@@ -1,0 +1,6 @@
+beat,start_s,end_s,purpose,picture,motion,on_screen,sound,truth_boundary,facts_id
+01,0,4,Hook,Receipt and title,Slow reveal,One receipt. / Split by item.,Quiet pulse,No claim about workflow,feature
+02,4,12,Action,Actual app capture; show real item-level interaction,Stable hold on evidence,Split by item,Rhythm enters,Exact interaction to be verified,feature
+03,12,19,Result,"Actual app result, held legibly",Follow the selected item,Up to 50 items per receipt,Music opens,Limit is per receipt; outcome depends on capture,limit
+04,19,25,Availability,Product view with concise type,Gentle transition,Free for all users,Music settles,No unsupported pricing qualifiers,price
+05,25,30,Close,Pocketfern end card,Hold,Available on iOS and Android,Resolve and tail,Recheck availability and launch date,availability

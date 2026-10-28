@@ -104,6 +104,24 @@
         "Keeps the three supplied facts as the only claims, recorded in a facts file",
         "Does not claim to have watched or heard anything"
       ]
+    },
+    {
+      "id": 7,
+      "name": "studio-grade-developer-tool",
+      "prompt": "Use Legible Film at studio grade for a 45-second launch film for Atlasfold, an open-source command-line tool that builds a searchable map from a folder of photos. It goes in the GitHub README and on LinkedIn (16:9). I've never made a video. Budget up to $400 for music, voice and stock or generation. Facts: version 1.0 is out today; it runs offline on macOS, Windows and Linux; it is MIT-licensed. Start with the plan and spend nothing yet.",
+      "expected_output": "A studio plan for a newcomer and a product with no physical form: directions drawn from the tool's own commands and output, spending as line items within the cap awaiting approval, a study of comparable work, watchable choices at each gate, terminal and interface text tested early at viewing size, licence checks for the planned uses, a quality bar beyond the absence of defects, and the core's facts and honesty rules kept.",
+      "files": [],
+      "expectations": [
+        "Proposes spending as line items within the $400 cap, each with what it buys and a fallback, and asks for approval before any purchase or paid generation",
+        "Plans a study of comparable pieces with sources, or annotated references saying what to borrow, before designing picture or sound",
+        "Draws at least one direction from the tool's own material (its real commands, output or interface), not from a generic metaphor alone",
+        "Plans to show the person watchable choices (concept sketches, styleframes or an animatic) rather than asking them to choose from written descriptions alone",
+        "Plans styleframes or early tests of the hardest frames (terminal or interface text at viewing size, every aspect ratio), not only a hero frame",
+        "Asks how the film will be used (for example paid promotion, platforms, countries, how long) before pricing any licence, or marks those uses as unresolved",
+        "Sets a quality bar beyond the absence of defects and a loop that improves the weakest moment",
+        "Keeps the three supplied facts as the only claims, recorded in a facts file",
+        "Does not claim to have watched or heard anything"
+      ]
     }
   ]
 }

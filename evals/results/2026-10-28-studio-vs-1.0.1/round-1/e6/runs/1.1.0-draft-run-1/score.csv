@@ -1,0 +1,6 @@
+beat_id,start_s,end_s,story_beat,picture,exact_text,lead_and_sound,facts_ids,boundary_and_status
+1,0,4,Introduce the feature,Receipt and product name; design provisional,"Meet split by item",music enters gently,launch,Illustration unless captured; no automatic scanning implied
+2,4,11,Show the input,Real sanitized receipt screen and the user action,"One receipt. Item by item.",music with restrained action cue,launch,Actual workflow must be verified
+3,11,19,Show the result,Verified item allocations and resulting split held legibly,"Split by item",music rises toward proof,launch,Result must match real product; do not invent controls
+4,19,25,Give the limits and price,Stable product view with simple typography,"Receipts up to 50 items. Free for all users.",music settles,"limit; price",Claims from user brief; recheck
+5,25,30,Close,Brand and availability end card,"Pocketfern. Available on iOS and Android.",music resolves,"platforms",Brand assets and claim verification pending

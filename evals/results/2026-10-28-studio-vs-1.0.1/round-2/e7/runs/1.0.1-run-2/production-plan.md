@@ -1,0 +1,10 @@
+# Production plan and budget
+
+1. Obtain the public repository or local product source, release link, brand assets and an approved synthetic photo set. Inspect and run the actual tool locally; record a clean demonstration and verify every command and result. Resolve whether the map is geographic or another kind before designing the result. Confirm the README playback approach and current platform specifications.
+2. Produce two or three stills at full size and at 384 px, then a short motion test around the input-to-result turn. Build a 45-second silent rough cut on one shared timeline; review it at feed size before adding sound. Preserve real operation timing or label compression.
+3. With the picture fixed, audition appropriately licensed music and restrained effects. No paid asset or generation is authorized yet. Check rights for LinkedIn, GitHub and any future intended distribution, including commercial and perpetual use where needed. Record source, licence, cost, hash and approval in an asset register. No external uploads of private material without approval.
+4. Master and export the film and cover, create captions if speech is added, then run the checks in brief.md on the delivered file. A named person watches muted and listens to the final export; resolve findings and verify release-day facts. Publishing is a separate approval.
+
+Budget envelope, not purchase commitments: music up to $150; effects up to $50; voice up to $150 only if needed; stock or generation up to $50. Total ceiling $400, with unused allocations available for other categories only after specific approval. Actual spend $0. No provider, prices or licence have been selected or verified. The proposed no-voice, product-led approach may need no stock or generation; a free licensed track is also possible after rights review. Choose assets and request approval for exact costs before any purchase.
+
+Approval points: brief and treatment before production; specific asset and exact cost before spending; final cut and explicit authorization before posting or otherwise publishing. No film has been produced, watched or heard.

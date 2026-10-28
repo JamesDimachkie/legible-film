@@ -1,0 +1,8 @@
+line,gate,what_it_buys_for_the_viewer,item_or_route,max_cost,commitment,currency,licence_must_cover,fallback,status,paid_to_date,still_owed
+cap,,User-set ceiling,,400,,USD,,,,0,0
+1,sound direction,Music matched to edit,Track and vendor to be selected,120,One-off maximum including tax,USD,README and LinkedIn plus confirmed territory term and promotion,Original or suitably licensed free music,placeholder not approved,0,0
+2,sound direction,Clear voice if useful,Performer or route to be selected,100,One-off maximum including tax,USD,Same uses and term with no unauthorized cloning,Text-led film without voice,placeholder not approved,0,0
+3,styleframes,Optional atmosphere or stock,Route to be selected,80,One-off or bounded batch including tax,USD,Same uses and term plus releases where applicable,Original graphics or capture,placeholder not approved,0,0
+4,clearance,Replace an unsuitable asset,Reserve,100,Only after separate approval,USD,Same uses and term,Use approved alternatives,placeholder not approved,0,0
+committed,,Paid plus owed,,0,,USD,,,,0,0
+remaining,,Cap less committed,,400,,USD,,,,,

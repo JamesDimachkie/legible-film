@@ -1,0 +1,11 @@
+{
+  "project": "Atlasfold launch film",
+  "policy": "All factual text and images must be supported here; verify changeable facts at release.",
+  "claims": [
+    {"id":"product", "display":"Atlasfold builds a searchable map from a folder of photos.", "source":"User brief in this session", "read_on":"2026-10-28", "conditions":"Map type and search behavior unspecified", "label_beside_value":"", "status":"current", "can_change_before_release":true, "approved_by":"User supplied; not independently verified"},
+    {"id":"release", "display":"Atlasfold 1.0", "source":"User brief in this session", "read_on":"2026-10-28", "conditions":"User says version 1.0 is out today; verify release before publication", "label_beside_value":"", "status":"dated", "can_change_before_release":true, "approved_by":"User supplied; not independently verified"},
+    {"id":"offline", "display":"Runs offline", "source":"User brief in this session", "read_on":"2026-10-28", "conditions":"Do not imply installation or every dependency is offline without verification", "label_beside_value":"", "status":"current", "can_change_before_release":true, "approved_by":"User supplied; not independently verified"},
+    {"id":"platforms", "display":"macOS · Windows · Linux", "source":"User brief in this session", "read_on":"2026-10-28", "conditions":"Atlasfold runs offline on these platforms", "label_beside_value":"", "status":"current", "can_change_before_release":true, "approved_by":"User supplied; not independently verified"},
+    {"id":"license", "display":"Open source · MIT licensed", "source":"User brief in this session", "read_on":"2026-10-28", "conditions":"Verify repository license at release", "label_beside_value":"", "status":"current", "can_change_before_release":true, "approved_by":"User supplied; not independently verified"}
+  ]
+}

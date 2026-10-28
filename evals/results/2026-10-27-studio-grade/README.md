@@ -13,10 +13,14 @@ extra entry. In the other run, the licence statement covers only an assumed orga
 
 ## How it ran
 
-- **What was tested:** the `skills/legible-film/` folder at commit `fe30898`, unchanged in the 1.1.0 release.
+- **What was tested:** the `skills/legible-film/` folder at commit `fe30898`. The released 1.1.0 changed studio grade
+  after this run; the released version was tested against 1.0.1 in
+  [2026-10-28-studio-vs-1.0.1](../2026-10-28-studio-vs-1.0.1/README.md).
 - **Runners:**
   - GPT-6.1 Terra at low reasoning effort, through the Codex CLI (`codex exec`), one fresh session per arm.
-  - Sessions ran in full access, without user configuration, MCP servers or plugins (`--ignore-user-config`).
+  - Sessions ran in full access, without user configuration or plugins (`--ignore-user-config`). One MCP server from
+    the machine's configuration tried to start in every session and failed for want of authorisation, so no MCP tool
+    was available.
   - The skill arm had the skill at `.agents/skills/legible-film/` and was told to read and follow SKILL.md; the other
     was told to use no installed skills. The exact texts are in [prompts.md](prompts.md).
   - The sessions took 60 s (with the skill) and 30 s (without).

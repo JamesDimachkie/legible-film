@@ -1,0 +1,7 @@
+beat_id,start_s,end_s,story_beat,picture,motion,exact_text,sound,truth_and_boundary,viewer_understanding,why_next,facts_ids,status
+01,0,6,Input,Real photo folder with licensed sample photos,One photo draws attention,A folder of photos.,Quiet introduction,No claims about photo contents,Recognize input,Anticipate transformation,purpose,provisional
+02,6,14,Action,Actual command and execution,Camera follows command,No invented command,Music builds gently,Real capture only,Tool acts on folder,Wait for result,purpose,provisional
+03,14,25,Result,Actual map and supported search,Hold result stable,A searchable map.,Music opens,Verify search interaction,Understand output,See what search reveals,purpose,provisional
+04,25,34,Proof,Real supported query and result,Highlight action then hold,Actual query only,Subtle action accents,Do not imply unsupported search,Connect query to result,Learn where it runs,purpose,provisional
+05,34,41,Practical facts,Clear typography against product frame,One fact at a time,Runs offline | macOS · Windows · Linux,Music settles,Verify supported conditions,Know deployment scope,See identity,offline;platforms,provisional
+06,41,45,Close,Atlasfold title and verified repository address if available,Hold,Atlasfold 1.0 | Open source · MIT licensed,Resolve gently,Verify release and license,Know what to seek,Read and act,release;opensource;license,provisional

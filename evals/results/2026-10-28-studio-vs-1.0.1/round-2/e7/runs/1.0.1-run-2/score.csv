@@ -1,0 +1,7 @@
+beat_id,start_s,end_s,story_beat,picture,motion,exact_text,music,effects_voice_or_quiet,product_truth_and_boundary,viewer_understanding,intended_feeling,lead_and_anchor,facts_ids,status
+01,0,5,Introduce,"Synthetic photo folder and name",Gentle reveal,"Atlasfold / A searchable map from your photos",Quiet opening,None,Map type unspecified,Photos become searchable,Curiosity,Action and folder,product,draft
+02,5,12,Input and action,"Real terminal capture; command to be verified",Close framing,"Folder → map",Build,One restrained cue,Do not invent command,Atlasfold takes a folder,Anticipation,Action and command,product,draft
+03,12,20,Result,"Actual product output",Reveal and hold,"Build a searchable map",Build,Soft result cue,Label any time compression,Product creates a map,Recognition,Action and result,product,draft
+04,20,29,Search,"Actual verified search and response",Close framing and hold,"Verified interface text only",Support,Quiet,No invented search behavior,Map can be searched,Understanding,Action and result,product,draft
+05,29,37,Conditions,"Result remains visible",Sequential text,"Runs offline / macOS · Windows · Linux",Settles,Quiet,Claims as supplied,Where it runs,Confidence,Text and hold,offline platforms,draft
+06,37,45,Invitation,End card,Hold,"Atlasfold 1.0 / Open source · MIT licensed / Explore the repository",Resolve,Clean tail,Verify release and URL,Find the repository,Readiness,Text and hold,release license,draft

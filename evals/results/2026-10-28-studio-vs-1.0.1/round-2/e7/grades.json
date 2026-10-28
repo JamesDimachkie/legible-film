@@ -1,0 +1,81 @@
+{
+ "e7": {
+  "1.0.1-run-1": [
+   false,
+   false,
+   true,
+   false,
+   false,
+   false,
+   false,
+   true,
+   true
+  ],
+  "1.1.0-run-2": [
+   true,
+   true,
+   true,
+   true,
+   false,
+   true,
+   true,
+   true,
+   true
+  ],
+  "1.0.1-run-2": [
+   false,
+   false,
+   true,
+   false,
+   true,
+   false,
+   false,
+   true,
+   true
+  ],
+  "1.1.0-run-1": [
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true
+  ],
+  "borderline": [
+   {
+    "run": "1.1.0-run-2",
+    "item": 5,
+    "why": "B plans 'show stills for the look' but never ties the stills to the hardest frames or to viewing size, so a lenient grader could pass it."
+   },
+   {
+    "run": "1.0.1-run-2",
+    "item": 1,
+    "why": "C gives four ceilings that sum to $400 plus an approval rule, but 'what it buys' is only the category name and fallbacks are scattered prose with none for effects."
+   },
+   {
+    "run": "1.0.1-run-2",
+    "item": 4,
+    "why": "C plans stills and a silent rough cut, but its only approval gate before production is the written treatment and nothing says James sees them to choose."
+   },
+   {
+    "run": "1.0.1-run-2",
+    "item": 6,
+    "why": "C's clause on 'any future intended distribution, including commercial and perpetual use' could be read as marking uses unresolved, but it asks nothing and omits paid promotion, countries and term."
+   },
+   {
+    "run": "1.1.0-run-1",
+    "item": 5,
+    "why": "D commits to 'four representative styleframes' and review at 'actual viewing size', which covers not-only-a-hero-frame and size, but never names terminal text as the hardest frame."
+   }
+  ],
+  "blind_labels": {
+   "A": "1.0.1-run-1",
+   "B": "1.1.0-run-2",
+   "C": "1.0.1-run-2",
+   "D": "1.1.0-run-1"
+  }
+ }
+}

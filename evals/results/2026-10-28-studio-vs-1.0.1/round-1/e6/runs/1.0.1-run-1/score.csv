@@ -1,0 +1,7 @@
+beat_id,start_s,end_s,story_beat,picture,motion,exact_text,music,effects_voice_or_quiet,product_truth_and_boundary,viewer_understanding,intended_feeling,lead_and_anchor,facts_ids,status
+01,0,4,Set up,One receipt; two people; Pocketfern name,Gentle settle,One receipt. Different orders.,Warm opening,Quiet,Synthetic illustration; no invented app behavior,One shared receipt,Recognition,Action,example,proposed
+02,4,8,Reveal,Feature name with receipt,Rows separate visually,Split by item,Pulse enters,Soft transition,Illustrative until verified,The feature is item-level,Interest,Action,launch;example,proposed
+03,8,15,Demonstrate,First and second items associated with different people,One action at a time; hold on result,Illustrative example,Music supports,Two restrained assignment accents,Verify actual workflow; no implied automation,Different items can be assigned,Clarity,Action,example,proposed
+04,15,21,Capacity,Receipt and assignments remain visible,Settle; hold,Receipts up to 50 items,Music opens,Quiet,Maximum per receipt,Scope of feature,Confidence,Deliberate hold,capacity,proposed
+05,21,25,Access,Simple feature card,Minimal movement,Free for all users,Music holds,Quiet,Feature free for all users,No feature charge,Reassurance,Deliberate hold,free,proposed
+06,25,30,Close,Pocketfern wordmark and feature card,Resolve and hold,Pocketfern | Split by item is here | Available on iOS and Android,Resolved ending,Tail,Brand and current availability require confirmation,Name and availability,Completion,Deliberate hold,launch;platforms,proposed

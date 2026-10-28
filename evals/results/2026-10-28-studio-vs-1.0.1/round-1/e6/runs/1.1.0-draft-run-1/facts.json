@@ -1,0 +1,10 @@
+{
+  "project": "Pocketfern split by item launch",
+  "source": "User brief supplied 2026-10-28; revalidate before release",
+  "claims": [
+    {"id":"launch", "display":"Split by item is here", "source":"User brief", "read_on":"2026-10-28", "conditions":"Launched today as of briefing; do not use today without rechecking the release date", "status":"user-supplied; unverified"},
+    {"id":"platforms", "display":"Available on iOS and Android", "source":"User brief", "read_on":"2026-10-28", "conditions":"Applies to split by item", "status":"user-supplied; unverified"},
+    {"id":"limit", "display":"Receipts up to 50 items", "source":"User brief", "read_on":"2026-10-28", "conditions":"Maximum receipt size; not an implied speed or accuracy guarantee", "status":"user-supplied; unverified"},
+    {"id":"price", "display":"Free for all users", "source":"User brief", "read_on":"2026-10-28", "conditions":"Applies to split by item", "status":"user-supplied; unverified"}
+  ]
+}

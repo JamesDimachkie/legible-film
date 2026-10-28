@@ -1,0 +1,76 @@
+{
+ "e6": {
+  "1.1.0-draft-run-2": [
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   false,
+   true,
+   true
+  ],
+  "1.0.1-run-1": [
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   false,
+   true,
+   true
+  ],
+  "1.1.0-draft-run-1": [
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   false,
+   true,
+   true
+  ],
+  "1.0.1-run-2": [
+   false,
+   false,
+   false,
+   false,
+   false,
+   true,
+   false,
+   true,
+   true
+  ],
+  "borderline": [
+   {
+    "run": "1.0.1-run-1",
+    "item": 6,
+    "why": "'check social commercial rights' names a licence scope only as a to-do, with no paid placement, channel or term, so a lenient grader could credit it."
+   },
+   {
+    "run": "1.0.1-run-1",
+    "item": 8,
+    "why": "facts.json has a fifth record, 'Illustrative example', that is not a supplied fact, though it is a disclosure label and not a product claim."
+   },
+   {
+    "run": "1.0.1-run-2",
+    "item": 5,
+    "why": "'Assume organic X placement; confirm licensing also covers any paid promotion if planned' partly flags paid use as open, but the run assumes rather than asks and never mentions countries or duration."
+   },
+   {
+    "run": "1.0.1-run-2",
+    "item": 6,
+    "why": "The only statement of required licence coverage is one conditional clause ('confirm licensing also covers any paid promotion if planned') with no term or territory."
+   }
+  ],
+  "blind_labels": {
+   "A": "1.1.0-draft-run-2",
+   "B": "1.0.1-run-1",
+   "C": "1.1.0-draft-run-1",
+   "D": "1.0.1-run-2"
+  }
+ }
+}
