@@ -1,0 +1,22 @@
+{
+  "project": "replace-me",
+  "policy": "Every on-screen number and factual line comes from this file. Re-read changeable sources before each release.",
+  "claims": [
+    {
+      "id": "example-speed",
+      "display": "4.5x faster",
+      "spoken": null,
+      "value": 4.47,
+      "unit": "x",
+      "conditions": "batch size 1, with the model and hardware named in the source",
+      "label_beside_value": "batch 1",
+      "footnote": "Measured by ___ on ___ (source, date)",
+      "source": "https://example.com/benchmark",
+      "read_on": "YYYY-MM-DD",
+      "status": "current",
+      "can_change_before_release": true,
+      "approved_by": "",
+      "notes": "status is current, dated (shown with its date or version) or illustrative"
+    }
+  ]
+}

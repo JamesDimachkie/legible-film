@@ -1,0 +1,26 @@
+# Generated media and review output
+*.mp4
+*.mov
+*.webm
+*.gif
+*.wav
+*.mp3
+*.m4a
+renders/
+qa/
+review-output/
+.hyperframes/
+
+# Python, Node and OS clutter
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Secrets never belong here
+.env
+.env.*
+*.pem
+*.key

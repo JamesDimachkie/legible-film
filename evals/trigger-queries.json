@@ -1,0 +1,28 @@
+{
+  "skill_name": "legible-film",
+  "should_trigger": [
+    "make a 30 second launch video for my app's new feature",
+    "can you check this mp4 before I upload it to youtube",
+    "my exported video looks washed out in safari but fine in chrome, why",
+    "add background music and a few sound effects to this demo video",
+    "there's a weird single frame flash in my hyperframes render around 12 seconds",
+    "turn these four screenshots into a 20 second product teaser",
+    "the audio in my reel clips after instagram compresses it",
+    "make a seamless looping hero animation for our landing page",
+    "the client wants the ending slower but everything else stays exactly as approved",
+    "what frame rate should I export a gif at so it plays at the right speed"
+  ],
+  "should_not_trigger": [
+    "transcribe this podcast episode for me",
+    "download this youtube video as an mp4",
+    "write a blog post announcing our product launch",
+    "design a logo for my startup",
+    "compress this png so it loads faster",
+    "fix the failing test in my react component",
+    "summarise the main points from this meeting recording",
+    "convert this wav file to mp3",
+    "what is the resolution of this video file",
+    "write a script for a podcast intro"
+  ],
+  "method": "Run each query about three times in a fresh session with the skill installed; count how often the skill loads. Aim for a high rate on should_trigger and a low rate on should_not_trigger, and tune the description when a near-miss triggers."
+}

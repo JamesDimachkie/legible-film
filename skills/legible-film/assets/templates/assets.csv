@@ -1,0 +1,2 @@
+asset_id,role,file,sha256,source_or_provider,model_or_version,created_on,plan_at_creation,licence_or_terms_url,permitted_use,cost,private_material_uploaded,approved_by,notes
+example-01,music,audio/music-take-b.wav,,provider name,model version,YYYY-MM-DD,paid / free / owned,https://,commercial web and social,0,no,,replace this row

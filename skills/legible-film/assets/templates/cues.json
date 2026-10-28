@@ -1,0 +1,12 @@
+{
+  "clock": "seconds from the first frame of the film",
+  "fps": 60,
+  "version": "v1",
+  "exported_from": "the timing source the picture code reads",
+  "events": [
+    {"id": "send-contact", "t": 3.0, "picture": "the send button is pressed", "sound": "required", "sync": "attack", "tolerance_ms": 17},
+    {"id": "whip-to-result", "t": 5.2, "picture": "camera whip at its peak velocity", "sound": "required", "sync": "apex", "tolerance_ms": 25},
+    {"id": "result-read", "t": 6.0, "picture": "the result is read", "sound": "silent", "window_ms": 800},
+    {"id": "logo-lock", "t": 9.5, "picture": "the mark locks", "sound": "optional", "sync": "attack"}
+  ]
+}

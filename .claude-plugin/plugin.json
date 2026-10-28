@@ -1,0 +1,14 @@
+{
+  "name": "legible-film",
+  "displayName": "Legible Film",
+  "version": "1.0.0",
+  "description": "Plan, build, score, render, revise and quality-check short videos with a coding agent: one story on one clock, every claim sourced, and the delivered file checked before it ships.",
+  "author": {
+    "name": "James Dimachkie",
+    "url": "https://github.com/JamesDimachkie"
+  },
+  "homepage": "https://github.com/JamesDimachkie/legible-film",
+  "repository": "https://github.com/JamesDimachkie/legible-film",
+  "license": "Apache-2.0",
+  "keywords": ["video", "film", "launch film", "product demo", "motion graphics", "sound design", "ffmpeg", "quality control", "hyperframes", "remotion"]
+}

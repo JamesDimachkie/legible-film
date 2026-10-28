@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Check the repository's Markdown: every relative link and anchor resolves, and every script SKILL.md
+names exists and answers --help.
+
+  python .github/scripts/check_docs.py
+"""
+
+import os
+import re
+import subprocess
+import sys
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+SKILL = os.path.join(ROOT, 'skills', 'legible-film')
+LINK = re.compile(r'(?<!!)\[[^\]]*\]\(([^)\s]+)\)')
+
+
+def anchors(path):
+    """GitHub-style heading anchors of a Markdown file."""
+    out = set()
+    with open(path, encoding='utf-8') as fh:
+        for line in fh:
+            m = re.match(r'#{1,6}\s+(.*)', line)
+            if m:
+                text = re.sub(r'[`*_]', '', m.group(1)).strip().lower()
+                slug = re.sub(r'[^\w\- ]', '', text).replace(' ', '-')
+                out.add(slug)
+    return out
+
+
+def main():
+    problems = []
+    for folder, _, files in os.walk(ROOT):
+        if '.git' in folder.split(os.sep) or 'node_modules' in folder:
+            continue
+        for name in files:
+            if not name.endswith('.md'):
+                continue
+            path = os.path.join(folder, name)
+            with open(path, encoding='utf-8') as fh:
+                text = fh.read()
+            text = re.sub(r'```.*?```', '', text, flags=re.S)
+            for target in LINK.findall(text):
+                if re.match(r'^[a-z]+:', target):
+                    continue
+                file_part, _, anchor = target.partition('#')
+                dest = os.path.normpath(os.path.join(folder, file_part)) if file_part else path
+                rel = os.path.relpath(path, ROOT)
+                if not os.path.exists(dest):
+                    problems.append(f'{rel}: missing target {target}')
+                elif anchor and dest.endswith('.md') and anchor not in anchors(dest):
+                    problems.append(f'{rel}: missing anchor {target}')
+    with open(os.path.join(SKILL, 'SKILL.md'), encoding='utf-8') as fh:
+        skill = fh.read()
+    for script in sorted(set(re.findall(r'`([a-z_]+\.py)', skill))):
+        path = os.path.join(SKILL, 'scripts', script)
+        if not os.path.exists(path):
+            problems.append(f'SKILL.md names a missing script: {script}')
+            continue
+        r = subprocess.run([sys.executable, path, '--help'], capture_output=True, text=True)
+        if r.returncode:
+            problems.append(f'{script} --help failed')
+    lines = skill.count('\n')
+    if lines > 500:
+        problems.append(f'SKILL.md has {lines} lines; keep it under 500')
+    for p in problems:
+        print(p)
+    print(f'{len(problems)} problem(s)')
+    return 1 if problems else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

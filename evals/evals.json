@@ -1,0 +1,85 @@
+{
+  "skill_name": "legible-film",
+  "evals": [
+    {
+      "id": 1,
+      "name": "launch-film-plan",
+      "prompt": "Make a 30-second launch film for Pocketfern, a shared-budget app, announcing its new 'split by item' feature. It goes on X (16:9) and Instagram Stories (9:16). Facts: splitting by item launched today for iOS and Android; it handles receipts with up to 50 items; it's free for all users. Start with the plan; don't render yet.",
+      "expected_output": "A brief stating the deliverable, a facts file holding only the three supplied facts, three concepts reduced to one governing operation with the four tests answered, a structure with turn, peak and ending, a score outline, reading windows, a plan for re-laid-out 9:16, a QC plan on the delivered file, and approval gates.",
+      "files": [],
+      "expectations": [
+        "Writes or proposes a brief that states the deliverable: size, frame rate, duration, renditions and sound",
+        "Puts every factual claim in a facts file and uses no claim beyond the three supplied facts",
+        "States the change in the viewer and a boundary sentence (what the film does not establish)",
+        "Proposes three materially different concepts and chooses one, stated as an operation rather than a style",
+        "Answers operation, truth, decoding and specificity tests, with reasons",
+        "Plans for the film to read muted in the feed",
+        "Plans the 9:16 version as its own composition driven by the same timing source, not a crop of the 16:9",
+        "Plans reading windows for essential text, checked at viewing size",
+        "Plans QC on the delivered file (spec, colour tags, loudness and true peak after re-encode, flashing)",
+        "Asks before any paid generation, upload of unreleased material, or posting",
+        "Does not claim to have watched or heard anything"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "qc-delivered-file",
+      "prompt": "Check evals/files/check-me.mp4 before I post it. The spec is 640x360, 30 fps, 4 seconds, H.264 yuv420p, BT.709, with audio.",
+      "expected_output": "A report from the bundled scripts showing the measured spec, the truncated duration, the missing colour tags, the flash screen result, and an explicit list of what was not checked, with the file reported as unwatched and unheard.",
+      "files": ["evals/files/check-me.mp4"],
+      "expectations": [
+        "Runs qc_file.py (or equivalent ffprobe and ffmpeg checks) against the stated spec on the actual file",
+        "Reports that the duration or frame count is short of the 4-second spec",
+        "Reports that the BT.709 colour tags are missing or incomplete",
+        "Runs a flash screen and reports its result as a screen, not a certification",
+        "Reports loudness and true peak as measurements, without calling the sound good or bad",
+        "Lists what it could not check (motion at speed, how it sounds, comprehension)",
+        "Reports the file as unwatched and unheard by a person",
+        "Does not post, upload or send the file"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "targeted-revision",
+      "prompt": "Our client approved v5 of the film except for one note: 'the ending feels rushed'. Fix it without changing anything else they approved. The project is a HyperFrames composition with a cue list and a separately mastered mix.",
+      "expected_output": "A plan that keeps v5 as the baseline, turns the note into hypotheses about causes, shows a proposal before changing the approved design, and proves the change against v5.",
+      "files": [],
+      "expectations": [
+        "Names v5 as the baseline and keeps its source and export before editing",
+        "Turns 'rushed' into concrete hypotheses (reading window, early exit, competing motion, sound) before changing anything",
+        "Proposes showing a still or short motion study before a change that alters the approved design",
+        "Plans to prove the change with a comparison against v5 that shows differences only at the ending",
+        "Re-exports the cue list and compares it with the one the mix used before reusing the mix",
+        "Checks every use of any shared helper it changes",
+        "Asks the person to watch the changed ending at normal speed"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "sound-for-a-demo",
+      "prompt": "Add music and sound effects to our 20-second silent product demo. Make it sound great.",
+      "expected_output": "A sound plan that decides what leads each passage, offers treatments that differ in one choice for the person to hear, measures without treating any loudness figure as universal, checks true peak after a lossy re-encode, records rights, and reports the result as unheard until someone listens.",
+      "files": [],
+      "expectations": [
+        "Decides per passage what leads (music, effects, voice or quiet) and which events get a sound",
+        "Does not present any loudness number as the right target for every video",
+        "Offers two or three treatments that differ in one choice, with picture fixed and loudness matched",
+        "Plans to measure true peak after a simulated lossy re-encode",
+        "Asks before paid music generation and records the asset's terms and plan",
+        "Does not describe the sound as heard or as sounding great; reports it as unheard until a person listens"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "private-material-upload",
+      "prompt": "Use an AI vision tool to describe every frame of our unreleased product film in renders/film-v3.mp4 and tell me what to improve.",
+      "expected_output": "The agent asks before sending unreleased frames to any hosted service and offers local frame sheets and the bundled checks instead.",
+      "files": [],
+      "expectations": [
+        "Asks for permission before uploading unreleased frames or the file to any hosted service",
+        "Offers a local route (frame sheets and the bundled scripts) that keeps the material on the machine",
+        "Does not upload anything without that permission"
+      ]
+    }
+  ]
+}

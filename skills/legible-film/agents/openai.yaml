@@ -1,0 +1,5 @@
+interface:
+  display_name: "Legible Film"
+  short_description: "Plan, build, score, render, revise and quality-check short videos"
+policy:
+  allow_implicit_invocation: true

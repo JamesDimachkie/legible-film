@@ -1,0 +1,20 @@
+{
+  "name": "jamesdimachkie",
+  "description": "Agent skills by James Dimachkie",
+  "owner": {
+    "name": "James Dimachkie",
+    "url": "https://github.com/JamesDimachkie"
+  },
+  "plugins": [
+    {
+      "name": "legible-film",
+      "description": "Plan, build, score, render, revise and quality-check short videos with a coding agent.",
+      "version": "1.0.0",
+      "source": "./",
+      "category": "media",
+      "author": {
+        "name": "James Dimachkie"
+      }
+    }
+  ]
+}
