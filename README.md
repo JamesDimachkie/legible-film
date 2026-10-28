@@ -104,7 +104,9 @@ Add `-g` for a user-wide install or `-a codex` (or another agent name) to target
 (project) or `~/.agents/skills/` (user) for most other agents.
 
 **Requirements:** Python 3.9 or later, FFmpeg and ffprobe on `PATH`, and `pip install numpy Pillow` (into whichever
-Python environment the agent will use) for the scripts.
+Python environment the agent will use) for the scripts. If you are unsure whether these are installed, ask your coding
+agent: "Install Legible Film, check its requirements and run its self-test; ask me before changing anything that
+needs my permission."
 
 **Check the installation.** From a clone of this repository:
 
@@ -130,15 +132,41 @@ to be certain, name it: "Use Legible Film to check this cut." For example:
 
 More are in [examples/prompts.md](examples/prompts.md).
 
+## Studio grade
+
+For the best film the budget allows, ask for it by name: "Use Legible Film at studio grade for our launch film.
+Budget up to $800 for music, voice and stock." The agent then works the way a small studio would:
+
+- **It studies first.** It finds comparable pieces whose makers explained their decisions, annotates what to borrow
+  from each and what must not transfer, and mines your product's own material for the idea.
+- **It shows instead of asking.** You choose between things you can watch and hear: three short, rough idea videos
+  with temporary sound, sample stills of the look made from the hardest frames in every shape you will post, and a
+  rough timed version of the whole film before anything is polished. Everything temporary is labelled.
+- **It spends on what the film needs most.** Purchases and generation runs are line items you approve, each showing
+  what is payable now, what is already committed and what remains under your cap, with each licence checked for the
+  real use ([finding assets](skills/legible-film/references/assets.md),
+  [making them](skills/legible-film/references/generation.md)).
+- **It runs specialist passes** on story, picture, type, editing, sound design, music, voice, mix and finishing.
+- **It leaves the watching and listening to people.** It prepares and measures; you, or viewers you name, judge how
+  the film moves and sounds, and nothing is reported as watched or heard until someone has.
+- **It keeps raising the weakest moment** until viewers can answer six questions with evidence (understanding,
+  specificity, experience, earned payoff, truth and afterimage) or you decide to stop.
+
+Every gate still applies: nothing is bought, uploaded or published without you. The full method is in
+[studio](skills/legible-film/references/studio.md).
+
 ## What is inside
 
 ```
 skills/legible-film/
   SKILL.md            the method: principles, gates, nine steps, revisions, hard limits, gotchas
   references/         story-and-score, timing, picture, product-demos, sound, claims-and-rights, formats,
-                      engines, finishing, ffmpeg-cookbook, qc, review, case-library, sources
+                      engines, finishing, ffmpeg-cookbook, qc, review, case-library, sources;
+                      studio grade, finding assets, making assets with generative tools
   scripts/            QC tools for the delivered file, plus a self-test
-  assets/templates/   brief, treatment, facts, score, cues, asset register, review log, critic brief, delivery report
+  assets/templates/   brief, treatment, facts, score, cues, asset register, budget, review log, critic brief,
+                      delivery report
+  assets/examples/    a filled 40-second score for a fictional product
 evals/                behaviour and trigger evaluations for the skill itself
 ```
 

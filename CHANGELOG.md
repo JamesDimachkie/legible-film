@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.1.0 (2026-10-27)
+
+Studio grade: an opt-in path to the best film the budget allows, on top of the unchanged method.
+
+- `references/studio.md`:
+  - opening questions in plain words about the use, the material, the cap, references, who judges and what is owed,
+    with a running total against the cap before every approval;
+  - a study of comparable work before design, which also supplies references when the person has none;
+  - leading someone new to video by showing choices instead of asking: one script for presenting every gate, and a
+    table that turns common feedback ("make it more premium", "it feels rushed") into something to show;
+  - gates the person can watch: concept sketches, styleframes of the hardest frames, an animatic and sound direction,
+    with a branch for silent films;
+  - spending on the film's actual bottleneck, with product truth never the place to save;
+  - specialist craft passes for story, picture, type, editing, sound design, music, voice, mix, finishing and
+    product demonstrations, each judgement that needs eyes or ears assigned to a named person;
+  - a loop that keeps raising the weakest moment until six bar questions are answered "yes" with a named viewer's
+    evidence, or the person decides to stop;
+  - studio deliverables agreed at the brief, each with its own check: master, stems that reconstruct the mix,
+    localisation material, captions, and an archive split into what the maker keeps and what the client may receive.
+- `references/assets.md`:
+  - how to find and clear footage, stills, music, sound effects, voice-over, type, 3D, finishing textures and interface
+    art;
+  - quality checks, dated sources by tier, licence questions (including the role an edit gives a stock person),
+    search terms, rejection cues, a budget ladder and the asset record.
+- `references/generation.md`:
+  - when generation is the wrong medium, the shot contract, prompts, references and keyframes;
+  - bounded variants with hard rejects and cost per accepted second, the repair order, frame-level inspection, and
+    rights, privacy and disclosure;
+  - a dated landscape of image, video, voice, music, effects, repair and 3D tools.
+- `assets/examples/score-example.md`: a filled 40-second score for a fictional product. `assets/templates/budget.csv`:
+  the spend plan, with commitments and the remaining cap.
+- `references/claims-and-rights.md`: font files go to a client only where the licence allows it; otherwise the
+  handover lists each font and how to licence it.
+- README: what studio grade asks of the person, and a plain-language way to check the installation.
+
 ## 1.0.1 (2026-10-27)
 
 Fixes from two independent reviews of the scripts and references. Each script fix has a known-answer case in

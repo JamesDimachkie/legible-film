@@ -84,8 +84,8 @@ the permitted use, cost, whether private material was uploaded, and approval.
 
 - Check whether a licence depends on creation date, subscription status, distribution, revenue or audience.
   A plan upgrade usually covers new output only; regenerate on the covered plan rather than assuming.
-- Fonts: confirm the licence covers embedding in video and distribution; ship the font files with the
-  project.
+- Fonts: confirm the licence covers rendering into video and the planned distribution. Pass the font files on with
+  the project only where the licence allows it; otherwise list each font, its version and how to licence it.
 - Music, sound effects, stock footage and images: the licence must cover the platform and the paid or organic
   use.
 - Open-source tools have code licences and sometimes separate model-weight licences: Demucs's code is MIT, but

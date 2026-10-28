@@ -1,11 +1,11 @@
 ---
 name: legible-film
-description: "Video production for coding agents: plans, builds, scores, renders, revises and quality-checks short videos such as product and launch films, explainers, demos, ads, loops, logo stings, motion graphics, screen recordings, edited footage and generated clips. Use when making or changing a video, choosing video tools, designing its story, picture or sound, encoding or muxing a deliverable, or checking an exported file before it ships. Works with any engine: HyperFrames, Remotion, Blender, an editor or plain FFmpeg. Not for transcription, downloading or metadata lookups alone."
+description: "Video production for coding agents: plans, builds, scores, renders, revises and quality-checks short videos such as product and launch films, explainers, demos, ads, loops, logo stings, motion graphics, screen recordings, edited footage and generated clips. Use when making or changing a video, choosing video tools, designing its story, picture or sound, encoding or muxing a deliverable, or checking an exported file before it ships. Includes an opt-in studio grade for the highest quality at higher spend: study, watchable choices, premium and generated assets, specialist craft passes. Works with any engine: HyperFrames, Remotion, Blender, an editor or plain FFmpeg. Not for transcription, downloading or metadata lookups alone."
 license: Apache-2.0
 compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. No network access or accounts required."
 metadata:
   author: "James Dimachkie"
-  version: "1.0.1"
+  version: "1.1.0"
 ---
 
 # Legible Film
@@ -54,10 +54,20 @@ stop only processes you started, by their own PID.
 | The request | Path |
 |---|---|
 | A new video | Steps 1-9 |
+| The best film possible, with a budget for premium work | Steps 1-9 at [studio grade](#studio-grade) |
 | A logo sting, a loop, or a clip under about 15 s | Steps 1-9, done lightly ([short pieces](#short-pieces)) |
 | A change to an approved cut | [Revisions](#revisions), then steps 6-9 |
 | Check or review an existing file | Steps 7-8 |
 | Choose or set up tools | [engines](references/engines.md) |
+
+## Studio grade
+
+When the person asks for studio grade, the highest quality, or gives a budget for premium assets, follow
+[studio](references/studio.md) on top of the steps: it adds a study of comparable work, choices the person can watch
+(concept sketches, styleframes, an animatic), spending on the film's real bottleneck, specialist craft passes, and a
+loop that raises the weakest moment until viewers clear a six-question bar or the person stops. Every gate and hard
+limit still applies. To find assets, read
+[assets](references/assets.md); to make them with generative tools, [generation](references/generation.md).
 
 ## Steps
 
@@ -87,7 +97,7 @@ Read [story-and-score](references/story-and-score.md); for product interfaces, [
 - Write three concepts (the product in use, a relational analogy, a reframe), choose one, state it as a governing
   operation, and run the operation, truth, decoding and specificity tests.
 - Choose the structure, the turn, the peak and the ending's job, then fill the score
-  ([score.csv](assets/templates/score.csv)).
+  ([score.csv](assets/templates/score.csv); a [filled example](assets/examples/score-example.md) shows the method).
 
 Done when `treatment.md` ([template](assets/templates/treatment.md)) names one concept with its boundary and test
 answers, every moment has a score row whose text traces to the facts file, and the person agrees the story.
@@ -263,4 +273,7 @@ environment (about half a minute, synthetic media only).
 | Step 6 | [finishing](references/finishing.md); [ffmpeg-cookbook](references/ffmpeg-cookbook.md) |
 | Step 7 | [qc](references/qc.md) |
 | Step 8 and revisions | [review](references/review.md) |
+| Studio grade | [studio](references/studio.md) |
+| Finding assets: footage, stills, music, effects, voice, type, 3D, textures | [assets](references/assets.md) |
+| Making assets with generative or enhancement tools | [generation](references/generation.md) |
 | Checking a figure | [sources](references/sources.md) |

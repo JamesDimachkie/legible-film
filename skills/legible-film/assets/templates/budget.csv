@@ -1,0 +1,8 @@
+line,gate,what_it_buys_for_the_viewer,item_or_route,tier,max_cost,commitment,currency,licence_must_cover,fallback_if_declined,status,approved_by,actual_cost,receipt_or_record
+cap,,the spending cap the person set,,,,,USD,,,proposed,,,
+1,sound direction,music whose structure follows the story's curve and can be edited to picture,"[library and track ID, with stems]",serious,,"[one-off, or a subscription with its minimum term and renewal date]",USD,"paid placement; client channel; stems; territory and term",[a credited free track or a one-project licence],proposed,,,
+2,animatic,a cast voice whose delivery fits the brand,"[route, voice or performer]",serious,,one-off,USD,"paid media; territory; term; no cloning or synthetic derivatives without consent","[no voice: on-screen text, or an already licensed synthetic voice without cloning]",proposed,,,
+3,styleframes,the hero shot of the product in use,"[screen capture, CAD render, or a stock clip with releases]",no-compromise,,one-off,USD,"commercial and paid use; releases; AI processing if any",[a code-rendered demonstration of the real interface],proposed,,,
+4,concept sketches,an atmosphere no camera can reach,"[model, route and one batch of four variants]",serious,,one bounded batch,USD,"commercial use on this plan; output ownership; no training on private uploads",[a procedural or stock texture],proposed,,,
+committed,,"everything spent or committed so far: actual_cost where paid, max_cost where approved but not yet paid",,,,,USD,,,,,,
+remaining,,the cap minus committed; shown to the person before every approval,,,,,USD,,,,,,
