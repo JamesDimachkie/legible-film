@@ -80,7 +80,7 @@ finishing ([studio](studio.md) §7.9).
 |---|---|---|---|
 | [Pexels](https://www.pexels.com/license/) | atmospheric inserts and textures where release risk is low | free commercial use; no implied endorsement or trademark use | free |
 | [Artlist footage](https://artlist.io/help-center/privacy-terms/artlist-license) | repeated production from one consistent library | Pro covers an individual's client work and paid promotion; companies and agencies are pointed to Business plans, with Max Business sold to agencies of any size and required above 50 people across a group ([Max Business](https://help.artlist.io/hc/en-us/articles/29589453909149-Artlist-Max-Business-plan-explained)). Confirm a small agency's plan with Artlist before buying | $31.99/month billed annually ([plans](https://artlist.io/blog/artlist-pricing-and-plans-explained/)) |
-| [Stocksy](https://www.stocksy.com/legal/contentlicense) | a few naturalistic shots with a point of view | royalty-free, worldwide, perpetual; clip audio not licensed; AI upscaling and AI/ML uses prohibited | $175 for 1080p, $300 for 4K, $400 for 4K log ([pricing](https://www.stocksy.com/pricing)) |
+| [Stocksy](https://www.stocksy.com/legal/contentlicense) | a few naturalistic shots with a point of view | royalty-free, worldwide, perpetual; clip audio not licensed; AI/ML processing prohibited under the standard terms | $175 for 1080p, $300 for 4K, $400 for 4K log ([pricing](https://www.stocksy.com/pricing)) |
 | [Filmsupply](https://www.filmsupply.com/license-terms) | a hero sequence whose light, casting or camera must carry the film | rights-managed per project, client, use and territory | web and social from $219 a clip; wider media by quote ([pricing](https://www.filmsupply.com/pricing)) |
 
 **Search like a professional:** search by light and lens, not by concept: `macro side-lit brushed aluminium`,
@@ -149,9 +149,9 @@ and speech, in mono and on a phone.
 | Source | Use it for | Licence notes | Price level, read 2026-10-28 |
 |---|---|---|---|
 | [Freesound](https://freesound.org/help/faq/) | specific real-world details, room tone, unusual foley | licence varies per sound (CC0, CC BY, CC BY-NC); uploads can contain unauthorised material | free |
-| [Sonniss GDC bundles](https://sonniss.com/gdc-bundle-license/) | a broad starting palette | commercial project use without credit; no redistribution or AI training | free |
+| [Sonniss GDC bundles](https://sonniss.com/gdc-bundle-license/) | a broad starting palette | commercial project use without credit; no standalone redistribution (the project team may share them); no AI training | free |
 | [Epidemic Sound](https://www.epidemicsound.com/pricing/) | teams clearing music and effects together | included with music on the same plans | as music |
-| [BOOM Library](https://www.boomlibrary.com/terms-conditions-regular/) | designed transitions and material recordings with good metadata | worldwide media licence including advertising; no AI/ML training; subscription terms differ from buyouts | libraries from about $139 |
+| [BOOM Library](https://www.boomlibrary.com/terms-conditions-regular/) | designed transitions and material recordings with good metadata | worldwide media licence including advertising; no AI/ML training; subscription terms differ from buyouts | prices vary by library and edition |
 
 **Build an event from layers only where each has a job:** the contact or transient, the material body, the air or
 motion, and the room or tail. Check the stack for phase cancellation, and never pile full-spectrum impacts on a small
@@ -168,8 +168,8 @@ recording before any mastering ([studio](studio.md) §7.7).
 
 | Route | Use it for | Usage notes | Price level, read 2026-10-28 |
 |---|---|---|---|
-| [Fiverr](https://www.fiverr.com/) (vetted Pro listings) | narrow casting with a dry audition that fits | terms are seller-specific; some listings exclude paid media | listings vary; one Pro commercial listing showed $125 |
-| [Voice123](https://support.voice123.com/hc/en-us/articles/205237644-What-is-the-rate-for-a-voice-actor-on-Voice123) | direct auditions and negotiation | fees negotiated; its guidance describes buyouts as generally one year at about 2.5x the base rate | by quote |
+| [Fiverr](https://www.fiverr.com/) (vetted Pro listings) | narrow casting with a dry audition that fits | terms are seller-specific; some listings exclude paid media | listings vary; confirm the package covers the planned use |
+| [Voice123](https://support.voice123.com/hc/en-us/articles/205237644-What-is-the-rate-for-a-voice-actor-on-Voice123) | direct auditions and negotiation | fees negotiated; agree media, territory, term and any AI use in writing | by quote |
 | [Voices](https://www.voices.com/help/knowledge/faq/Understanding-Licensing) | usage-led casting and budgeting | paid online ads are licensed like broadcast, by market and term | its online-ad jobs average $350-$1,125 ([rates](https://www.voices.com/jobs/online-ad)) |
 | Union casting ([SAG-AFTRA](https://www.sagaftra.org/production-center/contract/802/getting-started)) | campaigns requiring union talent | a contract route with session, usage and digital-replica terms | session fees plus usage; a payroll specialist calculates the total |
 
@@ -208,8 +208,8 @@ maps; for HDRIs, a true high-dynamic-range original whose light direction matche
 | Source | Use it for | Licence notes | Price level, read 2026-10-28 |
 |---|---|---|---|
 | [Poly Haven](https://polyhaven.com/license) | lighting environments, materials, supporting models | CC0, commercial use without attribution | free |
-| [Fab](https://www.fab.com/eula) | specific props, environments, specialist models | Standard licence allows commercial use in any tool; no redistribution; CC BY items carry CC terms | per item |
-| [Poliigon](https://help.poliigon.com/en/articles/8749749-asset-use-licensing) | consistent materials for repeated renders | advertising included; no sharing of extractable scene files; no AI/ML use | $27-$59/month ([pricing](https://www.poliigon.com/pricing)) |
+| [Fab](https://www.fab.com/eula) | specific props, environments, specialist models | Standard licence allows commercial use in any tool; no standalone redistribution; CC BY items carry CC terms | per item |
+| [Poliigon](https://help.poliigon.com/en/articles/8749749-asset-use-licensing) | consistent materials for repeated renders | advertising included; no sharing of extractable scene files; no AI/ML use; Individual plans are for one person | $27/month Individual, $59/month Business ([pricing](https://www.poliigon.com/pricing)) |
 
 Search for `photogrammetry scanned neutral albedo`, `studio softbox HDRI product` or `real scale subdivision ready`,
 and test the intended framing before paying for texture resolution that will never show. For a hero product, use the
@@ -226,7 +226,7 @@ creative look, record each LUT's expected input and output space, and inspect sk
 |---|---|---|---|
 | Procedural (FFmpeg [`noise`](https://ffmpeg.org/ffmpeg-filters.html#noise), [`lut3d`](https://ffmpeg.org/ffmpeg-filters.html#lut3d), an original shader) | subtle, controllable texture tied to the animation | your own code; record its provenance | free |
 | [Grainzilla](https://grainzilla.com/) | a small set of real grain scans | commercial use including client work and ads; no redistribution | 1080p pack $24.90; 4K pack $39.90 |
-| [CineGrain](https://www.cinegrain.com/texture/35mm) | a deliberately film-derived treatment central to the look | Indie tier capped by production budget; Professional covers all | Indie 35mm $96; Professional $999 |
+| [CineGrain](https://www.cinegrain.com/texture/35mm) | a deliberately film-derived treatment central to the look | Indie tier capped by production budget; Professional for larger productions, under its own licence | Indie 35mm $96; Professional $999 |
 | [FilmConvert Nitrate](https://www.filmconvert.com/nitrate) | exposure-dependent grain and camera-profile film looks | software licence with three activations | from $119 |
 
 **Procedural wins** for a little animated texture, a controlled vignette, an exact brand-colour flare or anything
@@ -243,9 +243,9 @@ never stand in for the real product's behaviour ([product-demos](product-demos.m
 | Source | Use it for | Licence notes | Price level, read 2026-10-28 |
 |---|---|---|---|
 | [Lucide](https://lucide.dev/license) | a consistent, code-native icon vocabulary | ISC licence; keep the notice | free |
-| [Envato Elements](https://help.elements.envato.com/hc/en-us/articles/360000628966-Envato-Elements-License) | breadth in illustration, mockups and templates | per-project registration; embedded components may have their own licences | from $16.50/month ([pricing](https://elements.envato.com/pricing)) |
-| [UI8](https://ui8.net/terms) | a coherent illustration set or design kit | marketing videos and client work permitted; no redistribution | per item |
-| [Apple Design Resources](https://developer.apple.com/design/resources/) | accurate presentation of a qualifying Apple app | separate conditions per resource | with developer membership |
+| [Envato Elements](https://help.elements.envato.com/hc/en-us/articles/360000628966-Envato-Elements-License) | breadth in illustration, mockups and templates | per-project registration; embedded components may have their own licences | from $16.50/month billed annually ([pricing](https://elements.envato.com/pricing)) |
+| [UI8](https://ui8.net/terms) | a coherent illustration set or design kit | marketing videos and client work permitted; no standalone redistribution of the assets | per item |
+| [Apple Design Resources](https://developer.apple.com/design/resources/) | accurate presentation of a qualifying Apple app | separate conditions per resource | free downloads; terms per resource |
 
 **Device and platform owners have their own rules.** Apple's App Store marketing guidance forbids modifying, spinning
 or animating its supplied product images and 3D simulations of its products in that context, and requires trademark

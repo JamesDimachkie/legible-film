@@ -33,9 +33,9 @@ data, or only atmosphere. Then give each kind of material its job:
 - **Code-rendered graphics** for exact text, interfaces, charts and data.
 
 Generation is the wrong tool for a literal product demonstration with critical dimensions, marks or behaviour; for
-exact interfaces, charts, captions and required copy; for a sustained emotional performance; for long continuous
-geography, fast overlapping hands, transparent objects, liquids and mirrors (test those shots first); and for
-anything presented as evidence. Generated detail is never recovered fact.
+exact interfaces, charts, captions and required copy; and for anything presented as evidence. Generated detail is
+never recovered fact. A sustained emotional performance, long continuous geography, fast overlapping hands,
+transparent objects, liquids and mirrors are high-risk: plan around such a shot only after a successful test.
 
 ## 2. The shot contract
 
@@ -63,8 +63,9 @@ The reject line is decided before any take is seen, so attractive light cannot a
   directs; a stack of quality words does not.
 - **Leave out** contradictory moves, invented numeric camera precision, several simultaneous transformations, and a
   whole film in one clip. Keep text and logos out of the generated plate and composite them exactly afterwards.
-  Phrase positively; several vendors warn that negative phrasing can backfire
-  ([Runway's guide](https://help.runwayml.com/hc/en-us/articles/39789879462419-Gen-4-Video-Prompting-Guide)).
+  Phrase positively, as Runway's Gen-4 guide recommends
+  ([guide](https://help.runwayml.com/hc/en-us/articles/39789879462419-Gen-4-Video-Prompting-Guide)), and follow the
+  chosen model's own guide.
 - **Approve a keyframe, then animate it.** For identity and composition that must hold, generate or design an approved
   still first and use image-to-video, describing only the motion.
 - **Keep a small reference pack:** neutral product views, a character turnaround, wardrobe, the light and style
@@ -127,8 +128,8 @@ separate shots read as one sequence.
 5. Composite and grade, then add final texture, controlled sharpening and grain. Encode a delivery copy and inspect
    it again.
 
-Reduce noise before sharpening or resampling ([Neat Video FAQ](https://www.neatvideo.com/support/faq)). No small
-source becomes a real high-resolution capture because the export is 4K.
+Reduce noise before sharpening or resampling. No small source becomes a real high-resolution capture because the export
+is 4K.
 
 Each step needs a real route: the local command, API or app, the model's licence and the hardware it needs. Where
 there is none, choose a simpler treatment. A prepared command or a vendor's capability page is not a repair that ran.
@@ -181,21 +182,25 @@ from documentation and record the shot's quality as untested.
 **Images**
 
 - **OpenAI GPT Image 2.5** (Sunburst for precise edits, Flare for throughput): custom sizes in multiples of 16, from
-  1:3 to 3:1, up to 3,840 px a side and 655,360 to 8,294,400 pixels in all (3840x2160 or 2160x3840 at most), with
-  anything above 2560x1440 marked experimental; transparent backgrounds ([guide](https://developers.openai.com/api/docs/guides/image-generation)).
+  1:3 to 3:1, up to 3,840 px a side and 655,360 to 8,294,400 pixels in all, with anything above 2560x1440 marked
+  experimental; transparent backgrounds ([guide](https://developers.openai.com/api/docs/guides/image-generation)).
 - **Google Nano Banana 2.1**: reference-led compositions and conversational revisions at 1K-4K
   ([pricing](https://ai.google.dev/gemini-api/docs/pricing)).
 - **Black Forest Labs FLUX 3 Image and Klein**: layout control with bounding boxes; Klein has open weights under its
   own commercial terms ([FLUX 3](https://bfl.ai/models/flux-3-image)).
 - **Midjourney V8.2**: art direction and look development; no automated access under its terms.
 - **Ideogram 4.5 and Vector**: typography and genuine SVG output ([Vector](https://ideogram.ai/models/vector/)).
-- **Adobe Firefly Image 5 with Illustrator**: editable vectors, and a conditional indemnity on eligible features
+- **Adobe Firefly Image 5** for images, and Illustrator's Text to Vector Graphic for editable vectors
+  ([vectors](https://helpx.adobe.com/illustrator/desktop/use-generative-ai/generate-scenes-subjects-and-icons.html));
+  Adobe's indemnity covers only eligible plans, features and exports
   ([conditions](https://helpx.adobe.com/legal/product-descriptions/adobe-firefly.html)).
 
 **Video**
 
-- **Google Gemini Omni 1.1 Flash and Veo 3.1**: conversational edits, extension and interpolation; Veo documents
-  first and last frames and content credentials ([Omni](https://ai.google.dev/gemini-api/docs/omni)).
+- **Google Gemini Omni 1.1 Flash**: conversational generation and editing, extension and interpolation
+  ([model](https://ai.google.dev/gemini-api/docs/models/gemini-omni-flash)).
+- **Google Veo 3.1**: first and last frames and content credentials, on Google's enterprise platform or a partner
+  route; its Gemini API preview endpoints shut down on 2026-10-22 ([video guide](https://ai.google.dev/gemini-api/docs/video)).
 - **Runway Gen-4.5, Act-Two and Aleph 2.0**: Act-Two transfers a real performance to a character; Aleph edits and
   relights existing shots ([API pricing](https://docs.dev.runwayml.com/guides/pricing/)).
 - **Luma Ray3.2**: up to sixteen keyframes, HDR and 16-bit EXR output for compositing ([Ray](https://lumalabs.ai/ray)).
@@ -207,8 +212,9 @@ from documentation and record the shot's quality as untested.
 - **HeyGen Video 1**: economical reference-driven scenes with native sound; free output is non-commercial
   ([API](https://www.heygen.com/ai-video-api)).
 - **Open weights:** LTX-2.5 ([model card](https://huggingface.co/Lightricks/LTX-2.5/blob/main/README.md)) and MiniMax H3
-  ([repository](https://github.com/MiniMax-AI/MiniMax-H3)); both need far more GPU memory than a typical laptop, and
-  both carry revenue-threshold licences.
+  ([repository](https://github.com/MiniMax-AI/MiniMax-H3)); at full precision both exceed a typical laptop's GPU
+  memory, so check quantisation, offloading, RAM and run time before choosing a local route. Both carry
+  revenue-threshold licences.
 - **The Sora 2 API is gone:** OpenAI shut down the Videos API and its Sora 2 models on 2026-09-24
   ([deprecations](https://developers.openai.com/api/docs/deprecations)).
 
@@ -237,14 +243,14 @@ in the edit.
   reduction, SuperScale and Speed Warp ([Studio](https://www.blackmagicdesign.com/products/davinciresolve/studio));
   Neat Video for camera noise; Real-ESRGAN locally ([repository](https://github.com/xinntao/Real-ESRGAN)).
 - **Interpolation:** Topaz's models, Resolve Speed Warp, or RIFE locally ([repository](https://github.com/hzwer/ECCV2022-RIFE)).
-- **Matting:** After Effects Object Matte and Roto Brush, Resolve Magic Mask, SAM 3 under its own licence
-  ([repository](https://github.com/facebookresearch/sam3)), and Robust Video Matting for people (GPL).
+- **Matting:** After Effects Object Matte and Roto Brush, Resolve Magic Mask, SAM 3 for segmentation masks to refine
+  into a soft matte, under its own licence ([repository](https://github.com/facebookresearch/sam3)), and Robust Video
+  Matting for people (GPL-3.0).
 - **Relighting:** Resolve Relight for modest shaping; Runway Aleph or Beeble where changing image content is
   acceptable.
 
-**3D and scenes:** Meshy and Tripo for props to clean up afterwards; World Labs Marble for explorable environments as
-Gaussian splats ([docs](https://docs.worldlabs.ai/marble/models)). Use manufacturer CAD or measured modelling for a
-hero product.
+**3D and scenes:** Meshy and Tripo for props to clean up afterwards; World Labs Marble for explorable environments
+([docs](https://docs.worldlabs.ai/marble/models)). Use manufacturer CAD or measured modelling for a hero product.
 
 ## 9. What spending more buys
 

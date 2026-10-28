@@ -25,7 +25,8 @@ for a good film.
 
 Studio grade is not more of everything. Every element still earns its place, and the extra effort goes into finding
 the idea, testing choices with the person, and taking each weak moment to excellent. A film can be quieter and
-simpler at studio grade than it was before.
+simpler at studio grade than it was before. Scale the studio to the piece: a short piece or an already approved idea
+keeps the core's tailoring ([short pieces](../SKILL.md#short-pieces)), and its concept reopens only if the person asks.
 
 **Who judges what.** You prepare options, build, measure and inspect frames. Every judgement that needs motion at
 playback speed or hearing belongs to a person: how a move feels, a voice, the music, the mix on real speakers,
@@ -63,8 +64,8 @@ Settle these before designing picture or sound:
 - **The first reply.** Lead with the film: describe two or three directions so the person can picture each (§4, item
   5), as ideas the study and the sketches will test. Then give the route in plain words (what the person will see and
   decide at each step, and what each step may cost), the questions above, and how the finished film will be judged:
-  the six questions in §8, answered by viewers, with rounds on the weakest moment until every answer is yes or the
-  person stops.
+  the six questions in §8, answered by viewers, with rounds on the weakest moment until each is met or the person
+  stops.
 
 Done when `budget.csv` holds the cap and the planned lines, the use and the material are recorded with their gaps,
 the references are annotated, every gate has an owner, and the deliverables are agreed.
@@ -114,14 +115,18 @@ A professional brings a frame of reference the person cannot supply. Build one f
 picture or sound, and draw the directions from it: an idea you had before the study enters it as a hypothesis for the
 references to test.
 
-1. Find 5-8 comparable pieces (same kind of product, audience or structure) whose makers documented their decisions:
-   interviews, breakdowns, case studies. For each, record what it needed to do, what it did and why its makers say
-   they chose it, citing the pages you opened. Start from [case-library](case-library.md).
+1. Find comparable pieces (same kind of product, audience or structure) whose makers documented their decisions:
+   interviews, breakdowns, case studies. Start with three, and add more, up to eight, only while another case changes
+   a decision; when a bounded search finds nothing more, record the gap and move on. For each, record what it needed
+   to do, what it did and why its makers say they chose it, citing the pages you opened. Start from
+   [case-library](case-library.md).
 2. Write what this film's kind and platform ask for and rule out, citing platform documentation.
 3. Annotate every reference, the person's or yours: the timestamp, the one property to borrow (a camera behaviour, a
-   reveal, a material response, a balance, an ending), what must not transfer, and a counterexample that does the
-   opposite job. "Like this" without a timestamp is an open question. Draw some references from outside motion
-   design: nature, gesture, dance, film.
+   reveal, a material response, a balance, an ending), what must not transfer, and, where it sharpens the choice, a
+   counterexample that does the opposite job. Label each observation as reported by its makers, seen in frames, or
+   played by a named person; a property of motion or sound stays unverified until someone has played it. "Like this"
+   without a timestamp is an open question. Draw some references from outside motion design: nature, gesture, dance,
+   film.
 4. Mine the product itself. Ask the owner what they disliked about how things were done before the product, and list
    the product's own material: the sounds it makes, the states it passes through, what it outputs, the limits it
    works within. Draft at least one concept from that list. A concept that would describe a competitor as well is
@@ -183,10 +188,13 @@ unclear idea: when a moment fails because the concept is unclear, fix the concep
 
 ## 7. Craft passes
 
-At picture lock and again before delivery, run each pass below as its own lens, the way a specialist would. These
-add to the main references; they do not repeat them. Record each pass's findings in `review-log.md` and verify them
-like any critic's ([review](review.md) §5). A pass that needs perception is complete only when its named person has
-made the judgement (§1).
+Use these passes the way a specialist would: while making the concept sketches, styleframes, animatic and sound
+direction, where they can still change the design, and again at picture lock and before delivery, to verify those
+decisions and catch regressions. The techniques are options, not a house style: choose those that serve this film, and
+record a pass as not applicable when its subject is absent. Truth, rights, accessibility and delivered-file QC stay
+mandatory. These passes add to the main references; they do not repeat them. Record each pass's findings in
+`review-log.md` and verify them like any critic's ([review](review.md) §5). A pass that needs perception is complete
+only when its named person has made the judgement (§1).
 
 ### 7.1 Story and idea
 
@@ -207,7 +215,8 @@ made the judgement (§1).
   attention, understanding and feeling are all unchanged from the row before, cut it or give it a consequence, a
   piece of evidence or a reinterpretation; shorten a hold only after a normal-speed comparison.
 - **Make the density curve the argument.** Write it in one line (simple to rich, rich to simple, steady with one
-  break) with the claim it expresses. If the claim is simplicity, the ending is visibly simpler than the opening.
+  break) with the claim it expresses. If the claim is simplicity, compare an ending with less competing information
+  than the opening.
 - **Put the expert's proof inside the newcomer's action.** Place one detail an expert would recognise as hard inside
   the main action. A newcomer's account must be complete without it, and no qualifier lives only in that detail.
 - **Make the demonstration falsifiable.** Complete "If the product failed, the viewer would see ___." If you cannot,
@@ -263,9 +272,9 @@ made the judgement (§1).
 - **Proof hero type optically.** Render the actual headline and name strings with kerning and shaping on, and check
   awkward pairs, punctuation, apparent centring, alignment with icons, and the optical-size axis where the font has
   one. Store any correction with its string, never as a global tracking change, and check every language separately.
-- **Group with enclosure.** Elements that must read as a set share an enclosure. When the layout rearranges, carry
-  the enclosure with its members or show it releasing them, and remove a connector on the frame its relationship
-  stops being true.
+- **Group with enclosure** where proximity and alignment are not enough to make elements read as a set. When the
+  layout rearranges, carry the enclosure with its members or show it releasing them, and remove a connector on the
+  frame its relationship stops being true.
 
 ### 7.4 Editing and joins
 
@@ -298,7 +307,7 @@ made the judgement (§1).
   carry the burden and the reveal remove it; offer a continuing ambience or tail, a deliberate dry stop and silence as
   alternatives, and keep whichever the person chooses, free of edge clicks. For continuity, carry one sound across the
   change. For precision, keep one distinct sound unused until the action that proves the claim.
-- **Set up each payoff.** For every reveal, name the earlier sound that sets up the expectation and whether the
+- **Set up the payoffs.** For each reveal, decide whether an earlier sound sets up the expectation, and whether the
   reveal fulfils, delays or breaks it. Put no riser before every transition, and keep builds out of reading passages.
 - **Refuse the category's default when it lies.** Write the category's default sound and choose to use it or refuse
   it, with the reason. A glitch, stutter or alarm-like cue taken literally can imply a failure the product does not
@@ -399,33 +408,34 @@ made the judgement (§1).
 
 - **Show the real product where the film makes a claim** ([product-demos](product-demos.md)), at a scale where its
   interface reads at viewing size, with plausible invented data.
-- **Let the product's real timing stand.** When an operation takes time, keep that time or label the shot as an
-  illustration; never shorten an apparent wait silently.
+- **Let the product's real timing stand.** When an operation takes time, keep the measured wait, or label any
+  compression or illustrative timing ([product-demos](product-demos.md) §3); never shorten an apparent wait silently.
 
 ## 8. The studio loop and the bar
 
 The main method stops when no blocking or visible finding remains. Studio grade keeps going until the film clears the
 bar, and the bar never overrides a hard limit, a truth rule or a failed check.
 
-**The bar.** After each round, write a separate answer to each question, with its evidence: the named viewer (ideally
-someone from the intended audience who has not seen earlier cuts), the exact version, how they watched, their answer
-in their own words before any prompting, and the approver's decision. Never combine the answers into a score:
-averaging lets polish hide an empty middle or an unearned payoff.
+**The bar.** At the brief, write for each question below the response that would show it is met, such as what a
+viewer should be able to say back. After each round, record for each question the named viewer (ideally someone from
+the intended audience who has not seen earlier cuts), the exact version, how they watched and their own words before
+any prompting, and, kept separate, the approver's decision: met, not met or unknown. Never combine the decisions into
+a score: averaging lets polish hide an empty middle or an unearned payoff.
 
 - **Understanding.** Can the intended viewer rebuild the change and the product's role?
 - **Specificity.** Does the action reveal something only this product does?
 - **Experience.** Is the response worth having, beyond admiring the effort?
 - **Earned payoff.** Does the culmination depend on what was planted?
 - **Truth.** Does the picture support what viewers will infer?
-- **Afterimage.** What does the viewer recall, unprompted, and is it attached to the right product? Record whether
-  that was immediate recall or after a delay; one viewer's memory is not an audience's.
+- **Afterimage.** Does the viewer's unprompted recall hold the intended idea, attached to the right product? Record
+  whether that was immediate recall or after a delay; one viewer's memory is not an audience's.
 
-"No" and "unknown" are open work, even when every QC check passes. You cannot answer these for a viewer: without one,
-the answer stays unknown.
+"Not met" and "unknown" are open work, even when every QC check passes. You cannot answer these for a viewer: without
+one, the decision stays unknown.
 
 **Each round:**
 
-1. Record the six answers with their evidence.
+1. Record the six decisions with their evidence.
 2. Name the weakest three seconds and the weakest channel in them (picture, motion, sound, words or product truth).
 3. Make two or three alternatives for that moment, each from a different starting point, with its entry, exit and
    claims fixed.
@@ -436,7 +446,7 @@ the answer stays unknown.
 7. Put the film beside the agreed references, at the same size and in the same conditions, and name what still
    separates them. Sitting beside a reference is a comparison, not proof of equal quality.
 
-**Stop** when every answer is "yes" with evidence and a named person has watched (and, unless silent, listened), or
+**Stop** when every question is met with evidence and a named person has watched (and, unless silent, listened), or
 when the person decides to stop. A person's decision to stop is recorded as theirs; it does not mean the bar was
 cleared. When you stop, list what you would still raise, and why. An empty defect list is never the reason to stop.
 
@@ -478,5 +488,5 @@ Deliver what was agreed in §2, on top of the main deliverables ([formats](forma
   report. The client's handover contains only what the licences allow to be passed on; list every excluded
   dependency (fonts, stock originals, library sounds) with its version and how to licence it again.
 
-Done when every agreed deliverable passes its own checks, and the delivery report states the bar's six answers with
-their evidence.
+Done when every agreed deliverable passes its own checks, and the delivery report states the bar's six decisions
+with their evidence.
