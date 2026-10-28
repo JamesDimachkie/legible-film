@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "rate": 48000,
+  "seed": 91,
+  "roles": {
+    "impact": {
+      "takes": [
+        "sfx/impact_1.wav",
+        "sfx/impact_2.wav",
+        "sfx/impact_3.wav"
+      ],
+      "sha256": [
+        "462e870b646b136c8437e1e0883fe0625e80ab27bf8a21a3629ddf7098b1efac",
+        "99dbf5c5b7f79253d3ee02bc3d767d7eb5d00f180b5a080e4d81d2c523e7649f",
+        "3febbdaf971cc1fadc9e95055cbd8a984448b6c5f42a7723478bce00b48f075d"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "a word lands",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "impact_big": {
+      "takes": [
+        "sfx/impact_big_1.wav",
+        "sfx/impact_big_2.wav",
+        "sfx/impact_big_3.wav"
+      ],
+      "sha256": [
+        "429d8374c997581e4ef5df9e4535e293a0f0475fd7d62bfcec0254e69e076964",
+        "28e64cbd7e6d39c47bf8026c6d28dfcbb6784647bf1ba205cc4e4d0fae472bcc",
+        "38458f110d747d7d794b00bf5e763f6e447ef84a1f1e0396b6cbe1b3f073a4d6"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "a large reveal lands",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "hit": {
+      "takes": [
+        "sfx/hit_1.wav",
+        "sfx/hit_2.wav",
+        "sfx/hit_3.wav"
+      ],
+      "sha256": [
+        "b2a9eb310137839bbf1764fa968d8896c7abfa216ef750ab0f02df5e372a39aa",
+        "1e9bc2e6a187b3d3901006c1f04dbc80387b42e41d1999a5a011ced90118d97e",
+        "eb7dab2476fc83ff48f07c918b393cf0b7318e9029da4766c263f906ca409fb2"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "a contact",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "whoosh": {
+      "takes": [
+        "sfx/whoosh_1.wav",
+        "sfx/whoosh_2.wav",
+        "sfx/whoosh_3.wav"
+      ],
+      "sha256": [
+        "d9e0e938c3835ce5c92132346c8d54ceb0881d678c813715783441dcef371d03",
+        "3b3ae6ac27a9276acfa90fa04dee415b51e3d128ee8249daad0cb8d3c0c29c7d",
+        "eccd484cb3e9ef13ab598bedab374af42e79cee9facc7d2a2ae9d18f41f02804"
+      ],
+      "sync": "apex",
+      "points_s": [
+        0.334,
+        0.35,
+        0.355
+      ],
+      "meaning": "a transition",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "whoosh_big": {
+      "takes": [
+        "sfx/whoosh_big_1.wav",
+        "sfx/whoosh_big_2.wav",
+        "sfx/whoosh_big_3.wav"
+      ],
+      "sha256": [
+        "29250fdefca922f6e5d0d6b4313ab962adb035eeb67d21841bde3b1281f14e5b",
+        "7d6faa44f570a5036ab7ad2a684b85bad3d46169f896531b1150bcb8e5070ca1",
+        "8b0c1ed8e33daa3eb1e837dc3eca1444c895e3c1849185a999818deff577b7f8"
+      ],
+      "sync": "apex",
+      "points_s": [
+        0.489,
+        0.59,
+        0.581
+      ],
+      "meaning": "a large transition",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "tick": {
+      "takes": [
+        "sfx/tick_1.wav",
+        "sfx/tick_2.wav",
+        "sfx/tick_3.wav"
+      ],
+      "sha256": [
+        "01f728534846da4ab11be99556fbd33171636b63988a6ab59268b81b16a3e5ba",
+        "59065d61f9299e4c989a43918e91145489d036a6090d4ccc10143f0079ebf933",
+        "6645eca030bbd9df7ead7eb50240fec6de2c09c437015b080cfc58c2a3d4e8f3"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "a small selection",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "pop": {
+      "takes": [
+        "sfx/pop_1.wav",
+        "sfx/pop_2.wav",
+        "sfx/pop_3.wav"
+      ],
+      "sha256": [
+        "f4a9e0c3a49d436ae5f9cb9fe9d5b830649e992c0b726e3f06d03b9bc18d3a90",
+        "82b328d393b36b6d93f373c93a1f9c09e3b95be75024bed6eaf5152985f38062",
+        "054ff54f537fdc9955c87ee67d13327d5add5d99de6dd8de7878f72b0ac553ec"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "a rounded confirmation",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "key": {
+      "takes": [
+        "sfx/key_1.wav",
+        "sfx/key_2.wav",
+        "sfx/key_3.wav"
+      ],
+      "sha256": [
+        "290fd43e15e79a72e7ce6a29e5b313a3c62334fb34f708655fc97c47c46fb08a",
+        "6b0673dee542f3607be7334a6803e3218e1ad2dc88a666ec54d648ff022622e3",
+        "21be9e974dda12600899d53e01390bd7af298a16d382fd98456717005f6fd02c"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "a mechanical key accent",
+      "gain_db": -5,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "riser": {
+      "takes": [
+        "sfx/riser_1.wav",
+        "sfx/riser_2.wav",
+        "sfx/riser_3.wav"
+      ],
+      "sha256": [
+        "78c895c831df702518f73830023f85e2e8c23a9276fbaeef3470d4c5167a8a48",
+        "2750a77560381d65d688256bef109ce9d2c7fa83a62f57ab6f7fb017950f6006",
+        "7b514ab924acefe58bea79d59e3b1a0cec2558db275f56f2e7d1fbf9a22ae246"
+      ],
+      "sync": "end",
+      "points_s": [
+        2.145,
+        2.2,
+        2.255
+      ],
+      "meaning": "anticipation into a cut",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "logo_hit": {
+      "takes": [
+        "sfx/logo_hit_1.wav",
+        "sfx/logo_hit_2.wav",
+        "sfx/logo_hit_3.wav"
+      ],
+      "sha256": [
+        "babd833a3ebd7f5996a88249da29dd2cfde5117a7c32b9b186f7a0e0b4edafab",
+        "a7783441d997a8dd1b42a88459ced6a46010ffd1e704edc34de175d6dbd806b1",
+        "36df97314cf6dfa7a7d43d44cfcbdfd3e4c0f4167b2745822069466580f0f931"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "the identity settles",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    },
+    "glitch": {
+      "takes": [
+        "sfx/glitch_1.wav",
+        "sfx/glitch_2.wav",
+        "sfx/glitch_3.wav"
+      ],
+      "sha256": [
+        "b0dd7dd61413cdcaf02e5fe3350c05577c896e446ee11461c723cb908bd3293a",
+        "43f216f23e4d95a6206b10545f9c707c0cdd78368bfc5bec07b6b21fc91fe312",
+        "f9d5d4c0779609e22f687ff6c1a31f6ffd186edeca08d08b5be7b741ca684547"
+      ],
+      "sync": "attack",
+      "points_s": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "meaning": "a brief designed interruption",
+      "gain_db": -3,
+      "source": "make_sound_kit.py (synthesised; no third-party material)",
+      "licence": "generated for this project"
+    }
+  },
+  "status": "unheard",
+  "music": {
+    "file": "music/temp-150bpm.wav",
+    "offset_s": 0,
+    "at_s": 0,
+    "stop_s": 22.4,
+    "fade_in_ms": 0,
+    "fade_out_ms": 20,
+    "gain_db": -6,
+    "sha256": "daadaec92c135f50353afd4f1d1f42713c4b7b0a23a2d1addc3e7b42478cb8ca",
+    "source": "make_sound_kit.py (synthesised; no third-party material)",
+    "licence": "generated for this project",
+    "label": "Temp track for timing and animatics; unheard; a person decides whether it can ship."
+  },
+  "example_note": "Filled example. Generate its matching WAVs with make_sound_kit.py --out DIR --seed 91 --temp-bpm 150; paths resolve relative to DIR/palette.json. The generated files remain unheard."
+}

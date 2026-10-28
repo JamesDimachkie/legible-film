@@ -66,8 +66,13 @@ The reject line is decided before any take is seen, so attractive light cannot a
   Phrase positively, as Runway's Gen-4 guide recommends
   ([guide](https://help.runwayml.com/hc/en-us/articles/39789879462419-Gen-4-Video-Prompting-Guide)), and follow the
   chosen model's own guide.
+- **Describe the composition, not empty space.** Asked to leave "a calm darker band for the title", image models tend
+  to draw a literal band. Describe what is in each part of the frame, and make room for type in the film itself (a
+  tint plate, a crop, a push to one side).
 - **Approve a keyframe, then animate it.** For identity and composition that must hold, generate or design an approved
-  still first and use image-to-video, describing only the motion.
+  still first and use image-to-video, describing only the motion. For a set of stills that must match, pass the
+  approved first image as the reference for every later one, and keep each output's asset ID beside its file so a
+  later edit can reuse it without uploading again.
 - **Keep a small reference pack:** neutral product views, a character turnaround, wardrobe, the light and style
   reference and a simple layout. Reuse the originals, never copies of copies, and check every invariant across shots.
 - **Start and end frames must agree** on perspective, scale, light, object count and the direction of action. Use
@@ -103,6 +108,12 @@ The reject line is decided before any take is seen, so attractive light cannot a
   change medium. Never keep paying because the first frame looks good.
 - Track **cost per accepted second of the cut**, not per generated second, and record why each rejected take failed so
   nobody repeats the prompt.
+- **Price the whole set before the first paid run.** Most routes quote a run before it starts (a dry run or an
+  estimate). Give the person the price of each step and the total for the set (music takes, the effects kit, the
+  pictures) and wait for one go. A refused or failed run can still be charged: check the account before running it
+  again, and say so.
+- **Choose models from the route's current catalogue and schema,** never from memory: read which inputs it takes
+  (references, duration, tempo, outputs) and which of them change the price.
 - Start a beat at 2-4 usable seconds and lengthen only when the take holds. Trim before drift begins, and cut on
   purposeful action or a sound. Never conceal a defect that changes the product's behaviour, safety or identity.
 - Once a take is approved, record its properties (identity, key objects, action, framing, light) in the asset
@@ -141,11 +152,16 @@ of a short hero shot around contact, mouths, occlusion, cuts, matte changes and 
 
 - hands, finger count, grip and contact; feet and weight transfer;
 - faces, teeth, gaze, identity, skin and expression continuity;
-- every letter, logo, numeral and interface state;
+- every letter, logo, numeral and interface state, at 100%: generated vehicles, clothing and products often carry a
+  real maker's mark;
 - object permanence, geometry, reflections, shadows, gravity and material behaviour;
 - flicker, crawling texture, jitter, background warping, exposure or colour pumping;
 - matte chatter, halos, edge blur and contact shadows;
 - spoken words, lip-sync, unintended speech or music, clicks and clipped tails.
+
+A still that the film will push into needs more pixels than the frame: its width at least the frame's width times
+the largest zoom. A 2048-px picture cropped to 1.7x leaves about 1,200 source pixels across a 3840-px frame, and it
+looks soft.
 
 A contact sheet cannot show smooth motion, and a meter cannot judge a mix: the person's normal-speed viewing is still
 required.
@@ -162,6 +178,9 @@ required.
   or territorial limits (one 3D model's licence excludes the EU, the UK and South Korea:
   [Hunyuan3D-2.1](https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1/blob/main/LICENSE)). Running locally does not make
   a hosted wrapper private.
+- **Words that read as removing a mark get refused.** A request that mentions removing a watermark, especially with
+  a reference image attached, can be blocked as watermark removal. Say what the scene contains instead ("no text or
+  logos in the scene").
 - **Automated access:** some services forbid scripted or agent use of their apps
   ([Midjourney terms](https://docs.midjourney.com/hc/en-us/articles/32083055291277-Terms-of-Service)). Use the
   documented API or have the person operate the app.

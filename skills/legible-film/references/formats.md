@@ -44,7 +44,9 @@ idea per bar, and every scene then had room to land.
 ## 3. Other aspect ratios
 
 - Compose each aspect ratio for its own frame, driven by the same timeline so the soundtrack and cue list carry over
-  unchanged. A centre slice of a wide master shrinks the product and wastes most of a tall frame.
+  unchanged. A centre slice of a wide master shrinks the product and wastes most of a tall frame, and a wide film
+  letterboxed inside a tall one wastes even more. The film kit lays its blocks out in frame units, so one timeline
+  renders 16:9, 9:16 and 1:1 ([kit](kit.md)).
 - In a tall frame, stack the composition and bring the camera closer to the region that matters.
 - Decide line breaks for each rendition in the copy itself, not by wherever a box happens to wrap.
 - Keep text and essential interface clear of the platform's own overlays (names, captions, buttons). For Instagram

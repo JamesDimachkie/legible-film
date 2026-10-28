@@ -14,7 +14,8 @@ Contents: [1. Choose by job](#1-choose-by-job) · [2. Rules for every code-rende
 
 | Job | Default | Alternatives and when |
 |---|---|---|
-| Motion graphics, launch films, explainers, kinetic type, UI reconstructions | **HyperFrames** (HTML, CSS and a paused GSAP timeline; Apache-2.0) | **Remotion** for React teams and templated or data-driven video (check its licence); Revideo or Motion Canvas for generator-style TypeScript (Motion Canvas is effectively dormant) |
+| Type-led launch films, teasers and kinetic type | **The film kit** bundled with this skill ([kit](kit.md)): blocks on a beat grid, the cue list, captions and QC declarations exported from the picture's own timeline, truth, contrast, reading and flash checks before rendering, and a cut-aware motion-blur render | any engine below when the film needs what the kit's blocks do not draw |
+| Motion graphics, explainers, UI reconstructions | **HyperFrames** (HTML, CSS and a paused GSAP timeline; Apache-2.0) | **Remotion** for React teams and templated or data-driven video (check its licence); Revideo or Motion Canvas for generator-style TypeScript (Motion Canvas is effectively dormant) |
 | Mathematical and diagram explainers | **Manim Community** (MIT) | HTML engines for UI-heavy pieces |
 | 3D product shots, lit scenes, camera moves through space | **Blender** (headless CLI, Python API) | Three.js inside an HTML composition for stylised 3D |
 | Assembling, trimming, muxing, encoding, captions, measuring | **FFmpeg** | MoviePy 2.x for quick scripted cuts in Python |
@@ -35,7 +36,12 @@ These make a render repeatable and seekable; most render bugs break one of them.
 - **One timeline, paused and seeked.** Animations are driven by seeking the timeline to each frame's time,
   never by playing it.
 - **Fonts and assets are ready before frame 0**, and text is laid out only after every face and weight in use has
-  loaded; text measured against a fallback font keeps the wrong width. Ship fonts as local files.
+  loaded; text measured against a fallback font keeps the wrong width. Ship fonts as local files. Measure each
+  element once, at build time, while it is displayed (an element under `display: none` measures zero), and keep the
+  numbers; measuring during the render makes a frame depend on the order frames were drawn.
+- **A supplied SVG is untrusted input.** Inlined into the page, it can run script. Remove scripts,
+  `foreignObject`, event-handler attributes and `javascript:` links before inlining it, or draw it as an `<img>`,
+  which runs none.
 - **Frame-exact state.** Anything that counts or switches (typed characters, a caret, a counter, a label) is computed
   from the whole frame number, so motion-blur samples taken between frames agree with each other.
 - **Seek tests:** seek to an important time, to a distant time, and back; compare. A stateful bug shows as a
@@ -177,6 +183,9 @@ in the composition engine.
   `silencedetect`, `astats`, `adelay`, `afade`, `alimiter`.
 - **pyloudnorm** (BS.1770 meter in Python), **ffmpeg-normalize** (batch loudnorm).
 - **librosa** 1.0 (requires Python 3.12+) for onset and beat tracking.
+- **Bundled with this skill:** `beat_grid.py` (tempo, phase, downbeats, drops and drift of a track),
+  `make_sound_kit.py` (a synthesised, rights-clean starter palette and temp track with exact sync points) and
+  `mix_cues.py` (the effects stem, bed and mix from the cue list and the palette).
 - **earshot** (MIT; young) gives agents measurements and labels for sounds, cue sync sheets and code-made
   effects; treat its labels as hints, never as a listening verdict.
 - **Demucs** for stem separation: code MIT, pretrained-weights licence unclear (see
@@ -204,7 +213,9 @@ in the composition engine.
 
 ## 13. Machine hygiene
 
-- Run one heavy render at a time; check free memory before starting; prefer one or two workers on a laptop.
+- Run one heavy render at a time; check free memory before starting; prefer one or two workers on a laptop. Size
+  workers from one worker's measured peak memory at the target resolution, not from a guess: a 4K browser worker
+  with motion-blur accumulation needs several times what a 1080p one does.
 - Render from a frozen copy of the source so edits during a render cannot leak into it.
 - Stop only processes you started, by their own PID; a pattern kill on a shared machine stops other people's
   jobs. Leave other jobs' lock files alone.

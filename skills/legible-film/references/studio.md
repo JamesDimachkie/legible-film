@@ -126,7 +126,11 @@ references to test.
    counterexample that does the opposite job. Label each observation as reported by its makers, seen in frames, or
    played by a named person; a property of motion or sound stays unverified until someone has played it. "Like this"
    without a timestamp is an open question. Draw some references from outside motion design: nature, gesture, dance,
-   film.
+   film. Measure each motion reference's pace with `motion_scan.py` (still share, longest still stretch, cuts per
+   10 s; [kinetic-type](kinetic-type.md) §4) and record the numbers beside it. Name a look by its cause (halation,
+   bleach bypass, halftone, a dolly zoom): the [VFX Atlas](https://atlas.letz.ai/) describes 504 effects and looks
+   from 1820 to 2026 with the optical, chemical or digital cause of each, and knowing the cause tells you how to
+   rebuild a look honestly in code.
 4. Mine the product itself. Ask the owner what they disliked about how things were done before the product, and list
    the product's own material: the sounds it makes, the states it passes through, what it outputs, the limits it
    works within. Draft at least one concept from that list. A concept that would describe a competitor as well is

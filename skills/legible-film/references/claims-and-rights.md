@@ -34,6 +34,10 @@ Write these into the brief before the build:
 - No visual link, motion or arrangement implies a relation or capability the facts do not support.
 - Competitors and other authors appear neutrally; the picture never implies their work is the product's.
 - New wording of an approved claim is a new claim; check it against the source.
+- A number the film states about itself (its length, its frame count, the lines of its own source) is a claim too:
+  compute it from the final build, not a draft.
+- In the film kit, each claim and qualifier on screen carries its facts ID, and `film_check.py` fails any whose
+  string differs from the facts entry ([kit](kit.md)).
 - A dated claim is valid when its date or version is on screen.
 - When a client restates a published figure differently, reconcile the two: use the published figure, or the
   client's figure on the client's explicit authority, and tell them what a viewer who checks will find.

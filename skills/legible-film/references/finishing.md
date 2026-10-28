@@ -37,12 +37,20 @@ Contents: [1. Render custody](#1-render-custody) · [2. Frame rate and motion bl
   - space samples a few pixels apart along the fastest movement, so an edge fades instead of stamping copies;
     frames with no fast motion need no extra samples;
   - a hard cut inside an accumulated range blends two shots into one double exposure: treat every cut as a shot
-    boundary and keep each frame's samples inside its own shot;
+    boundary and keep each frame's samples inside its own shot. Slide the window to its own side of the cut rather
+    than cutting it short: the frame just before a whip's cut is its fastest, and a truncated window leaves exactly
+    that frame sharp;
+  - a whip can take a longer shutter than the rest of the film (several times 180°) for a long-exposure smear;
+    declare it as a window around the whip, and spend extra samples only inside such fast windows;
   - discrete state (text, counts, carets, layout switches) and any grain are computed from the whole frame number,
     so every sample of one output frame agrees;
   - an element that crosses many times its own size per frame smears into stepped copies however many samples you
     take: redesign the move;
   - after the render, inspect the frames with the most movement at full resolution.
+
+  `film_render.py` does all of this for a film made with the kit, averaging in linear light by default and encoding
+  with the colour path in §3. For any other engine, render at a whole multiple of the delivery rate and let
+  `motion_blur.py` accumulate the frames with the same rules, given the cut list.
 
 ## 3. Colour: convert, then tag, then verify
 

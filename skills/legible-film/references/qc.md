@@ -32,7 +32,7 @@ reason. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2
 | 2 | Brand colour survives | add `--color-patch 4.0@120,80,40,40=#3080C0` (a flat region at a time) | the region decodes to the brand colour under the file's own tags | how every player will show it |
 | 3 | Flashing (hard limit) | `python scripts/flash_scan.py film.mp4 --json qa/flash.json` | no candidate WCAG 2.3.1 general or red flash sequence was found | certification (Harding, IRIS, broadcast PSE) |
 | 4 | Near-empty frames | `python scripts/blank_scan.py film.mp4 --ignore <designed> --json qa/blank.json` | runs of flat or failed frames outside declared ranges | that a declared breath reads as intended |
-| 5 | Cuts, one-frame intrusions, stutter, holds, loop seam | `python scripts/motion_scan.py film.mp4 [--loop] --ignore <designed> --json qa/motion.json` | where the cuts are, stray single frames, repeated frames inside motion, when motion first starts, long holds, the film's motion-energy profile, seam continuity | whether a move or a hold feels right at speed |
+| 5 | Cuts, one-frame intrusions, stutter, holds, pace, loop seam | `python scripts/motion_scan.py film.mp4 [--loop] --ignore <designed> --json qa/motion.json`; with a declared pace contract add `--end <end card> --max-still 0.6 --max-still-share 0.4` | where the cuts are, stray single frames, repeated frames inside motion, when motion first starts, long holds, still share and still stretches, cuts per 10 s, seam continuity | whether a move or a hold feels right at speed |
 | 6 | Overview | `python scripts/frame_sheet.py film.mp4 --every 0.5 --out qa/overview.png` | what is on screen every half second | anything between the samples |
 | 7 | Every transition | `python scripts/frame_sheet.py film.mp4 --around <cut times> --span 1.6 --rate 20 --out qa/joins.png` | sampled states around each join; `--frames A-B` shows every decoded frame of a suspect interval | rhythm |
 | 8 | Viewing size | `python scripts/frame_sheet.py film.mp4 --at <text moments> --width 384 --out qa/phone.png` | what essential text looks like at feed size | that someone can read it in time |
@@ -42,7 +42,12 @@ reason. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2
 | 12 | Motion path | `python scripts/onion_frames.py --out qa/onion.png qa/frames/<consecutive frames>` | spacing, overshoot and jumps across a move | a single bad frame inside the stack |
 
 Run 1-9 on every delivered rendition (each aspect ratio, the loop, the alpha version, the GIF), adapted as above;
-10-11 when there is sound; the change proof in §6 on every revision.
+10-11 when there is sound; the change proof in §6 on every revision. Add `--max-level` (4.2 for 1080p60, 5.2 for
+2160p60) and `--max-size-mb` to check 1 when a player or platform sets those limits.
+
+A film made with the kit also has a check before any render: `python scripts/film_check.py <film>` reports facts
+mismatches, contrast, reading windows and predicted flashing from the film's own timeline, and writes the cue list,
+the captions and `qa/declared.json` (the designed cuts, rests and flashes to pass to `--ignore`).
 
 ## 3. Looking at a film you cannot play
 
@@ -54,6 +59,10 @@ Run 1-9 on every delivered rendition (each aspect ratio, the loop, the alpha ver
   frames). Audit every rendition and still at full resolution, not just the master.
 - For each changed move, look at consecutive frames (`frame_sheet.py --frames A-B`) and an onion skin for
   stalls, jumps, blinks and objects moving against their own direction.
+- In a film cut to music, sample stills on the beat grid (the beats and half beats around each change) rather than
+  at round seconds, because that is where its events land.
+- At a whip or any fast move into a cut, look at the frames either side of the cut: the last outgoing frame is the
+  fastest and should be the most blurred. A sharp frame there means the motion-blur window was cut short at the cut.
 - Count words on viewing-size sheets to check reading load; do not judge readability from memory of the copy.
 - Batch frames into sheets: images are expensive in context, and a sheet keeps comparisons side by side.
 

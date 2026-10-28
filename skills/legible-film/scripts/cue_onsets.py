@@ -14,7 +14,7 @@ cues.json (times in seconds on the film clock; "frame" plus a top-level "fps" al
      {"id": "whoosh-in", "t": 5.2, "sound": "required", "sync": "apex"},
      {"id": "read-hold", "t": 7.0, "sound": "silent", "window_ms": 600}]}
   sound: required | silent | optional (optional cues are reported, never failed)
-  sync:  attack (where the sound starts) | apex (its loudest instant, e.g. a whoosh)
+  sync:  attack (where the sound starts) | apex (its loudest instant, e.g. a whoosh) | end (audible end)
   window_ms: how far either side of t to look (t 7.0 with window_ms 600 checks 6.4-7.6 s)
   tolerance_ms: the largest offset that still counts as on cue
 A cue list that cannot be checked as written (no time, an unknown sound or sync, a window or
@@ -101,6 +101,30 @@ class Signal:
         k = lo + int(np.argmax(seg))
         return seg.max() >= self.floor_db, k, float(self.env[k] - np.median(seg))
 
+    def end(self, lo, hi):
+        """A qualifying energy fall, stamped at the end, not the RMS window end.
+
+        Search the corresponding forward-window indices. An end needs audible
+        energy before the fall; silence throughout cannot count as a found end.
+        A gradual decay has a threshold-dependent audible end and can be weak.
+        """
+        a, b = max(3, lo + LAG), min(len(self.env) - 1, hi + LAG)
+        if b < a:
+            return False, lo, 0.0
+        fall = self.env[a - 3:b - 2] - self.env[a:b + 1]
+        audible = self.env[a - 3:b - 2] >= self.floor_db
+        # A temporary notch inside a sound is not its audible end. Require a
+        # quiet run after the candidate (at least 5 ms where available).
+        quiet_after = np.array([len(self.env[k:min(len(self.env), k + 8)]) >= 5 and
+                                np.max(self.env[k:min(len(self.env), k + 8)]) < self.floor_db
+                                for k in range(a, b + 1)])
+        hits = np.flatnonzero((fall >= self.rise_db) & audible & quiet_after)
+        if not hits.size:
+            k = int(np.argmax(fall))
+            return False, a + k - LAG, float(fall[k])
+        k = int(hits[np.argmax(fall[hits])])
+        return True, a + k - LAG, float(fall[k])
+
 
 def cue_time(ev, fps):
     if 't' in ev:
@@ -154,7 +178,7 @@ def validate(spec):
         name = f'cue {cue_id!r}'
         if ev.get('sound', 'required') not in ('required', 'silent', 'optional'):
             problems.append(f"{name}: sound must be required, silent or optional, not {ev.get('sound')!r}")
-        if ev.get('sync', 'attack') not in ('attack', 'apex'):
+        if ev.get('sync', 'attack') not in ('attack', 'apex', 'end'):
             problems.append(f"{name}: sync must be attack or apex, not {ev.get('sync')!r}")
         if 't' in ev:
             if not number(ev['t']):
@@ -265,7 +289,8 @@ def main():
                            rise_db=round(float(sig.rise[k]), 1), level_db=round(float(sig.env[k]), 1))
             rows.append(row)
             continue
-        found, k, strength = sig.apex(lo, hi) if sync == 'apex' else sig.attack(lo, hi)
+        found, k, strength = (sig.end(lo, hi) if sync == 'end' else
+                              sig.apex(lo, hi) if sync == 'apex' else sig.attack(lo, hi))
         offset = k - k0  # milliseconds, because HOP is 1 ms
         row.update(onset_s=round((k + LAG) / 1000, 4), offset_ms=offset, strength_db=round(strength, 1),
                    level_db=round(float(sig.env[k]), 1), tolerance_ms=tol)

@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.2.0 (2026-10-28)
+
+The film kit, sound and render tools, and a kinetic-type register: the skill can now make a film end to end, and the
+film checks its own facts, reading time and flashing before it renders.
+
+- **The film kit** (`assets/kit/`, `references/kit.md`): a small, dependency-free browser engine for type-led films,
+  from a calm launch film to beat-cut kinetic type.
+  - Blocks for the common devices (words on the beat, a terminal, a number, the name, a picture, a chain, a denial, an
+    end card, a running caption), laid out in frame units so one timeline renders 16:9, 9:16 and 1:1.
+  - A camera rig that never parks, a palette built from one brand colour as tinted neutrals, variable type fitted to
+    the frame, effects registered so flashing can be predicted.
+  - `film_check.py` before every render: claims bound to the facts file, contrast at every ground, measured reading
+    windows, predicted flashing, a determinism lint; it writes the cue list, the captions and the QC declarations.
+  - `new_film.py` to start a project; a starter film and a showcase film for a fictional product.
+- **Render:** `film_render.py` (with `film_capture.mjs`) renders kit films with cut-aware motion blur averaged in
+  linear light, optional bloom and grain, and the BT.709 colour path; `motion_blur.py` does the same for any engine
+  rendered at a multiple of the frame rate.
+- **Sound:** `beat_grid.py` measures a track's tempo, phase, downbeats, drops and drift and computes the offset that
+  lands a drop on a chosen beat; `make_sound_kit.py` synthesises a rights-clean draft palette and temp track with
+  exact sync points; `mix_cues.py` builds the effects stem, the bed and the mix from the cue list and
+  `assets/templates/palette.json`, and reports hits that are missing, smeared or under the music. `cue_onsets.py`
+  checks `end` sync points.
+- **Measurement:** `motion_scan.py` reports pace (still share, still stretches with their beats, cuts per 10 s) and
+  checks a declared pace contract; `qc_file.py` checks the H.264 level and the file size.
+- `references/kinetic-type.md`: the register of big words on a beat, from brief to beat sheet, its devices with
+  their truth checks, pace you can measure, joins that are moves, sound, render, and its safety limits (flash
+  budgets for ground changes, readable qualifiers, motion).
+- Reference updates:
+  - tinted neutrals from the brand colour, a world texture that shows camera moves, how the thread is drawn
+    (`picture.md`);
+  - measuring a track's grid before building on it (`timing.md`);
+  - the palette manifest, the draft kit and the mixer (`sound.md`);
+  - composition rather than empty space, pricing a whole set before the first paid run, refused prompts, marks on
+    generated objects, source pixels for pushes (`generation.md`);
+  - open museum collections and a house style from public-domain art (`assets.md`);
+  - measuring the pace of references, and naming a look by its cause (`studio.md`);
+  - interface motion by job for reconstructions (`product-demos.md`);
+  - motion blur that slides at cuts and long shutters for whips (`finishing.md`);
+  - the kit in the engine table, untrusted SVG, measuring layout once (`engines.md`);
+  - the preflight, pace, beat-grid stills and whip frames (`qc.md`);
+  - one timeline for every aspect ratio (`formats.md`);
+  - numbers a film states about itself, claims bound to facts (`claims-and-rights.md`).
+- Evaluations: eval 8 (a kinetic teaser plan) and eval 9 (a film built with the kit).
+
 ## 1.1.0 (2026-10-27)
 
 Studio grade: an opt-in path to the best film the budget allows, on top of the unchanged method.

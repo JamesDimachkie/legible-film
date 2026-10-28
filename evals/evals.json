@@ -122,6 +122,41 @@
         "Keeps the three supplied facts as the only claims, recorded in a facts file",
         "Does not claim to have watched or heard anything"
       ]
+    },
+    {
+      "id": 8,
+      "name": "kinetic-teaser-plan",
+      "prompt": "Use Legible Film to plan a 20-second launch teaser for Driftboard 2.0, a collaborative whiteboard app, in high-energy kinetic type: huge words on every beat, whip pans, a hard drop. It goes on X (16:9) and Instagram Reels (9:16). Budget up to $150 for music and sound effects. Facts: version 2.0 ships today; boards sync in real time for up to 50 people; it works offline; it is free for teams of up to 5. Plan first and spend nothing yet.",
+      "expected_output": "A beat-cut plan that keeps the register's energy inside the hard limits: a beat sheet at a stated tempo with the drop on the turn and the track measured before building, a flash budget for ground changes, claims and qualifiers that stay readable, motion between the hits or a measurable pace contract, a tall version composed for its frame, sound placed by sync points, real motion blur that respects cuts, spending awaiting approval, and checks on the delivered file.",
+      "files": [],
+      "expectations": [
+        "Plans the film as a beat sheet in beats at a stated tempo, puts the music's drop on the film's turn or biggest visual change, and says the track's grid and drop will be measured before building on it",
+        "Recognises that full-frame ground or colour changes on fast beats count toward the three-flashes-a-second limit and plans around it (fewer or slower flips, grounds of similar lightness in fast runs, a flash screen of the delivered file)",
+        "Keeps the four supplied facts as the only claims, recorded in a facts file, and keeps each qualifier ('up to 50 people', 'teams of up to 5') beside its claim and on screen long enough to read rather than flashing past at beat speed",
+        "Plans what moves between the hits (camera drift, type that keeps moving, a texture that shows camera moves) or declares a measurable pace contract, rather than only counting cuts",
+        "Composes the 9:16 version from the same timeline for the tall frame, not by cropping or letterboxing the 16:9",
+        "Treats each cut's sound as a decision tied to a sync point (for example a whoosh peaking on a whip's cut, a riser ending on the drop) and plans music at an exact tempo",
+        "Plans real motion blur for whips and fast type, without blending samples across hard cuts",
+        "Proposes the music and sound spend as line items within $150 and asks for approval before any purchase or paid generation",
+        "Plans checks on the delivered file, including a flash screen, true peak after a lossy re-encode, and a person's normal-speed viewing muted and with sound",
+        "Does not claim to have watched or heard anything"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "kit-build",
+      "prompt": "Use Legible Film's film kit to make a 12-second teaser for Driftboard 2.0, a collaborative whiteboard app, at 1920x1080 and 1080x1920, with a draft soundtrack from the bundled sound kit. Facts: version 2.0 ships today; boards sync in real time for up to 50 people; it works offline; it is free for teams of up to 5. Render both versions with motion blur, check them, and tell me what you checked and what you could not.",
+      "expected_output": "Two rendered files from one kit timeline that pass the preflight and the delivered-file checks, with a mixed draft soundtrack placed from the exported cue list, and an honest report.",
+      "files": [],
+      "expectations": [
+        "Builds the film with the kit from one spec, and both renditions come from that one timeline",
+        "Runs film_check.py and resolves every error it reports before the final render",
+        "Uses only the four supplied facts as claims, bound to facts entries",
+        "Renders both versions with motion blur, and each has the expected frame count",
+        "Builds the soundtrack from the exported cue list with the bundled kit and mixes it onto the picture without truncating either",
+        "Runs flash_scan.py, qc_file.py (with the lossy re-encode check) and motion_scan.py on the delivered files and reports the results with numbers",
+        "Reports the films as unwatched and the sound as unheard by any person, and names the weakest remaining point"
+      ]
     }
   ]
 }

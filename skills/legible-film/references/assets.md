@@ -104,6 +104,7 @@ perspective, palette and grain across a series.
 | [Unsplash](https://unsplash.com/license) | landscapes, objects and editorial-feeling atmosphere | free commercial use; releases not guaranteed ([releases](https://help.unsplash.com/en/articles/2612329-releases-and-trademarks)) | free |
 | [Adobe Stock](https://stock.adobe.com/license-terms) | broad searches across photos, illustration and vectors | Standard licence covers social and web; audience limits and editorial restrictions apply | 10 credits for $29.99/month on an annual commitment; cancelling early can cost a fee ([plans](https://stock.adobe.com/plans)) |
 | [Stocksy](https://www.stocksy.com/pricing) | a small, coherent set with an individual point of view | Standard includes advertising, worldwide, unlimited term | $35 (2 MP) to $135 (12 MP and up) |
+| [10M](https://www.10m.co/about) | public-domain art, maps, engravings, botanical plates and posters from 22 museums and archives, searchable by colour, mood, era, medium or artist | rights are stated per work: about 130,000 works carry recorded public-domain or CC0 evidence, and others are display-only or restricted; download only works marked open, and confirm the rights at the institution's own page | free |
 
 **Search** by light and treatment (`soft north window portrait`, `cross-polarised product`, `backlit translucent
 glass`, `copy space left`) and stay inside one photographer's session before broadening. **Reject** extreme skin
@@ -246,6 +247,11 @@ never stand in for the real product's behaviour ([product-demos](product-demos.m
 | [Envato Elements](https://help.elements.envato.com/hc/en-us/articles/360000628966-Envato-Elements-License) | breadth in illustration, mockups and templates | per-project registration; embedded components may have their own licences | from $16.50/month billed annually ([pricing](https://elements.envato.com/pricing)) |
 | [UI8](https://ui8.net/terms) | a coherent illustration set or design kit | marketing videos and client work permitted; no standalone redistribution of the assets | per item |
 | [Apple Design Resources](https://developer.apple.com/design/resources/) | accurate presentation of a qualifying Apple app | separate conditions per resource | free downloads; terms per resource |
+
+**A house style from public-domain art.** An illustration language can start from a public-domain tradition (woodcut,
+engraving, botanical plate, early poster) found in open museum collections. Redraw it as layered vectors in the
+brand's colours, so every element can move on its own, rather than tracing one work. Credit the source collection
+where it asks, and keep each work's rights record in the asset register.
 
 **Device and platform owners have their own rules.** Apple's App Store marketing guidance forbids modifying, spinning
 or animating its supplied product images and 3D simulations of its products in that context, and requires trademark

@@ -1,11 +1,11 @@
 ---
 name: legible-film
-description: "Video production for coding agents: plans, builds, scores, renders, revises and quality-checks short videos such as product and launch films, explainers, demos, ads, loops, logo stings, motion graphics, screen recordings, edited footage and generated clips. Use when making or changing a video, choosing video tools, designing its story, picture or sound, encoding or muxing a deliverable, or checking an exported file before it ships. Includes an opt-in studio grade for the highest quality at higher spend: study, watchable choices, premium and generated assets, specialist craft passes. Works with any engine: HyperFrames, Remotion, Blender, an editor or plain FFmpeg. Not for transcription, downloading or metadata lookups alone."
+description: "Video production for coding agents: plans, builds, scores, renders, revises and quality-checks short videos such as product and launch films, teasers, explainers, demos, ads, loops, logo stings, kinetic type, motion graphics, screen recordings, edited footage and generated clips. Use when making or changing a video, choosing video tools, designing its story, picture or sound, timing it to music, encoding or muxing a deliverable, or checking an exported file before it ships. Includes a film kit (a small engine whose films check their own facts, reading time and flashing before they render), sound tools, a motion-blur renderer, and an opt-in studio grade for the highest quality at higher spend. Works with any engine: the kit, HyperFrames, Remotion, Blender, an editor or plain FFmpeg. Not for transcription, downloading or metadata lookups alone."
 license: Apache-2.0
-compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. No network access or accounts required."
+compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. The film kit's checks and renders also need Node 18+ with Playwright and a Chromium. No accounts or paid services required."
 metadata:
   author: "James Dimachkie"
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Legible Film
@@ -54,6 +54,8 @@ stop only processes you started, by their own PID.
 | The request | Path |
 |---|---|
 | A new video | Steps 1-9 |
+| A fast, beat-cut film of big words (a teaser, trailer or hype film) | Steps 1-9 in the [kinetic-type](references/kinetic-type.md) register |
+| A type-led film built with the bundled engine | Steps 1-9, building with the [film kit](references/kit.md) |
 | The best film possible, with a budget for premium work | Steps 1-9 at [studio grade](#studio-grade) |
 | A logo sting, a loop, or a clip under about 15 s | Steps 1-9, done lightly ([short pieces](#short-pieces)) |
 | A change to an approved cut | [Revisions](#revisions), then steps 6-9 |
@@ -110,6 +112,7 @@ Read [timing](references/timing.md).
 - Keep every event picture and sound share in one timing source that both the picture code and the cue export read;
   compute sync points from the animation, never by hand.
 - Give each essential text its `in`, `readStart`, `readEnd` and `out`.
+- When music is the clock, measure the track's grid with `beat_grid.py` before building on it.
 
 Done when the cue list ([cues.json](assets/templates/cues.json)) is exported from the same source as the picture, and
 every essential text has a usable reading window that fits its task at viewing size.
@@ -124,6 +127,8 @@ Read [picture](references/picture.md), and [engines](references/engines.md) for 
   captured page, fonts loaded before anything is measured.
 - Work in a lab loop before any full render: stills at each cue's frames, short motion windows, seeks out of order
   and back, and sheets at viewing size (`frame_sheet.py`).
+- With the [film kit](references/kit.md), run `film_check.py` before every render: it reports facts mismatches,
+  contrast, reading windows and predicted flashing from the film's own timeline.
 
 Done when style frames are judged at full size and at viewing size, every changed moment is checked in stills and a
 short motion render, and the engine's own checks pass.
@@ -138,7 +143,9 @@ track.
   how it ends.
 - Where the choice is open, prepare treatments that differ in one choice, picture fixed and loudness matched, so the
   person chooses by listening.
-- Place each take by its sync point against the cue list, and master with a light safety limiter.
+- Place each take by its sync point against the cue list (`mix_cues.py` builds the stem and mix from the cue list and
+  the palette), and master with a light safety limiter. `make_sound_kit.py` gives a rights-clean draft palette and a
+  temp track to time against before any sound is bought or generated.
 
 Done when each passage has a lead and a job, `cue_onsets.py` matches the cue list, the true peak stays below 0 dBTP
 after a lossy re-encode, and the person's listening decision is recorded or the sound is reported as unheard.
@@ -147,7 +154,8 @@ after a lossy re-encode, and the person's listening decision is recorded or the 
 
 Read [finishing](references/finishing.md) and the [ffmpeg-cookbook](references/ffmpeg-cookbook.md).
 
-- Render a frozen copy of the source, recording tool versions and input hashes; render a short window first.
+- Render a frozen copy of the source, recording tool versions and input hashes; render a short window first. Give
+  fast motion real motion blur (`film_render.py` for the kit, `motion_blur.py` for other engines).
 - Convert and tag colour explicitly (BT.709 for HD SDR) and verify it; deliver H.264 as `yuv420p` unless the spec
   says otherwise.
 - Mux the mastered mix onto the finished picture with the audio length matched to the picture.
@@ -253,11 +261,18 @@ environment (about half a minute, synthetic media only).
 | `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? |
 | `flash_scan.py` | Is there a candidate WCAG 2.3.1 flash sequence? |
 | `blank_scan.py` | Are there near-empty frames outside the designed ones? |
-| `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam. |
-| `cue_onsets.py` | Does each sound start on its cue, do silent cues stay quiet, and is the hit rate better than chance? |
+| `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam; pace (still share, still stretches, cuts per 10 s) against a declared contract. |
+| `cue_onsets.py` | Does each sound start, peak or end on its cue, do silent cues stay quiet, and is the hit rate better than chance? |
 | `sync_check.py` | Is the delivered audio offset or drifting against the approved mix? |
 | `compare_versions.py` | Where did the picture change between two renders? |
 | `onion_frames.py` | What path and spacing does a move have across these frames? |
+| `beat_grid.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
+| `mix_cues.py` | Build the effects stem, the bed and the mix from the cue list and the palette; which hits are missing, smeared or under the music? |
+| `make_sound_kit.py` | Synthesise a rights-clean draft palette and temp track with exactly known sync points. |
+| `motion_blur.py` | Turn a render made at a multiple of the frame rate into true motion blur, never across a cut. |
+| `new_film.py` | Start a film project from the kit. |
+| `film_check.py` | Before rendering a kit film: facts, contrast, reading windows, predicted flashing, determinism; writes the cue list, captions and QC declarations. |
+| `film_render.py` | Render a kit film with cut-aware motion blur and the correct colour path (it drives `film_capture.mjs`). |
 
 ## References
 
@@ -274,6 +289,8 @@ environment (about half a minute, synthetic media only).
 | Step 7 | [qc](references/qc.md) |
 | Step 8 and revisions | [review](references/review.md) |
 | Studio grade | [studio](references/studio.md) |
+| A fast, beat-cut film of big words | [kinetic-type](references/kinetic-type.md) |
+| Building with the bundled engine | [kit](references/kit.md) |
 | Finding assets: footage, stills, music, effects, voice, type, 3D, textures | [assets](references/assets.md) |
 | Making assets with generative or enhancement tools | [generation](references/generation.md) |
 | Checking a figure | [sources](references/sources.md) |

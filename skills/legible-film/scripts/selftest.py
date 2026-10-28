@@ -12,6 +12,7 @@ with libx264 and the native AAC encoder. Exit code 0 when every case passes.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import shutil
@@ -22,6 +23,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 RESULTS = []
+CASE_MODULES = ('sound',)
 
 
 def record(name, ok, detail=''):
@@ -420,6 +422,17 @@ def main():
     code, out = tool('blank_scan.py', j('late_picture.mp4'), '--ignore', '2.0-2.5')
     record('blank_scan: times stay on the film clock when the picture starts late',
            code == 0 and '2.000-  2.500' in out, next((x.strip() for x in out.splitlines() if 'near-empty' in x), ''))
+
+    # 22. Cases for the sound, render and kit tools live beside this file, one module per area.
+    for area in CASE_MODULES:
+        path = os.path.join(HERE, 'selftest_cases', area + '.py')
+        try:
+            spec = importlib.util.spec_from_file_location('selftest_cases_' + area, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            getattr(module, f'run_{area}_cases')(tool, record, j, HERE)
+        except Exception as exc:  # a crashed module is a failed case, never a silent skip
+            record(f'{area} cases ran to the end', False, repr(exc)[:200])
 
     passed = sum(1 for _, ok, _ in RESULTS if ok)
     print(f'\n{passed}/{len(RESULTS)} checks passed. Files: {work}' if a.keep else
