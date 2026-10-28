@@ -153,7 +153,9 @@ Budget up to $800 for music, voice and stock." The agent then works the way a sm
   specificity, experience, earned payoff, truth and afterimage) or you decide to stop.
 
 Every gate still applies: nothing is bought, uploaded or published without you. The full method is in
-[studio](skills/legible-film/references/studio.md).
+[studio](skills/legible-film/references/studio.md). In one blind-graded test of a studio-grade request, run once per
+arm on one model, the plan made with the skill met 9 of 9 expectations and the plan made without it met 2 of 9
+([evidence](evals/results/2026-10-27-studio-grade/README.md)). That measures the plan, not a finished film.
 
 ## What is inside
 
@@ -189,8 +191,8 @@ evals/                behaviour and trigger evaluations for the skill itself
 - `flash_scan.py` screens for WCAG 2.3.1 flashing. It is not a Harding, IRIS or broadcast PSE certification.
 - Tool versions, platform specs and provider terms in the references were checked on 2026-10-27 and change often;
   each is dated, and linked to its source wherever a stable page exists, so it can be re-checked.
-- Evaluations are small: five requests, one run each with and without the skill on one model, graded blind by
-  another model family against expectations written by the skill's author. They measure whether an agent follows
+- Evaluations are small: six requests (five on 1.0.0, the studio-grade one on 1.1.0), one run each with and without
+  the skill on one model, graded blind by another model family against expectations written by the skill's author. They measure whether an agent follows
   the method, not how good its film is, and whether agents load the skill unprompted has not been tested. Details
   are in [evals/README.md](evals/README.md).
 

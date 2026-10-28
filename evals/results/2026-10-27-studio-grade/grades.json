@@ -1,0 +1,47 @@
+{
+ "e6": {
+  "with-skill": [
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true,
+   true
+  ],
+  "without-skill": [
+   false,
+   false,
+   false,
+   false,
+   false,
+   true,
+   false,
+   false,
+   true
+  ],
+  "borderline": [
+   {
+    "run": "with-skill",
+    "item": 2,
+    "why": "The sourced reference study is committed to in three places but is not a numbered production step, names no sources or what to borrow, and a recommended direction is proposed before it."
+   },
+   {
+    "run": "with-skill",
+    "item": 8,
+    "why": "facts.json holds a fifth entry (the shared-budget app descriptor) beyond the three supplied facts and splits the first fact into launch and platforms, though every entry comes from the brief."
+   },
+   {
+    "run": "without-skill",
+    "item": 6,
+    "why": "It states the licence must cover an organic X launch film and commercial usage rights, but thinly and on an assumed use, with no term, territory or paid placement."
+   }
+  ],
+  "blind_labels": {
+   "A": "with-skill",
+   "B": "without-skill"
+  }
+ }
+}

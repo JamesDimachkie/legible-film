@@ -1,0 +1,11 @@
+{
+  "project": "Pocketfern split by item launch",
+  "policy": "User-provided claims are provisional; independently verify changeable claims before release.",
+  "claims": [
+    {"id":"product","display":"Pocketfern is a shared-budget app","source":"User brief, 2026-10-27","read_on":"2026-10-27","status":"user-supplied; not independently verified"},
+    {"id":"launch","display":"Split by item launched today","source":"User brief, 2026-10-27","read_on":"2026-10-27","conditions":"Today refers to the user's stated date; verify before release","status":"user-supplied; time-sensitive"},
+    {"id":"platforms","display":"iOS & Android","source":"User brief, 2026-10-27","read_on":"2026-10-27","status":"user-supplied; verify before release"},
+    {"id":"limit","display":"Up to 50 items per receipt","source":"User brief, 2026-10-27","read_on":"2026-10-27","conditions":"Applies to split by item","status":"user-supplied; verify before release"},
+    {"id":"price","display":"Free for all users","source":"User brief, 2026-10-27","read_on":"2026-10-27","conditions":"Applies to split by item","status":"user-supplied; verify before release"}
+  ]
+}

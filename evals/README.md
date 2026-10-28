@@ -27,6 +27,12 @@ not.
 
 Each round is recorded with its date, models and skill version. An evaluation without a row here has not been run.
 
+### 2026-10-27: behaviour eval 6 (studio grade) on Legible Film 1.1.0
+
+Same runner, grader and protocol as the round below, on the skill at commit `fe30898`. With the skill 9/9, without
+2/9, from one run per arm. The full record is in
+[results/2026-10-27-studio-grade](results/2026-10-27-studio-grade/README.md).
+
 ### 2026-10-27: behaviour evals 1-5 on Legible Film 1.0.0
 
 Runners GPT-6.1 Terra through the Codex CLI, one run per arm; grader Claude Sonnet 5.5, blind. Evals 3-5 were run

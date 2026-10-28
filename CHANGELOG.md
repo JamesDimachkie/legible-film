@@ -34,6 +34,8 @@ Studio grade: an opt-in path to the best film the budget allows, on top of the u
 - `references/claims-and-rights.md`: font files go to a client only where the licence allows it; otherwise the
   handover lists each font and how to licence it.
 - README: what studio grade asks of the person, and a plain-language way to check the installation.
+- Evaluations: eval 6, a studio-grade plan for someone new to video, run once per arm on 1.1.0 and graded blind: 9/9
+  with the skill, 2/9 without. The prompts, outputs and grades are in `evals/results/2026-10-27-studio-grade/`.
 
 ## 1.0.1 (2026-10-27)
 
