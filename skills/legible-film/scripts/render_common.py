@@ -198,11 +198,20 @@ class Encoder:
             raise RuntimeError('FFmpeg encode failed: ' + message[-1500:])
 
     def abort(self):
+        # Close stdin first: on Linux and macOS, FFmpeg blocked reading a pipe can outlive SIGTERM, and an
+        # unbounded wait then hangs the caller (Windows' terminate is a hard kill, which hid this).
+        if not self.proc.stdin.closed:
+            try:
+                self.proc.stdin.close()
+            except OSError:
+                pass
         if self.proc.poll() is None:
             self.proc.terminate()
-            self.proc.wait()
-        if not self.proc.stdin.closed:
-            self.proc.stdin.close()
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
         if not self.log.closed:
             self.log.close()
 
