@@ -2,7 +2,6 @@
 name: legible-film
 description: "Video production for coding agents: plans, builds, scores, renders, revises and quality-checks short videos such as product and launch films, teasers, explainers, demos, ads, loops, logo stings, kinetic type, motion graphics, screen recordings, edited footage and generated clips. Use when making or changing a video, choosing video tools, designing its story, picture or sound, timing it to music, encoding or muxing a deliverable, or checking an exported file before it ships. Includes a film kit (a small engine whose films check their own facts, reading time and flashing before they render), sound tools, a motion-blur renderer, and an opt-in studio grade for the highest quality at higher spend. Works with any engine: the kit, HyperFrames, Remotion, Blender, an editor or plain FFmpeg. Not for transcription, downloading or metadata lookups alone."
 license: Apache-2.0
-argument-hint: "[brief · setup · film|kit|teaser|short|studio · cut|cutdown|captions · score|mix · check|review · revise|deliver] [request]"
 compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. The film kit's checks and renders also need Node 18+ with Playwright and a Chromium. No accounts or paid services required."
 metadata:
   author: "James Dimachkie"
