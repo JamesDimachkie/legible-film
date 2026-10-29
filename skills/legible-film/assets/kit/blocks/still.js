@@ -24,7 +24,8 @@ export const Still = block('still', (ctx, o) => {
   const to = { focus: from.focus, zoom: 1.12, ...(o.to || {}) };
   const details = (o.details || []).map(d => ({ ...d, t: ctx.t0 + ctx.time(d.at) })).sort((a, b) => a.t - b.t);
   const zmax = Math.max(from.zoom, to.zoom, ...details.map(d => d.zoom || 1));
-  if (iw < ctx.W * zmax) ctx.warn(`Still: ${o.src} is ${iw} px wide; at ${zmax.toFixed(2)}x it needs ${Math.ceil(ctx.W * zmax)} px to stay sharp at ${ctx.W} px`);
+  const outW = Math.round(ctx.W * ctx.film.outScale);   // the delivered width
+  if (iw < outW * zmax) ctx.warn(`Still: ${o.src} is ${iw} px wide; at ${zmax.toFixed(2)}x it needs ${Math.ceil(outW * zmax)} px to stay sharp at ${outW} px`);
   const ground = ctx.colour(o.ground || 'ink');
   ctx.ground(ctx.t0, ground);
 

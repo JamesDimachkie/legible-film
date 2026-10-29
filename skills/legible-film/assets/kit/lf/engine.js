@@ -39,6 +39,9 @@ export class Film {
     this.fps = spec.fps ?? 60;
     this.beat = spec.beat ? { bpm: spec.beat.bpm, offset: spec.beat.offset ?? 0 } : null;
     this.u = Math.min(this.W, this.H) / 100;
+    // Delivered pixels per CSS pixel (?res=, the output's short side): output-pixel criteria (type size,
+    // large-text contrast, dither cells, still resolution) use it; layout never does.
+    this.outScale = env.outScale > 0 ? env.outScale : 1;
     this.portrait = this.H > this.W;
     this.pal = makePalette(spec.brand ?? '#3D7BFF', spec.palette);
     const sa = { ...(this.portrait ? { x: 0.07, top: 0.1, bottom: 0.17 } : { x: 0.06, top: 0.08, bottom: 0.08 }), ...(spec.safe || {}) };

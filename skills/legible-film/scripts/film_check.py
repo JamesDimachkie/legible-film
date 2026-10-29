@@ -12,6 +12,11 @@ animation or @keyframes, fetch, XMLHttpRequest, WebSocket, remote URLs); a line 
 
   python film_check.py films/launch
   python film_check.py films/launch --size 1080x1920 --json qa/preflight.json
+  python film_check.py films/launch --size 1920x1080 --res 720
+
+--res N is the delivered short side when the render scales the frame (film_render.py --res): the
+layout stays at --size, and the output-pixel criteria (type size, the large-text contrast rule, dither
+cells, still resolution) are judged on the delivered raster.
 
 Writes, in FILM: cues.json (the skill's cue format, exported from the picture's own source),
 reading.json (every registered text's in, readStart, readEnd, out, need, size, colour, ground and
@@ -20,7 +25,7 @@ cuts, rests and flashes as --ignore ranges for the QC scripts) and qa/preflight.
 
 What it does not prove: these are measurements of the page's own state, not of the delivered file.
 It cannot see encoding, banding, judder or whether anything reads at speed; flash and pattern
-predictions use the ground, flashes, plates and an ink-area estimate for text, so flash_scan.py
+predictions draw the ground, flashes, plates, tracked nodes and the type itself, so flash_scan.py
 must still run on the render. Reading windows follow the film's reading rule (default 15
 characters per second plus 0.3 s; captions 20 per second), which is a floor, not comprehension.
 
@@ -172,7 +177,7 @@ def srt_time(t):
 def run_page(a, folder, w, h):
     httpd = serve(folder)
     port = httpd.server_address[1]
-    url = f'http://127.0.0.1:{port}/index.html?render&w={w}&h={h}'
+    url = f'http://127.0.0.1:{port}/index.html?render&w={w}&h={h}' + (f'&res={a.res}' if a.res else '')
     node = find_tool('node', a.node)
     if not node:
         httpd.shutdown()
@@ -215,6 +220,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('film', help='the film folder (index.html, film.js, lf/, blocks/)')
     ap.add_argument('--size', default=None, help='WxH, for example 1080x1920 (default: the spec size)')
+    ap.add_argument('--res', type=int, help='delivered short side in pixels when the render scales the frame '
+                    '(film_render.py --res); output-pixel criteria are judged at that size')
     ap.add_argument('--json', help='where to write the preflight report (default FILM/qa/preflight.json)')
     ap.add_argument('--capture', help='path to film_capture.mjs (default: beside this script, if present)')
     ap.add_argument('--node')
@@ -239,6 +246,12 @@ def main():
         if m:
             w, h = int(m.group(1)), int(m.group(2))
 
+    if a.res is not None and a.res < 2:
+        print('film_check.py: --res is the delivered short side in pixels, at least 2', file=sys.stderr)
+        return 2
+    # film_render.py's rule: --res is the output's short side.
+    out_size = (round(w * a.res / min(w, h)), round(h * a.res / min(w, h))) if a.res else (w, h)
+    delivered = f' (delivered {out_size[0]}x{out_size[1]})' if a.res else ''
     try:
         res = run_page(a, folder, w, h)
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
@@ -282,7 +295,9 @@ def main():
         'events': info.get('cues', []),
     })
     save(os.path.join(folder, 'reading.json'), {
-        'size': f'{w}x{h}', 'fps': fps, 'rule': 'need_s = base + characters / cps (claims, qualifiers, headlines, identities, interface text: 15 cps + 0.3 s by default; captions 20 cps; texture exempt)',
+        'size': f'{w}x{h}', **({'output_size': f'{out_size[0]}x{out_size[1]}'} if a.res else {}), 'fps': fps,
+        'rule': 'need_s = base + characters / cps (claims, qualifiers, headlines, identities, interface text: '
+                '15 cps + 0.3 s by default; captions 20 cps; texture exempt)',
         'texts': an.get('texts', []),
     })
     caps = info.get('captions') or []
@@ -310,6 +325,7 @@ def main():
     analysis = dict(an)
     report = {
         'tool': 'film_check.py', 'version': VERSION, 'film': folder, 'size': f'{w}x{h}', 'runner': res.get('runner'),
+        **({'output_size': f'{out_size[0]}x{out_size[1]}', 'res': a.res} if a.res else {}),
         'errors': errors, 'warnings': warnings, 'lint': hits, 'requests_after_ready': late,
         'info': info, 'analysis': analysis, 'exports': written,
         'not_checked': ['the delivered file (render it and run the QC battery)', 'motion at playback speed', 'sound']
@@ -323,9 +339,14 @@ def main():
     # Summary.
     fl = an.get('flash', {})
     texts = an.get('texts', [])
-    print(f"{info.get('title', 'film')}: {w}x{h}, {info.get('duration')} s, {info.get('frames')} frames at {fps} fps ({res.get('runner')})")
+    print(f"{info.get('title', 'film')}: {w}x{h}{delivered}, {info.get('duration')} s, {info.get('frames')} frames "
+          f"at {fps} fps ({res.get('runner')})")
     print(f"  texts: {len(texts)} registered, {sum(1 for x in texts if x.get('readStart') is not None)} reach a readable state")
-    print(f"  flash prediction: max {fl.get('max_transitions_in_1s')} opposing transitions in 1 s (limit 6), red {fl.get('red_max_transitions_in_1s')}")
+    inc = fl.get('incomplete') or []
+    unmodelled = ', '.join(x['id'] for x in inc[:6])
+    print(f"  flash prediction: max {fl.get('max_transitions_in_1s')} opposing transitions in 1 s (limit 6), "
+          f"red {fl.get('red_max_transitions_in_1s')}"
+          + (f"; INCOMPLETE: {len(inc)} tracked node(s) paint what it cannot model ({unmodelled})" if inc else ''))
     mo = an.get('motion') or {}
     if mo:
         el = mo.get('elements', [])
@@ -347,7 +368,7 @@ def main():
     if len(warnings) > 12:
         print(f'  ... {len(warnings) - 12} more warnings in {out}')
     print('  wrote ' + ', '.join(report['exports']))
-    print(f"preflight {w}x{h}: {len(errors)} error(s), {len(warnings)} warning(s)")
+    print(f"preflight {w}x{h}{delivered}: {len(errors)} error(s), {len(warnings)} warning(s)")
     return 1 if errors else 0
 
 

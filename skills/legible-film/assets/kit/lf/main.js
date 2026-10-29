@@ -1,7 +1,8 @@
 // Bootstrap: loads fonts and assets, imports the film spec, builds the film and implements
 // window.__lf (DESIGN §5). URL: ?film=path/to/film.js (default film.js beside index.html),
 // ?w=&h= override the size (one timeline, every aspect ratio), ?render hides the preview UI,
-// ?t= opens the preview at a time.
+// ?t= opens the preview at a time; ?res= is the delivered short side when the render scales the frame
+// (the layout stays at w x h; analyse() judges output-pixel criteria at the delivered size).
 
 import { buildFilm, evaluate, draw, findFact } from './engine.js';
 import { analyse } from './analyse.js';
@@ -78,6 +79,7 @@ async function boot() {
   if (!spec || !Array.isArray(spec.scenes)) throw new Error('film.js must export default a spec (or a function of the kit returning one) with scenes');
   const size = spec.size || [1920, 1080];
   const W = +(q.get('w') || size[0]), H = +(q.get('h') || size[1]);
+  const res = +(q.get('res') || 0), outScale = res > 0 ? res / Math.min(W, H) : 1;
   // Fonts: the kit's open-licence faces unless the spec supplies brand fonts (paths relative to film.js).
   const fonts = {};
   for (const [role, f] of Object.entries(spec.fonts || {})) fonts[role] = { ...f, url: new URL(f.url, filmUrl).href };
@@ -107,7 +109,7 @@ async function boot() {
   document.documentElement.style.setProperty('--lf-w', `${W}px`);
   document.documentElement.style.setProperty('--lf-h', `${H}px`);
   const stage = document.getElementById('lf-stage');
-  film = await buildFilm(spec, { W, H, stage, facts, images, filmUrl, dpr: window.devicePixelRatio || 1, render: renderMode, animatic: q.has('animatic'), findFact });
+  film = await buildFilm(spec, { W, H, stage, facts, images, filmUrl, dpr: window.devicePixelRatio || 1, outScale, render: renderMode, animatic: q.has('animatic'), findFact });
   evaluate(film, 0); draw(film);
   if (!renderMode) {
     const { previewUI } = await import('./ui.js');

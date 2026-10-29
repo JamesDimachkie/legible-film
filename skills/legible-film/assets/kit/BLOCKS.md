@@ -156,7 +156,12 @@ Set node properties in `update(t)` only (x, y, s, sx, sy, rot, opacity, blur, re
 the engine resets every node to its `rest()` state before each frame and flushes to the DOM after.
 A node paints only what its element draws: give it a size and a `fill` (or a background, border,
 image, canvas, SVG or text). analyse() errors on a tracked node that never paints (transparent on
-every frame, no size, always outside the frame, or nothing to draw), naming the node and its block.
+every frame, no size, always outside the frame, or nothing to draw: a `transparent` or alpha-zero
+colour draws nothing, and a child counts only on frames it is visible), naming the node and its block.
+The flash prediction draws every tracked node as its element paints (fill, background, borders,
+box shadows, images and canvases, through its children, with their opacity, blur and blend mode); a
+tracked node it cannot draw (an SVG, a video, a CSS background image or transform inside it) is
+listed in `flash.incomplete` and warned about, so check that film's render with flash_scan.py.
 
 The camera: every scene gets a slow default push and roll (`move: {push: 0.03, roll: 0.5}`). A
 block's `camera(t)` returns `{x, y, zoom, rot}` in world terms (`frameAt` builds one); add
@@ -168,12 +173,13 @@ camera still. A scene's `move: {push: 0, roll: 0}` does the same for any block.
 landing-page loop. It holds the camera (no default push or roll in any scene; Type shots default to
 no drift, push or roll), and analyse() checks the seam: at the end (t = duration, the frame after
 the last) the camera, the ground and every tracked element and text must be back at their frame-0
-values (position and size within 0.5 px, opacity within 0.01, colour and reveal equal), or it is an
-error listing what differs. Move things by whole periods of the loop. The check is per element: a
+values (each corner of its box within 0.5 px, so position, size and orientation; opacity within 0.01;
+blur and 3-D turn within 0.05; colour and reveal equal), or it is an error listing what differs: a
+square turned 90 degrees fills the same box and still fails. Move things by whole periods of the loop. The check is per element: a
 ring of identical dots turning one spacing looks seamless but fails it, so turn a whole revolution, or
 track the ring's group instead of each dot. info() reports `loop: true`, and make_film.py then
-measures the seam on every delivered file with `motion_scan.py --loop`; add `--web` for the WebM and
-the poster a landing page needs.
+measures the seam on every delivered file with `motion_scan.py --loop`; add `--web` for the WebM (its
+seam measured too) and the poster a landing page needs.
 
 ```js
 // A 4 s loop: six dots turn once around the centre; the camera holds.
@@ -240,9 +246,11 @@ reads as a drop-out.
 Per text: `in`, `readStart` (every glyph visible: opacity through all ancestors at least 0.98, own
 scale within 2% of rest, blur under 0.35 px, inside the safe area, uncovered), `readEnd`, `out`,
 `need_s`, `min_font_px`, colour, ground and WCAG contrast (3:1 at 24 px or 18.66 px bold and up,
-otherwise 4.5:1). Flashing by flash_scan.py's own method on a small raster of every frame:
-the ground, world effects, plates, counter windows, the type itself (whole letters, outlines, blur)
-and the screen effect canvases, drawn at three times 192 px wide and area-averaged down, with two
+otherwise 4.5:1). Under `?res=N` (film_check.py `--res`, a render that scales the frame) the type size,
+that rule, dither cells and still resolution are judged in delivered pixels (`min_output_px`); the
+layout stays at the CSS size. Flashing by flash_scan.py's own method on a small raster of every frame:
+the ground, world effects, plates, tracked nodes, counter windows, the type itself (whole letters,
+outlines, blur) and the screen effect canvases, drawn at three times 192 px wide and area-averaged down, with two
 sub-samples inside each frame's exposure (six inside fast and smear windows); windows a third of the
 frame on a sixth-of-the-frame grid; 74th and 26th percentiles; a swing of at least 0.10 with the
 darker below 0.80, and 20 in the saturated-red amount; more than 6 in any second is an error, 5-6 a
@@ -261,4 +269,5 @@ the screen if stationary or 25% if it changes, oscillates or reverses; smooth on
 Open `index.html` over a local server. Keys: space play/pause, `,` `.` one frame, arrows one beat,
 0-9 jump to tenths, S safe area, R reading states (amber not yet readable, green readable, red
 leaving), L the ground-luminance strip. `?render` hides the UI; `?animatic` adds a time, frame,
-bar.beat and scene readout for review notes; `?film=path/film.js` previews another spec.
+bar.beat and scene readout for review notes; `?film=path/film.js` previews another spec; `?res=N`
+judges output-pixel criteria at a delivered short side of N.

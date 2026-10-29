@@ -25,6 +25,24 @@ names are read as the new ones, and the Atlasfold showcase renders the same pixe
 - `references/ffmpeg-cookbook.md`: an opaque VP9 WebM recipe from a lossless master with the BT.709 matrix, and its
   poster, tested on a flat brand colour.
 
+- **Fixes from an independent review** of the kit and make pipeline (Atlasfold renders the same pixels):
+  - **make_film.py --resume** binds `make-state.json` to the resolved output folder and records outputs relative to it:
+    resuming in a copied or moved folder runs every step again (it reported a missing deliverable as delivered and
+    wrote manifests into the original folder), a cached step whose outputs or results point outside the output or film
+    folder runs again, and manifests are never written outside the output folder.
+  - **Flash prediction** draws every tracked node as its element paints (fill, background, borders, box shadows,
+    images and canvases, through its children, with their opacity, blur and blend mode). A white tracked panel flipping
+    eight times a second predicted 0 transitions; it now predicts 9, as `flash_scan.py` measures on the render. A
+    tracked node it cannot draw (an SVG, a video) marks the prediction incomplete in film_check.py's output.
+  - **Loop seam:** the preflight compares each tracked element's corners, so a square turned 90 degrees no longer
+    passes because it fills the same box; blur and 3-D turns are compared too.
+  - **make_film.py --web --loop** measures each WebM's own seam with `motion_scan.py --loop` and carries it into the
+    WebM's manifest, the delivery report and the exit status.
+  - **Blank nodes:** a `transparent` or alpha-zero fill no longer counts as paint; borders, shadows and text count only
+    in a colour that is not transparent, and a child only on frames it is visible.
+  - **--res:** film_check.py takes `--res N` (make_film.py passes its own) and judges type size, the large-text
+    contrast rule, dither cells and still resolution at the delivered size, keeping the layout at the CSS size.
+
 ## 1.2.0 (2026-10-29)
 
 Legible Film now makes video end to end: films built in code, edits cut from recordings, a sound chain designed for
