@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 RESULTS = []
 SKIPS = []
-CASE_MODULES = ('sound', 'render', 'make', 'gaps', 'library', 'chain', 'qcfix', 'captions', 'tracefix', 'footage')
+CASE_MODULES = ('sound', 'render', 'make', 'gaps', 'library', 'chain', 'qcfix', 'captions', 'tracefix', 'footage', 'dialogue')
 
 
 def record(name, ok, detail=''):

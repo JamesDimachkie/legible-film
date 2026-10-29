@@ -215,7 +215,8 @@ def run_make_cases(tool, record, j, scripts_dir):
            (renders / 'clean_320x180-preview.mp4').is_file(), f"exit {code}")
 
     # 5b. Spotting: clustered and repeated cues are merged and thinned; sound-edits.json drops one, applied last.
-    #     The default social master on a sparse 3 s film needs too much limiting: refused, and said.
+    #     The default social master on a sparse 3 s film cannot reach -14 LUFS within the limiter cap: it
+    #     masters as loud as is safe and the report says how far short it lands.
     spotted = film('spotted', [1.5], extra_cues=[
         {'id': 'cut-tick', 't': 1.52, 'role': 'tick', 'sound': 'required', 'sync': 'attack'},
         {'id': 't1', 't': 2.0, 'role': 'tick', 'sound': 'required', 'sync': 'attack'},
@@ -235,11 +236,18 @@ def run_make_cases(tool, record, j, scripts_dir):
            next((x.strip() for x in text.splitlines() if 'merged into gestures' in x), 'no spotting lines')[:200])
     refused = [f for f in sp.get('findings', []) if 'refused' in f['detail']]
     master = load(j('make-out', 'spotted', 'sound', 'mix-report.json')).get('mastering', {})
-    record('make_film: default social master either reaches -14 LUFS or is refused as a finding; exit follows',
+    short = master.get('short_of_target')
+    record('make_film: default social master reaches -14 LUFS, lands short of it AAC-safe and says so, or is refused',
            master.get('preset') == 'social' and (
                (bool(master.get('refused')) and bool(refused) and code == 1) or
-               (not master.get('refused') and abs(master.get('target_error_lu', 9)) <= .5 and master.get('aac_pass'))),
-           f"exit {code}; refused: {master.get('refused')}; largest gain reduction {master.get('max_gain_reduction_db')}")
+               (not master.get('refused') and not short and abs(master.get('target_error_lu', 9)) <= .5
+                and master.get('aac_pass')) or
+               (not master.get('refused') and bool(short) and master.get('aac_pass')
+                and master.get('max_gain_reduction_db', 9) <= 4.0 + 1e-6 and 'short of target by' in text
+                and (master.get('shortfall_lu', 0) <= 1.0 or (code == 1 and any(
+                    'LU under the social target' in f['detail'] for f in sp.get('findings', [])))))),
+           f"exit {code}; refused: {master.get('refused')}; short: {bool(short)}; reached {master.get('reached_lufs')}"
+           f" LUFS; largest gain reduction {master.get('max_gain_reduction_db')}")
 
     # 5c. Hybrid: a licensed library fills the roles it can, the draft the rest and sub/air/bed; one version 2
     #     palette with every role's source and licence; a loudness-matched, randomised listening pair.

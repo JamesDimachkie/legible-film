@@ -8,6 +8,7 @@ import { mul, apply, matScale } from './node.js';
 import { contrast, luminance, isRed, hex, parse, over, mix } from './color.js';
 import { lettersShown } from './text.js';
 import { motionReport, patternRisk, PATTERN_THRESHOLDS } from './motion.js';
+import { flashPredictor } from './flashmap.js';
 
 const ESSENTIAL = new Set(['claim', 'qualifier', 'headline', 'identity', 'ui', 'caption']);
 const r3 = v => (v == null ? null : +v.toFixed(3));
@@ -45,9 +46,26 @@ export function analyse(film, opts = {}) {
   let prevCam = null;
   const camHist = [];
 
+  const fp = opts.flash === false ? null : flashPredictor(film);
   for (let k = 0; k < n; k++) {
     const t = k / fps;
     film.frameT = t;
+    if (fp) {
+      // Two samples inside the frame's exposure (180-degree shutter, widened in smear windows, never
+      // across a cut), the way the render averages its sub-frames.
+      let f = 1;
+      for (const sm of film.reg.smears) if (t >= sm[0] && t <= sm[1]) f = Math.max(f, sm[2]);
+      const E = (0.5 / fps) * f;
+      let a = t - E / 2, b = t + E / 2;
+      for (const cu of film.reg.cuts) {
+        if (cu > a && cu <= t) a = cu;
+        if (cu > t && cu < b) b = cu - 1e-6;
+      }
+      // Inside fast windows the render takes many sub-samples; the prediction takes six there.
+      const fast = film.reg.fast.some(w => t >= w[0] && t <= w[1]) || f > 1;
+      const ns = fast ? 6 : 2;
+      fp.push(t, Array.from({ length: ns }, (_, i) => a + ((b - a) * (i + 0.5)) / ns), ts => evaluate(film, Math.max(0, Math.min(film.duration, ts))));
+    }
     const cam = evaluate(film, t);
     const ground = film.groundAt(t);
     let L = luminance(ground);
@@ -183,9 +201,14 @@ export function analyse(film, opts = {}) {
   };
   const [maxT, atT] = maxIn1s(trans), [maxR, atR] = maxIn1s(redTrans);
   const errors = [], warnings = [];
-  if (maxT > 6) errors.push(`flash: ${maxT} opposing luminance transitions within 1 s from ${atT.toFixed(2)} s (more than 3 flashes)`);
-  if (maxR > 6) errors.push(`red flash: ${maxR} saturated-red transitions within 1 s from ${atR.toFixed(2)} s`);
-  if (maxT > 4 && maxT <= 6) warnings.push(`flash: ${maxT} predicted transitions within 1 s from ${atT.toFixed(2)} s (limit 6); check the render with flash_scan.py`);
+  // The flashing verdict uses the window method of flash_scan.py on a small raster of each frame
+  // (lf/flashmap.js); the whole-frame ground series above stays as the luminance strip.
+  const fr = fp ? fp.result() : null;
+  const gT = fr ? fr.gb.general_max_per_s : maxT, gAt = fr ? fr.gb.general_at_s : atT;
+  const rT = fr ? fr.rb.red_max_per_s : maxR, rAt = fr ? fr.rb.red_at_s : atR;
+  if (gT > 6) errors.push(`flash: ${gT} opposing luminance transitions within 1 s from ${gAt} s in window ${fr ? JSON.stringify(fr.gb.window) : 'frame'} (more than 3 flashes)` + (fr && fr.flagged.length > 1 ? `; ${fr.flagged.length} windows over the limit` : ''));
+  if (rT > 6) errors.push(`red flash: ${rT} saturated-red transitions within 1 s from ${rAt} s`);
+  if (gT > 4 && gT <= 6) warnings.push(`flash: ${gT} predicted transitions within 1 s from ${gAt} s (limit 6); check the render with flash_scan.py`);
 
   // ---------- texts ----------
   const out = [];
@@ -255,7 +278,11 @@ export function analyse(film, opts = {}) {
     motion,
     patterns: { thresholds: PATTERN_THRESHOLDS, items: patternOut },
     grounds: { fps, luminance: lum.map(v => +v.toFixed(4)), red },
-    flash: { max_transitions_in_1s: maxT, at_s: atT != null ? r3(atT) : null, red_max_transitions_in_1s: maxR, transitions: trans.map(r3) },
+    flash: {
+      max_transitions_in_1s: gT, at_s: gAt, window: fr ? fr.gb.window : null, red_max_transitions_in_1s: rT, red_at_s: rAt,
+      method: fr ? `flash_scan.py's window method on a ${fr.scan_size[0]}x${fr.scan_size[1]} raster of grounds, plates, windows, type and effect canvases` : 'whole-frame ground series',
+      flagged: fr ? fr.flagged : [], debug: opts.flashDebug && fr ? fr.debug : undefined, frame_mean: { max_transitions_in_1s: maxT, at_s: atT != null ? r3(atT) : null, red_max_transitions_in_1s: maxR },
+    },
     errors: [...film.reg.errors, ...errors],
     warnings: [...film.reg.warnings, ...warnings],
   };

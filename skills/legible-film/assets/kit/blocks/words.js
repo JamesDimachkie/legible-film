@@ -1,7 +1,7 @@
 // Words: the kinetic-type sequencer. One idea per beat or half beat; each shot lands on its time.
 //
 // Words({ shots: [{ text, tall?, dur, style, kicker?, ground?, color?, enter?, hit?, role?, fact?, id?,
-//                   fill?, weight?, width?, tracking?, fillAt?, rot?, cue?, pulse?, drop? }],
+//                   fill?, weight?, width?, tracking?, fillAt?, rot?, cue?, pulse?, drop?, open?, openHit? }],
 //         exit?: 'cut' | 'through' | 'collapse', through?: { letter: 'O' | index, shot? }, maxPerSecond? })
 //
 // A shot's time is its landing (the contact frame), which is where its impact cue sits; entrances
@@ -58,8 +58,13 @@ export const Words = block('words', (ctx, o) => {
       }
     }
     const kland = land;                                        // the kicker shows on the shot's time
-    const wordLand = style === 'stack' ? land + (s.gap != null ? ctx.time(s.gap) : beat1) : land;
-    const cutAt = Math.max(ctx.t0, (style === 'stack' ? kland : wordLand) - lead);
+    // A shot that is already in place when its scene opens: `open` (frame 0 reads as a cover), or the
+    // first shot of a scene that grows from a collapse point or arrives after a fly-through. It does
+    // not slam; its hit and cue land when the opening move ends (a beat later for `open`).
+    const entered = !!s.open || (i === 0 && (ctx.enterVia === 'grow' || ctx.enterVia === 'arrive'));
+    const wordLand = entered ? ctx.t0 : style === 'stack' ? land + (s.gap != null ? ctx.time(s.gap) : beat1) : land;
+    const cutAt = entered ? ctx.t0 : Math.max(ctx.t0, (style === 'stack' ? kland : wordLand) - lead);
+    const restLand = !entered ? null : s.open ? ctx.t0 + ctx.time(s.openHit ?? beat1) : ctx.enterVia === 'grow' ? ctx.t0 + ctx.growD() : ctx.t0 + 0.5;
     if (i === 0 || s.ground) ctx.ground(cutAt, ground);
     prevGround = ground;
     const rot = s.rot ?? (style === 'cut' ? (R() * 2 - 1) * 4 : 0);
@@ -68,8 +73,10 @@ export const Words = block('words', (ctx, o) => {
     group.rest({ rot, x: dx, y: dy });
     if (style === 'outline') for (const n of lay.nodes) n.rest({ knockout: ground });
     const role = s.role || o.role || 'headline';
-    const entry = ctx.text({ id: s.id, role, string, fact: s.fact, nodes: lay.nodes });
-    if (kicker) ctx.text({ id: s.id ? s.id + '-kicker' : undefined, role: s.kickerRole || (role === 'texture' ? 'texture' : 'headline'), string: kicker.string, fact: s.kickerFact, nodes: [kicker] });
+    const stepR = s.build === 'lines' ? ctx.time(s.step ?? beat1) : 0;
+    const readFrom = entered ? (s.open ? ctx.t0 : restLand) : wordLand + stepR * (lay.nodes.length - 1);
+    const entry = ctx.text({ id: s.id, role, string, fact: s.fact, nodes: lay.nodes, readFrom });
+    if (kicker) ctx.text({ id: s.id ? s.id + '-kicker' : undefined, role: s.kickerRole || (role === 'texture' ? 'texture' : 'headline'), string: kicker.string, fact: s.kickerFact, nodes: [kicker], readFrom: entered ? readFrom : kland + 0.06 });
 
     // Entrance.
     if (i > 0) {
@@ -82,19 +89,33 @@ export const Words = block('words', (ctx, o) => {
     const step = s.build === 'lines' ? ctx.time(s.step ?? beat1) : 0;
     const nodeLand = lay.nodes.map((_, k) => wordLand + k * step);
     const landing = style === 'outline' ? null : wordLand;
-    if (landing != null && !(enter === 'whipX' || enter === 'whipY')) {
+    if (entered) {
+      // Already in place: one hit when the opening move (growth, arrival, or the open beat) ends.
+      hitAt(ctx, restLand, hit, { colour, at: () => ctx.screenOf(lay.nodes[0]) });
+      if (s.cue !== false) ctx.cue({ id: s.cueId, t: restLand, role: s.cue || (hit === 'punch' ? 'impact_big' : 'impact'), sync: 'attack', picture: `"${string}" settles: the hit` });
+    } else if (landing != null && !(enter === 'whipX' || enter === 'whipY')) {
       lay.nodes.forEach((nd, k) => {
         if (k > 0 && !step) return;
         const centre = () => ctx.screenOf(nd);
-        hitAt(ctx, nodeLand[k], k === lay.nodes.length - 1 ? hit : (s.lineHit ?? 'beat'), { colour, at: centre });
+        hitAt(ctx, nodeLand[k], k === 0 ? hit : (s.lineHit ?? 'beat'), { colour, at: centre });
         if (s.cue !== false) ctx.cue({ id: k === 0 ? s.cueId : undefined, t: nodeLand[k], role: s.cue || (hit === 'punch' ? 'impact_big' : cueRoleFor[style] || 'impact'), sync: 'attack', picture: step ? `"${lines[k]}" lands` : `"${string}" lands` });
       });
     }
-    if (kicker && s.cue !== false) ctx.cue({ t: kland, role: 'tick', sync: 'attack', picture: `kicker "${kicker.string}" appears`, gain_db: -4 });
+    // Big type landing is a designed large change (declared for the cut check).
+    if (!entered && style !== 'cut') lay.nodes.forEach((nd, k) => {
+      const nl = nodeLand[k], ld = k > 0 && s.lineEntrance !== 'slam' ? 1 / ctx.fps : style === 'stack' || k > 0 ? 0.1 : Math.max(0.1, lead);
+      if (k === 0 || step) ctx.change(nl - ld, nl + 0.05, `"${step ? lines[k] : string}" lands`);
+    });
+    // A list building line by line is read as it builds: the hold between its lines is designed.
+    if (step) for (let k = 0; k < lay.nodes.length - 1; k++) ctx.rest(nodeLand[k], nodeLand[k + 1], `read: ${s.id || string} builds (line ${k + 1})`);
+    if (kicker && !entered && s.cue !== false) ctx.cue({ t: kland, role: 'tick', sync: 'attack', picture: `kicker "${kicker.string}" appears`, gain_db: -4 });
     const fillAt = style === 'outline' ? (s.fillAt != null ? land + ctx.time(s.fillAt) : null) : null;
     if (style === 'outline') {
-      if (s.cue !== false) ctx.cue({ t: land, role: 'tick', sync: 'attack', picture: `outline "${string}" appears`, gain_db: -3 });
+      // An outline slamming in at twice its size is a thin, blurred line: near-empty by design.
+      if (!entered && wordLand > cutAt) ctx.film.reg.blanks.push([+cutAt.toFixed(6), +(wordLand + 0.05).toFixed(6), `outline "${string}" slams in`]);
+      if (s.cue !== false && !entered) ctx.cue({ t: land, role: 'tick', sync: 'attack', picture: `outline "${string}" appears`, gain_db: -3 });
       if (fillAt != null) {
+        ctx.change(fillAt - 1 / ctx.fps, fillAt + 0.1, `"${string}" fills`);
         hitAt(ctx, fillAt, s.fillHit ?? 'hit', { colour, at: () => ctx.screenOf(lay.nodes[0]) });
         ctx.cue({ t: fillAt, role: s.fillCue || 'impact', sync: 'attack', picture: `"${string}" fills: it becomes true` });
       }
@@ -104,7 +125,11 @@ export const Words = block('words', (ctx, o) => {
     for (const p of [].concat(s.pulse || [])) ctx.bump(wordLand + ctx.time(p), { amt: s.pulseAmt ?? 0.02, tau: 0.05 });
     // The planned musical drop sits on this shot's landing (or its fill, for an outline).
     if (s.drop) ctx.music({ drop: +((fillAt ?? wordLand)).toFixed(6) });
-    built.push({ i, s, style, group, nodes: lay.nodes, nodeLand, kicker, cutAt, land: wordLand, kland, lead, end: null, fillAt, enter, string, entry });
+    // A shot that must be read is a locked-off reading hold: no drift, push or roll (its reading time
+    // is declared as a rest). Big high-contrast type moving even 30-50 px/s carries letter stems across
+    // a third-of-frame window and was measured as flashing; only texture words keep moving.
+    const still = s.still ?? role !== 'texture';
+    built.push({ i, s, style, group, nodes: lay.nodes, nodeLand, kicker, cutAt, land: wordLand, kland, lead, end: null, fillAt, enter, string, entry, entered, still });
   });
   for (let i = 0; i < built.length; i++) built[i].end = i + 1 < built.length ? built[i + 1].cutAt : null;
   const len = at;
@@ -116,7 +141,9 @@ export const Words = block('words', (ctx, o) => {
     if (j - i > (o.maxPerSecond ?? 5)) { ctx.warn(`Words: ${j - i} ground changes within 1 s from ${changes[i].toFixed(2)} s; every full-frame flip counts toward the flash budget (6 transitions)`); break; }
   }
 
-  const drift = o.drift ?? 8;     // frame units per second while a word holds (capped by the room)
+  // Hold motion is gentle: big high-contrast type moving fast through a third-of-frame window saws
+  // its luminance percentiles (measured as flashing on delivered files).
+  const drift = o.drift ?? 2;     // frame units per second while a word holds (capped by the room)
   function update(t) {
     for (const b of built) {
       const vis = t >= b.cutAt - 1e-9 && (b.end == null || t < b.end - 1e-9);
@@ -129,7 +156,10 @@ export const Words = block('words', (ctx, o) => {
       else b.group.x += dir * b.driftV * Math.max(0, dl);
       for (const [k, n] of b.nodes.entries()) {
         const nl = b.nodeLand[k];
-        if (b.style === 'slam' || b.style === 'stack' || b.style === 'outline') {
+        if (k > 0 && b.s.build === 'lines' && b.s.lineEntrance !== 'slam') {
+          // Later lines of a build appear in place on their beat: one luminance step, no sweep.
+          if (t < nl) n.opacity = 0;
+        } else if (b.style === 'slam' || b.style === 'stack' || b.style === 'outline') {
           const t0 = nl - (b.style === 'stack' || k > 0 ? 0.1 : b.lead);
           if (t < nl) {
             const p = ctx.progress(t, t0, nl);
@@ -153,7 +183,7 @@ export const Words = block('words', (ctx, o) => {
           n.opacity = ctx.ease.fade(Math.min(1, p * 4));
         }
       }
-      if (b.kicker && t < b.kland + 0.06 && b.kland > ctx.t0 + 0.02) {
+      if (b.kicker && !b.entered && t < b.kland + 0.06 && b.kland > ctx.t0 + 0.02) {
         const p = ctx.progress(t, b.kland - 0.001, b.kland + 0.06);
         b.kicker.opacity = ctx.ease.fade(p);
       }
@@ -162,7 +192,7 @@ export const Words = block('words', (ctx, o) => {
 
   // Each shot has its own slow push and slight roll, restarting at its cut, so a frame never parks
   // and a long run of shots never accumulates zoom.
-  const push = o.push ?? 0.14, roll = o.roll ?? 0.8;
+  const push = o.push ?? 0.04, roll = o.roll ?? 0.4;
   function camera(t) {
     let b = built[0];
     for (const x of built) if (t >= x.cutAt - 1e-9) b = x;
@@ -180,14 +210,15 @@ export const Words = block('words', (ctx, o) => {
       const hold = Math.max(0.2, (b.end ?? ctx.t0 + len) - b.land);
       // Drift along whichever axis has more room (a tall frame drifts vertically).
       b.driftAxis = roomY > roomX * 1.3 ? 'y' : 'x';
+      if (b.still) { b.driftV = 0; b.zmax = 1; }
       const room = b.driftAxis === 'y' ? roomY : roomX;
-      b.driftV = Math.min(drift * ctx.u * (b.driftAxis === 'y' ? 2 : 1), (room * 0.5) / hold);
+      if (!b.still) b.driftV = Math.min(drift * ctx.u * (b.driftAxis === 'y' ? 2 : 1), (room * 0.5) / hold);
       const wide = w0 + (b.driftAxis === 'x' ? 2 * b.driftV * hold : 0);
       const tallD = tall + (b.driftAxis === 'y' ? 2 * b.driftV * hold : 0);
-      b.zmax = Math.max(1, Math.min(sw / (wide + tallD * sinR * 2), sh / (tallD + wide * sinR * 2)) * 0.985);
+      if (!b.still) b.zmax = Math.max(1, Math.min(sw / (wide + tallD * sinR * 2), sh / (tallD + wide * sinR * 2)) * 0.985);
     }
     const rate = Math.min(push, Math.log(b.zmax) / span);
-    return { x: 0, y: 0, zoom: Math.exp(rate * dt), rot: (b.i % 2 ? -1 : 1) * roll * (dt / span - 0.5), drift: false };
+    return { x: 0, y: 0, zoom: Math.exp(rate * dt), rot: b.still ? 0 : (b.i % 2 ? -1 : 1) * roll * (dt / span - 0.5), drift: false };
   }
 
   return {

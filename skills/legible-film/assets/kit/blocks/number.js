@@ -38,9 +38,10 @@ export const Number_ = block('number', (ctx, o) => {
   const digits = valueNode.letters.length;
   const step = ctx.time(o.step ?? 0.07);
   const done = style === 'digits' ? land + (digits - 1) * step : land;
-  ctx.text({ id: o.id || `claim-${o.fact}`, role: 'claim', string: value, fact: o.fact, nodes: [valueNode] });
+  ctx.text({ id: o.id || `claim-${o.fact}`, role: 'claim', string: value, fact: o.fact, nodes: [valueNode], readFrom: done });
+  ctx.change(style === 'digits' ? land - 1 / ctx.fps : land - 0.1, done + 0.05, `${value} lands`);
   if (labelNode) ctx.text({ id: `${o.id || o.fact}-label`, role: o.labelRole || 'headline', string: o.label, fact: o.fact, nodes: [labelNode] });
-  if (qualNode) ctx.text({ id: `${o.id || o.fact}-qualifier`, role: 'qualifier', string: f.label_beside_value, fact: o.fact, nodes: [qualNode] });
+  if (qualNode) ctx.text({ id: `${o.id || o.fact}-qualifier`, role: 'qualifier', string: f.label_beside_value, fact: o.fact, nodes: [qualNode], readFrom: done + ctx.time(o.labelDelay ?? 0.18) + 0.2 });
   hitAt(ctx, done, o.hit ?? 'hit', { colour, at: () => ctx.screenOf(valueNode) });
   ctx.cue({ t: done, role: 'impact', sync: 'attack', picture: `${value} lands` });
   if (style === 'digits') for (let i = 0; i < digits - 1; i++) ctx.cue({ t: land + i * step, role: 'tick', sync: 'attack', gain_db: -8, picture: `digit ${i + 1} arrives` });

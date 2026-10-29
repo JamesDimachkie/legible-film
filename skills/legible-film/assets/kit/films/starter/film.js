@@ -24,7 +24,7 @@ export default function film(kit) {
       Words({
         exit: 'collapse',                             // shrink into a point; the next scene grows from it
         shots: [
-          { text: 'NOTES.', kicker: 'ALL YOUR', style: 'stack', gap: '0.5b', dur: '3b', ground: 'ink', fact: 'what' },
+          { text: 'NOTES.', kicker: 'ALL YOUR', style: 'stack', open: true, dur: '3b', ground: 'ink', fact: 'what' },   // open: frame 0 reads as a cover
           { text: 'EVERY/DEVICE.', style: 'cut', dur: '3b', ground: 'paper', fact: 'what' },
         ],
       }),

@@ -16,7 +16,7 @@ export const Name = block('name', (ctx, o) => {
   const near = isAccent ? ctx.mix(ctx.pal.accentDeep, ground, 0.15) : ctx.mix(ctx.pal.accent, ground, 0.1);
   const far = isAccent ? ctx.mix(ctx.pal.accentDeep, ground, 0.7) : ctx.mix(ctx.pal.accentDeep, ground, 0.6);
   const nameNode = ctx.fitText(g, {
-    string: o.name, fill: o.fill ?? 0.86, maxH: 0.36, weight: o.weight ?? 880, width: o.width ?? (ctx.portrait ? 75 : 112.5), tracking: -0.02, color: colour,
+    string: o.name, fill: o.fill ?? 0.9, maxH: 0.36, weight: o.weight ?? 880, width: o.width ?? (ctx.portrait ? 75 : 112.5), tracking: -0.02, color: colour,
     extrude: { depth: o.depth ?? 0.26, layers: 26, near, far, rx: 8, ry: -12 },
   });
   const cap = nameNode.ink[3] - nameNode.ink[1];
@@ -49,14 +49,16 @@ export const Name = block('name', (ctx, o) => {
   const subEnd = sNode ? subAt + o.sub.length / cps : land;
   const sweep0 = land + 0.12, sweep1 = sweep0 + ctx.time(o.sweepDur ?? 0.9);
   const len = o.len != null ? ctx.time(o.len) : Math.max(subEnd, land) - ctx.t0 + ctx.time(o.hold ?? 1.5);
-  ctx.text({ id: o.id || 'identity-name', role: 'identity', string: o.name, fact: o.fact, nodes: [nameNode] });
-  if (kNode) ctx.text({ id: 'name-kicker', role: o.kickerRole || 'headline', string: o.kicker, fact: o.kickerFact, nodes: [kNode] });
-  if (sNode) ctx.text({ id: 'name-sub', role: o.subRole || 'headline', string: o.sub, fact: o.subFact, nodes: [sNode] });
+  ctx.text({ id: o.id || 'identity-name', role: 'identity', string: o.name, fact: o.fact, nodes: [nameNode], readFrom: land });
+  if (kNode) ctx.text({ id: 'name-kicker', role: o.kickerRole || 'headline', string: o.kicker, fact: o.kickerFact, nodes: [kNode], readFrom: kAt + 0.18 });
+  if (sNode) ctx.text({ id: 'name-sub', role: o.subRole || 'headline', string: o.sub, fact: o.subFact, nodes: [sNode], readFrom: subEnd });
+  ctx.change(land - 0.15, land + 0.05, `${o.name} lands`);
   hitAt(ctx, land, o.hit ?? 'punch', { colour, at: () => ctx.screenOf(nameNode) });
   ctx.cue({ t: land, role: 'impact_big', sync: 'attack', picture: `${o.name} lands out of depth` });
   ctx.cue({ t: land - fly, role: 'riser', sync: 'end', sound: 'optional', picture: 'the name begins its flight', gain_db: -6 });
-  if (kNode) ctx.cue({ t: kAt, role: 'tick', sync: 'attack', gain_db: -5, picture: 'kicker appears' });
-  if (sNode) ctx.cue({ t: subAt, role: 'key', sync: 'attack', gain_db: -7, picture: 'sub line starts typing' });
+  // The kicker and the typed sub line ride on the landing's sound (a quiet cue 100 ms after an
+  // impact was inaudible in the mix); a kicker well before the landing keeps its tick.
+  if (kNode && land - kAt >= 0.3 && kAt - ctx.t0 >= 0.06) ctx.cue({ t: kAt, role: 'tick', sync: 'attack', gain_db: -5, picture: 'kicker appears' });
 
   function update(t) {
     const p = ctx.progress(t, land - fly, land);
@@ -69,7 +71,7 @@ export const Name = block('name', (ctx, o) => {
     if (o.exit === 'through') {
       const flat = ctx.curves.camera(ctx.progress(t, ctx.t0 + len - 1.05, ctx.t0 + len - 0.6));
       nameNode.ry *= 1 - flat; nameNode.rx *= 1 - flat;
-      nameNode.flat = t >= ctx.t0 + len - (o.flatFor ?? 0.13);
+      nameNode.flat = t >= ctx.t0 + len - (o.flatFor ?? 0.35);
     }
     if (o.sweep !== false) {
       const q = ctx.curves.camera(ctx.progress(t, sweep0, sweep1));
@@ -85,7 +87,7 @@ export const Name = block('name', (ctx, o) => {
   // A steady push toward the fitted framing (never past it) keeps the hold alive while it is read.
   function camera(t) {
     const p = ctx.progress(t, ctx.t0, ctx.t0 + len - 0.55);
-    return { x: 0, y: 0, zoom: ctx.loglerp(o.pushFrom ?? 0.66, 1, ctx.curves.drift(p)), rot: ctx.lerp(-1.4, 0.6, p), drift: false };
+    return { x: 0, y: 0, zoom: ctx.loglerp(o.pushFrom ?? 0.98, 1.02, ctx.curves.drift(p)), rot: ctx.lerp(-1.4, 0.6, p), drift: false };
   }
   return { len, update, camera, ground0: ground, through: () => {
     // Prefer the roundest counter: O, then D, 0, Q, B, P, R, A.

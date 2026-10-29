@@ -64,13 +64,18 @@ export function hitAt(ctx, t, kind, o = {}) {
   if (!kind || kind === 'none') return;
   const colour = o.colour || ctx.pal.paper;
   if (kind === 'beat') ctx.bump(t, { amt: 0.03 });
-  else if (kind === 'hit') { ctx.bump(t, { amt: 0.045 }); ctx.shake(t, { amp: 0.9, tau: 0.09 }); }
+  else if (kind === 'hit') { ctx.bump(t, { amt: 0.035 }); ctx.shake(t, { amp: 0.8, tau: 0.07 }); }
   else if (kind === 'punch') {
+    // The biggest moments. Kept inside the flash limit by design: the charge is short, sparse, thin
+    // accent lines (white lines converging over a dark ground swung third-of-frame windows many times
+    // a second on a delivered file); one kick, no rattle.
     const at = o.at || (() => [ctx.W / 2, ctx.H / 2]);
-    ctx.fx.speed({ t0: t - (o.charge ?? 0.38), t1: t, at, color: o.lines || colour, seed: Math.round(t * 1000) });
-    ctx.fx.burst({ t, at, color: o.burst || ctx.pal.accent, spark: o.spark || colour, seed: Math.round(t * 977) });
-    ctx.bump(t, { amt: 0.07, tau: 0.04 });
-    ctx.shake(t, { amp: 1.6, tau: 0.12 });
+    const charge = o.charge ?? 0.24;
+    ctx.fx.speed({ t0: t - charge, t1: t, at, color: o.lines || ctx.pal.accent, count: 22, alpha: 0.6, seed: Math.round(t * 1000) });
+    ctx.fx.burst({ t, at, color: o.burst || ctx.pal.accent, spark: o.spark || ctx.mix(colour, ctx.pal.accent, 0.5), rays: 6, alpha: 0.65, seed: Math.round(t * 977) });
+    ctx.bump(t, { amt: 0.05, tau: 0.04 });
+    ctx.shake(t, { amp: 1.1, tau: 0.08 });
+    ctx.change(t - charge, t + 0.2, 'punch');
   }
 }
 

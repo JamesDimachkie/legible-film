@@ -112,7 +112,7 @@ def run_chain_cases(tool, record, j, scripts_dir):
     record('chain: --master none overrides palette; no gain by default', code == 0 and r['gain_applied_db'] == 0 and
            r['mastering']['preset'] == 'none')
     # Rare isolated impulses over quiet body: normalisation would require >4 dB
-    # reduction. Keep the original unmastered output with a refused report.
+    # reduction. Apply the highest gain within the cap and report the shortfall.
     extreme = stereo * .05
     extreme[rate:rate + 10] = .9
     wav('extreme.wav', extreme)
@@ -120,9 +120,12 @@ def run_chain_cases(tool, record, j, scripts_dir):
     palette = save('extreme-palette.json', loud_palette)
     code, out = mix(duration, palette, 'refused')
     r = read('refused/mix-report.json')
-    record('chain: >4 dB limiting refused with rebalance advice, exit 1', code == 1 and
-           r['mastering']['max_gain_reduction_db'] > 4 and 'rebalance' in r['gain_refused'] and r['gain_applied_db'] == 0,
-           f'{r["mastering"]["max_gain_reduction_db"]:.3f} dB; {out.strip()[-150:]}')
+    master = r['mastering']
+    record('chain: >4 dB request uses the cap and reports a shortfall, exit 1',
+           code == 1 and master['max_gain_reduction_db'] <= 4 and
+           master['short_of_target'] is not None and r['gain_refused'] is None and
+           r['gain_applied_db'] > 0,
+           f'{master["max_gain_reduction_db"]:.3f} dB; {out.strip()[-150:]}')
 
     # A safe transient fixture forces a nonzero limiter gain reduction and tests
     # shared stem reconstruction rather than exercising gain-only masters.

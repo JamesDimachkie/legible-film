@@ -43,7 +43,8 @@ export const Picture = block('picture', (ctx, o) => {
     const at = ctx.t0 + ctx.time(x.at), dur = ctx.time(x.dur ?? (ctx.film.beat ? '2b' : 0.8));
     const string = joinLines(lines);
     // Contrast is checked against the plate over the brightest the picture could be (white).
-    ctx.text({ id: x.id, role: x.role || 'headline', string, fact: x.fact, nodes: lay.nodes, bg: () => ctx.mix(tintCol, '#FFFFFF', 1 - tintA) });
+    ctx.text({ id: x.id, role: x.role || 'headline', string, fact: x.fact, nodes: lay.nodes, bg: () => ctx.mix(tintCol, '#FFFFFF', 1 - tintA), readFrom: ctx.t0 + ctx.time(x.at) });
+    ctx.change(ctx.t0 + ctx.time(x.at) - 0.06, ctx.t0 + ctx.time(x.at) + 0.05, `"${string}" punches in`);
     hitAt(ctx, at, x.hit ?? 'beat');
     ctx.cue({ t: at, role: x.cue || 'impact', sync: 'attack', picture: `"${string}" punches in over the picture` });
     return { g, lay, at, end: at + dur };
@@ -56,7 +57,7 @@ export const Picture = block('picture', (ctx, o) => {
   if (o.label) {
     label = ctx.textNode(ctx.screenGroup, { string: o.label, font: 'mono', size: ctx.u * 2.4, weight: 600, tracking: 0.12, color: ctx.pal.paper, anchor: [0, 1] });
     label.rest({ x: ctx.safe[0] - ctx.W / 2, y: ctx.safe[3] - ctx.H / 2 });
-    ctx.text({ id: 'picture-label', role: 'qualifier', string: o.label, fact: o.labelFact, nodes: [label], bg: () => tintCol });
+    ctx.text({ id: 'picture-label', role: 'qualifier', string: o.label, fact: o.labelFact, nodes: [label], bg: () => tintCol, readFrom: ctx.t0 });
   }
 
   function framing(t) {

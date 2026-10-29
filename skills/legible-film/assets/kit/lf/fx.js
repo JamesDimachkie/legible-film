@@ -18,12 +18,12 @@ const rgba = (c, a) => {
 
 export function speedLines(o) {
   const R = rng(o.seed ?? 7);
-  const n = o.count ?? 46;
+  const n = o.count ?? 26;
   const lines = Array.from({ length: n }, (_, i) => ({
     a: ((i + R() * 0.8) / n) * Math.PI * 2,
     start: R() * 0.55,                  // stagger inside the window
-    len: 0.18 + R() * 0.32,             // fraction of the frame half-diagonal
-    width: 0.6 + R() * 1.8,             // fraction of a frame unit
+    len: 0.12 + R() * 0.24,             // fraction of the frame half-diagonal
+    width: 0.3 + R() * 0.8,             // fraction of a frame unit
     stop: 0.3 + R() * 0.2,              // how close to the point it gets (fraction of half-diagonal)
   }));
   return {

@@ -12,14 +12,14 @@ export const Terminal = block('terminal', (ctx, o) => {
   const ground = ctx.colour(o.ground || 'deep');
   ctx.ground(ctx.t0, ground);
   const sw = ctx.safe[2] - ctx.safe[0];
-  const fs = o.size ?? u * (ctx.portrait ? 3.7 : 3.4);
+  const fs = o.size ?? u * (ctx.portrait ? 4 : 3.8);
   const lh = fs * 1.55;
   const pad = fs * 1.4;
   const outputs = (o.output || []).map(x => (typeof x === 'string' ? { text: x } : x));
   const prompt = o.prompt ?? '$';
   const command = String(o.command || '');
   const nLines = 1 + outputs.length;
-  const winW = Math.min(sw * (ctx.portrait ? 1 : 0.74), Math.max(sw * 0.5, fs * 0.62 * (Math.max(prompt.length + 1 + command.length, ...outputs.map(x => x.text.length)) + 6)));
+  const winW = Math.min(sw * (ctx.portrait ? 1 : 0.74), Math.max(sw * (ctx.portrait ? 0.9 : 0.62), fs * 0.62 * (Math.max(prompt.length + 1 + command.length, ...outputs.map(x => x.text.length)) + 6)));
   const barH = fs * 1.9;
   const winH = barH + pad * 2 + lh * (nLines - 1) + fs;
 
@@ -62,7 +62,7 @@ export const Terminal = block('terminal', (ctx, o) => {
 
   // Timing on whole frames.
   const tok = ctx.token('arrive', 'large', 0.1);
-  const typeAt = ctx.t0 + ctx.time(o.typeAt ?? tok.d + 0.18);
+  const typeAt = ctx.t0 + ctx.time(o.typeAt ?? 0.06);   // typing starts as the window arrives: no empty beat
   const cps = o.cps ?? 24;
   const typeEnd = typeAt + command.length / cps;
   const lineGap = ctx.time(o.lineGap ?? 0.22);
@@ -74,13 +74,14 @@ export const Terminal = block('terminal', (ctx, o) => {
 
   const bg = () => pal.panel;
   const role = o.role || 'ui';
-  ctx.text({ id: o.id || 'ui-command', role, string: `${prompt} ${command}`.trim(), fact: o.fact, nodes: [pNode, cNode], bg });
-  outputs.forEach((x, i) => ctx.text({ id: x.id || `ui-output-${i + 1}`, role: x.role || role, string: x.text, fact: x.fact, nodes: [oNodes[i]], bg }));
+  ctx.text({ id: o.id || 'ui-command', role, string: `${prompt} ${command}`.trim(), fact: o.fact, nodes: [pNode, cNode], bg, readFrom: typeEnd });
+  outputs.forEach((x, i) => ctx.text({ id: x.id || `ui-output-${i + 1}`, role: x.role || role, string: x.text, fact: x.fact, nodes: [oNodes[i]], bg, readFrom: outAt[i] + lineTok.d }));
 
   // Cues: a key accent on each word of the command (not one per key), a tick on enter, a pop per line.
   const words = [];
   command.replace(/\S+/g, (m, idx) => { words.push(idx); return m; });
-  words.forEach((idx, k) => ctx.cue({ t: typeAt + idx / cps, role: 'key', sync: 'attack', gain_db: -6, picture: `typing word ${k + 1} of the command` }));
+  // Typing is one gesture: one key accent where it starts (the rest is texture).
+  ctx.cue({ t: typeAt, role: 'key', sync: 'attack', gain_db: -6, picture: 'the command starts typing' });
   ctx.cue({ t: typeEnd + 0.12, role: 'tick', sync: 'attack', gain_db: -4, picture: 'the command is entered' });
   outAt.forEach((t, i) => ctx.cue({ t: t + lineTok.d * 0.35, role: outputs[i].cue || 'pop', sync: 'attack', gain_db: outputs[i].tone === 'ok' ? -2 : -7, picture: `output line ${i + 1} arrives` }));
 
@@ -126,9 +127,13 @@ export const Terminal = block('terminal', (ctx, o) => {
     const a = ctx.curves.camera(ctx.progress(t, ctx.t0, typeAt + 0.2));
     const b = ctx.curves.camera(ctx.progress(t, typeEnd - 0.1, lastAt + 0.4));
     const startP = winC;
-    const typeP = [ctx.lerp(winC[0], ctx.lerp(winC[0], follow[0], 0.35), a), ctx.lerp(winC[1], follow[1], a * 0.3)];
+    // While the command types, the camera follows the caret (a steady pan, never a parked frame).
+    const typeP = [ctx.lerp(winC[0], ctx.lerp(winC[0], follow[0], 0.9), a), ctx.lerp(winC[1], follow[1], a * 0.3)];
     const P = [ctx.lerp(typeP[0], endC[0], b), ctx.lerp(typeP[1], endC[1], b)];
-    const z = ctx.loglerp(zFit * (o.pushFrom ?? 0.6), ctx.loglerp(zFit, zEnd, 0.45), a);
+    // The window arrives already close (about the content framing), so its first frames are never a small
+    // window in an empty field.
+    const z0 = o.pushFrom != null ? zFit * o.pushFrom : ctx.loglerp(zFit, zEnd, 0.55);
+    const z = ctx.loglerp(z0, ctx.loglerp(zFit, zEnd, 0.7), a);
     // After the push lands on the content, keep approaching the fit (never past it) so the hold moves.
     const tail = ctx.progress(t, lastAt + 0.4, ctx.t0 + len);
     const z2 = ctx.loglerp(z, zEnd * 0.78, b) * ctx.loglerp(1, 1 / 0.78, ctx.curves.drift(tail));
@@ -138,7 +143,7 @@ export const Terminal = block('terminal', (ctx, o) => {
     if (ctx.portrait) {
       const contentH = (lh * outputs.length + fs * 1.4) * z2;
       const roomY = Math.max(0, ((ctx.safe[3] - ctx.safe[1]) * 0.96 - contentH) / 2);
-      S = [S[0], S[1] + roomY * 0.85 * (1 - 2 * ctx.curves.drift(ctx.progress(t, ctx.t0, ctx.t0 + len)))];
+      S = [S[0], S[1] + roomY * 0.4 * (1 - 2 * ctx.curves.drift(ctx.progress(t, ctx.t0, ctx.t0 + len)))];
     }
     return ctx.frameAt(P, S, z2, 0.25 - 0.5 * ctx.progress(t, ctx.t0, ctx.t0 + len));
   }

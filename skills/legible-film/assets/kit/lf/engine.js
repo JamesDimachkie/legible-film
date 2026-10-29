@@ -42,7 +42,7 @@ export class Film {
     const sa = { ...(this.portrait ? { x: 0.07, top: 0.1, bottom: 0.17 } : { x: 0.06, top: 0.08, bottom: 0.08 }), ...(spec.safe || {}) };
     this.safe = [this.W * sa.x, this.H * sa.top, this.W * (1 - sa.x), this.H * (1 - sa.bottom)];
     this.reading = { cps: 15, base: 0.3, captionCps: 20, ...(spec.reading || {}) };
-    this.reg = { cues: [], cuts: [], smears: [], fast: [], rests: [], flashes: [], texts: [], captions: [], grounds: [], warnings: [], errors: [] };
+    this.reg = { cues: [], cuts: [], seams: [], changes: [], blanks: [], smears: [], fast: [], rests: [], flashes: [], texts: [], captions: [], grounds: [], warnings: [], errors: [] };
     this.music = null;
     this.whips = []; this.shakes = []; this.bumps = []; this.arrivals = []; this.overrides = []; this.groupTerms = [];
     this.fx = []; this.occluders = []; this.windows = []; this.plates = []; this.tracks = [];
@@ -70,12 +70,17 @@ export class Film {
     this.cueIds.add(id);
     const ev = { id, t: r6(this.time(e.t)), picture: e.picture || '', sound: e.sound || 'required' };
     if (ev.sound !== 'silent') ev.sync = e.sync || 'attack';
-    for (const k of ['role', 'gain_db', 'duck_db', 'variant', 'window_ms', 'tolerance_ms']) if (e[k] != null) ev[k] = e[k];
+    for (const k of ['role', 'gain_db', 'duck_db', 'variant', 'window_ms', 'tolerance_ms', 'atZero']) if (e[k] != null) ev[k] = e[k];
     if (ev.sound !== 'silent' && ev.tolerance_ms == null) ev.tolerance_ms = ev.sync === 'apex' ? 25 : 17;
     this.reg.cues.push(ev);
     return ev;
   }
   cut(t) { this.reg.cuts.push(r6(this.time(t))); }
+  // A seamless join: a cut (motion blur never samples across it) where the frame is already the next
+  // shot, so the render shows no large change there by design.
+  seam(t) { const c = r6(this.time(t)); this.reg.cuts.push(c); this.reg.seams.push(c); }
+  // A designed large change that is not a cut (a slam landing, a fill, a punch, a ground flip).
+  change(t0, t1, label) { this.reg.changes.push([r6(this.time(t0)), r6(this.time(t1 ?? t0)), label || 'change']); }
   smear(t0, t1, f) { this.reg.smears.push([r6(t0), r6(t1), f]); }
   fastWindow(t0, t1, n) { this.reg.fast.push([r6(t0), r6(t1), n]); }
   rest(t0, t1, label) { this.reg.rests.push([r6(this.time(t0)), r6(this.time(t1)), label || 'rest']); }
@@ -89,7 +94,7 @@ export class Film {
     let id = o.id || (o.role + '-' + o.string.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')).slice(0, 48);
     for (let k = 2; this.textIds.has(id); k++) id = `${o.id || id.replace(/-\d+$/, '')}-${k}`;
     this.textIds.add(id);
-    const entry = { id, role: o.role || 'headline', string: o.string, fact: o.fact || null, nodes: o.nodes, bg: o.bg || null, scene: this.buildingOverlay ? -1 : this.scenes.length - 1 };
+    const entry = { id, role: o.role || 'headline', string: o.string, fact: o.fact || null, nodes: o.nodes, bg: o.bg || null, readFrom: o.readFrom ?? null, scene: this.buildingOverlay ? -1 : this.scenes.length - 1 };
     this.reg.texts.push(entry);
     return entry;
   }
@@ -118,13 +123,20 @@ export class Film {
     const pre = o.pre ?? 0.16, post = o.post ?? pre;
     const w = { c, dir, pre, post, dist: o.dist ?? 1.1 };
     this.whips.push(w);
-    this.cut(c);
-    this.smear(c - pre * 0.55, c + post * 0.55, o.smear ?? 3);
+    if (o.seam) this.seam(c); else this.cut(c);
+    // Blur the whole travel: large type swept across the frame without blur reads as flicker
+    // (a third-of-frame window sees stem after stem).
+    this.smear(c - pre, c + post, o.smear ?? 4);
+    // The arriving shot is still sweeping in from the side for these frames: a blurred streak.
+    this.reg.blanks.push([r6(c - pre), r6(c + post), 'whip: the frames around the cut are a blurred streak']);
     this.fastWindow(c - pre, c + post, 12);
     if (o.cue !== false) this.cue({ id: o.id, t: c, role: o.role || 'whoosh', sync: 'apex', picture: o.picture || 'camera whip at peak speed (the cut)', gain_db: o.gain_db });
     return w;
   }
-  shake(t, o = {}) { this.shakes.push({ t: this.time(t), amp: o.amp ?? 1.2, tau: o.tau ?? 0.12, freq: o.freq ?? 22, seed: o.seed ?? this.shakes.length + 1 }); }
+  // A hit's kick: one excursion along a seeded direction that returns without reversing. (An
+  // oscillating shake over large type gave a third-of-the-frame window many luminance reversals a
+  // second: measured as flashing on the delivered file.)
+  shake(t, o = {}) { this.shakes.push({ t: this.time(t), amp: o.amp ?? 1.2, tau: o.tau ?? 0.07, seed: o.seed ?? this.shakes.length + 1 }); }
   bump(t, o = {}) { this.bumps.push({ t: this.time(t), amt: o.amt ?? 0.035, tau: o.tau ?? 0.032 }); }
   // A camera arriving from depth after a cut: zoom multiplier from `from` to 1, decelerating.
   arrive(t, o = {}) { this.arrivals.push({ t: this.time(t), from: o.from ?? 1.7, d: o.d ?? 0.42, curve: o.curve || ease.out3 }); }
@@ -180,11 +192,12 @@ export class Film {
     let sx = 0, sy = 0, srot = 0, bump = 1;
     for (const s of this.shakes) {
       const dt = t - s.t;
-      if (dt < 0 || dt > s.tau * 6) continue;
-      const a = s.amp * this.u * decay(dt, s.tau);
-      sx += a * Math.sin(dt * s.freq * 6.283 + hash(s.seed, 1) * 6.283);
-      sy += a * Math.sin(dt * s.freq * 5.1 + hash(s.seed, 2) * 6.283);
-      srot += 0.25 * s.amp * decay(dt, s.tau) * Math.sin(dt * s.freq * 4.3 + hash(s.seed, 3) * 6.283);
+      if (dt < 0 || dt > s.tau * 10) continue;
+      const k = (dt / s.tau) * Math.exp(1 - dt / s.tau);
+      const ang = hash(s.seed, 1) * 6.283;
+      sx += s.amp * this.u * k * Math.cos(ang);
+      sy += s.amp * this.u * k * Math.sin(ang);
+      srot += 0.2 * s.amp * k * (hash(s.seed, 2) > 0.5 ? 1 : -1);
     }
     for (const b of this.bumps) {
       const dt = t - b.t;
@@ -238,7 +251,7 @@ export class Film {
     for (const we of node.wordEls) { we.style.position = 'relative'; we.style.zIndex = '1'; }
     const knock = node.front && node.front.querySelector('.lf-knockout');
     if (knock) knock.style.zIndex = '3';
-    const w = { node, el: win, t0: c - d, t1: c, colour: nextGround, hole, mirror };
+    const w = { node, el: win, t0: c - d, t1: c, colour: nextGround, hole, mirror, path2d: new Path2D(hole.path) };
     this.windows.push(w);
     const film = this;
     let start = null;
@@ -263,12 +276,16 @@ export class Film {
       const S = [lerp(S0[0], film.W / 2, ease.out3(Math.min(1, p * 1.3))), lerp(S0[1], film.H / 2, ease.out3(Math.min(1, p * 1.3)))];
       return film.frameAt(P, S, z, lerp(start.rot, 0, ease.out2(p)));
     });
-    this.cut(c);
-    this.smear(c - d * 0.4, c, 2.5);
-    this.fastWindow(c - d * 0.6, c + 0.15, 12);
+    this.seam(c);
+    // Blur the whole dive: letters thrown outward past the camera, unblurred, read as flicker.
+    this.smear(c - d, c, 4);
+    this.fastWindow(c - d, c + 0.15, 16);
     this.ground(c, nextGround);
     if (o.cue !== false) this.cue({ t: c, role: o.role || 'whoosh_big', sync: 'apex', picture: `camera flies through the counter of "${node.letters[letter].textContent}" (the cut)` });
-    this.arrive(c, { from: o.arriveFrom ?? 2.4, d: o.arriveD ?? 0.5 });
+    this.arrive(c, { from: o.arriveFrom ?? 1.7, d: o.arriveD ?? 0.5 });
+    // The last frames of a dive are the next ground filling the frame: near-empty by design.
+    // Inside an outlined letter the whole dive is near-empty; inside a solid one only its last frames.
+    this.reg.blanks.push([r6(node.stroke > 0 || node.base.stroke > 0 ? c - d : c - 0.12), r6(c + 0.06), 'fly-through: the counter becomes the next ground']);
     return true;
   }
 
@@ -276,16 +293,19 @@ export class Film {
   collapse(o) {
     const c = this.time(o.t), d = o.d ?? 0.38;
     this.groupTerms.push({ node: o.group, t0: c - d, t1: c, f: p => loglerp(1, 0.004, ease.in3(p)), rot: o.rot ?? -8 });
-    this.cut(c);
+    this.seam(c);
     this.fastWindow(c - d, c + 0.2, 10);
     this.smear(c - d * 0.5, c, 2);
-    if (o.cue !== false) this.cue({ t: c - 0.02, role: o.role || 'whoosh', sync: 'apex', picture: 'everything collapses into a point' });
+    if (o.cue !== false) this.cue({ t: c, role: o.role || 'whoosh', sync: 'apex', picture: 'everything collapses into a point (the seam)' });
+    this.reg.blanks.push([r6(c - 0.18), r6(c + 0.16), 'collapse into a point and grow from it']);
   }
   grow(o) {
-    const c = this.time(o.t), d = o.d ?? 0.45;
+    const c = this.time(o.t), d = o.d ?? this.growD();
     this.groupTerms.push({ node: o.group, t0: c, t1: c + d, f: p => loglerp(0.02, 1, ease.out4(p)), rot: o.rot ?? 6, grow: true });
     this.fastWindow(c, c + d * 0.6, 10);
   }
+  // How long a scene grows from a collapse point: one beat when there is a grid.
+  growD() { return this.beat ? beatsToSeconds(1, this.beat) : 0.45; }
   // A zoom entrance for one group: arrives from a larger scale (from depth), decelerating.
   zoomIn(o) {
     const c = this.time(o.t), d = o.d ?? 0.3;
@@ -383,7 +403,11 @@ export async function buildFilm(spec, env) {
     const group = world.add({ name: `scene-${i + 1}` });
     group.isScene = true;
     const screen = screenRoot.add({ name: `scene-${i + 1}-screen` });
-    const sc = { index: i, t0, t1: t0, group, screen, def, move: { push: 0.03, roll: 0.5, ...(def.opts?.move || {}) } };
+    // How the scene is entered, so its first landing can wait for a growth or an arrival to finish.
+    const prev = scenes[i - 1];
+    const prevExit = prev?.opts?.exit;
+    const enterVia = prevExit === 'collapse' ? 'grow' : prevExit === 'through' ? 'arrive' : (def.opts?.enter || 'cut');
+    const sc = { index: i, t0, t1: t0, group, screen, def, enterVia, move: { push: 0.03, roll: 0.5, ...(def.opts?.move || {}) } };
     film.scenes.push(sc);
     const ctx = makeCtx(film, sc);
     const built = await def.build(ctx);
@@ -405,7 +429,7 @@ export async function buildFilm(spec, env) {
     const nextGround = next.built.ground0 || film.pal.ink;
     if (exit === 'through' && sc.built.through) {
       const tgt = sc.built.through();
-      if (!film.through({ ...tgt, t: c, nextGround, d: sc.def.opts?.throughD })) {}
+      if (!film.through({ ...tgt, t: c, nextGround, d: sc.def.opts?.throughD, arriveFrom: next.def.opts?.arriveFrom })) {}
     } else if (exit === 'collapse') {
       film.collapse({ group: sc.group, t: c });
       film.grow({ group: next.group, t: c });
@@ -414,6 +438,7 @@ export async function buildFilm(spec, env) {
       film.whip(c, { dir: w === 'whipX' ? [1, 0] : [0, 1] });
     } else if (enter === 'zoom') {
       film.cut(c);
+      film.change(c, c + 0.1, 'zoom entrance');
       film.arrive(c, { from: 2.2, d: 0.45 });
       film.fastWindow(c, c + 0.25, 10);
     } else {
@@ -434,10 +459,68 @@ export async function buildFilm(spec, env) {
   film.sortGrounds();
   film.reg.cuts = [...new Set(film.reg.cuts.filter(c => c > 0 && c < film.duration))].sort((a, b) => a - b);
   film.reg.cues.sort((a, b) => a.t - b.t);
+  tidyCues(film);
+  // Ground flips that are not on a cut are designed large changes.
+  const onCut = t => film.reg.cuts.some(c => Math.abs(c - t) <= 1.5 / film.fps);
+  let prevG = null;
+  for (const g of film.reg.grounds) {
+    if (prevG != null && g.colour !== prevG && g.t > 0 && !onCut(g.t)) film.change(g.t, g.t + (g.fade || 0) + 1 / film.fps, 'ground flip');
+    prevG = g.colour;
+  }
+  film.reg.seams = [...new Set(film.reg.seams)].sort((a, b) => a - b);
+  film.reg.changes.sort((a, b) => a[0] - b[0]);
+  film.readRests = readingRests(film);
   film.worldCanvas = worldCanvas; film.screenCanvas = screenCanvas;
   film.groundEl = groundEl; film.fxLayer = fxLayer; film.camLayer = camLayer;
   film.dpr = dpr;
   return film;
+}
+
+// Cue rules: a sound designer can only resolve events that are apart. Same-role cues closer than
+// 120 ms keep the first (the rest of the run is texture); different cues closer than 60 ms are one
+// gesture and keep the stronger role; nothing sounds on frame 0 unless the cue says atZero. Every
+// change is reported in the warnings.
+const CUE_RANK = { impact_big: 9, impact: 8, logo_hit: 8, hit: 7, whoosh_big: 6, glitch: 6, whoosh: 5, riser: 4, pop: 3, tick: 2, key: 1 };
+function tidyCues(film) {
+  const kept = [];
+  for (const e of film.reg.cues) {
+    if (e.sound === 'silent') { kept.push(e); continue; }
+    if (e.t < 1 / film.fps - 1e-9 && !e.atZero) { film.warn(`cue ${e.id} at ${e.t} s dropped: no cue on frame 0 unless a hit is designed there (atZero)`); continue; }
+    let same = null;
+    for (let i = kept.length - 1; i >= 0; i--) if (kept[i].sound !== 'silent' && kept[i].role === e.role) { same = kept[i]; break; }
+    if (same && e.t - same.t < 0.12 - 1e-9) { film.warn(`cue ${e.id} merged into ${same.id}: same role ${Math.round((e.t - same.t) * 1000)} ms apart (a run is one texture)`); continue; }
+    const near = kept.find(x => x.sound !== 'silent' && Math.abs(e.t - x.t) < 0.06 - 1e-9);
+    if (near) {
+      const keepNew = (CUE_RANK[e.role] ?? 0) > (CUE_RANK[near.role] ?? 0);
+      const [win, lose] = keepNew ? [e, near] : [near, e];
+      film.warn(`cue ${lose.id} merged into ${win.id}: ${Math.round(Math.abs(e.t - near.t) * 1000)} ms apart (one gesture)`);
+      win.picture = `${win.picture}; with ${lose.picture}`;
+      if (keepNew) kept.splice(kept.indexOf(near), 1, e);
+      continue;
+    }
+    kept.push(e);
+  }
+  for (const s of kept.filter(x => x.sound === 'silent' && x.window_ms)) {
+    const hit = kept.find(x => x.sound !== 'silent' && Math.abs(x.t - s.t) * 1000 < s.window_ms);
+    if (hit) film.warn(`cue ${hit.id} sounds inside the silent window of ${s.id}`);
+  }
+  for (const e of kept) delete e.atZero;
+  film.reg.cues = kept;
+}
+
+// Reading holds declared from the timeline (each block gives the time its text becomes readable),
+// so they are identical at every size. analyse() checks the text really is readable by then.
+const READ_ROLES = new Set(['claim', 'qualifier', 'identity', 'ui', 'headline']);
+function readingRests(film) {
+  if (film.spec.readingRests === false) return [];
+  const out = [];
+  for (const tx of film.reg.texts) {
+    if (!READ_ROLES.has(tx.role) || tx.readFrom == null) continue;
+    const cps = film.reading.cps;
+    const need = film.reading.base + tx.string.length / cps;
+    out.push([r6(tx.readFrom), r6(tx.readFrom + need), `read: ${tx.id}`]);
+  }
+  return out;
 }
 
 // The context a block builds with.
@@ -449,7 +532,8 @@ function makeCtx(film, sc) {
     locked: t => film.locked(t), frameIndex: t => film.frameIndex(t),
     colour: c => film.colour(c), typeOn: g => film.typeOn(g), groundAt: t => film.groundAt(t),
     ground: (t, c, o) => film.ground(t, c, o),
-    cue: e => film.cue(e), cut: t => film.cut(t), rest: (a, b, l) => film.rest(a, b, l),
+    cue: e => film.cue(e), cut: t => film.cut(t), seam: t => film.seam(t), change: (a, b, l) => film.change(a, b, l), rest: (a, b, l) => film.rest(a, b, l),
+    enterVia: sc.enterVia, growD: () => film.growD(),
     smear: (a, b, f) => film.smear(a, b, f), fast: (a, b, n) => film.fastWindow(a, b, n),
     whip: (t, o) => film.whip(t, o), shake: (t, o) => film.shake(t, o), bump: (t, o) => film.bump(t, o),
     arrive: (t, o) => film.arrive(t, o), through: o => film.through(o), collapse: o => film.collapse(o),

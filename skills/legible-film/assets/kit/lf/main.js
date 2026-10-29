@@ -28,8 +28,9 @@ window.__lf = {
 // Reading holds: the kit declares each essential text's designed reading hold, [readStart,
 // readStart + need_s], as a rest for claims, qualifiers, identities and interface text (spec option
 // `readingRests`, default true). Headlines and texture never get one, so they must keep moving.
-const READ_ROLES = new Set(['claim', 'qualifier', 'identity', 'ui']);
+const READ_ROLES = new Set(['claim', 'qualifier', 'identity', 'ui', 'headline']);
 function readingRests(f) {
+  if (f.readRests) return f.readRests;   // declared from the timeline: identical at every size
   if (f._readingRests) return f._readingRests;
   const out = [];
   if (f.spec.readingRests !== false) {
@@ -59,7 +60,7 @@ function info(f) {
   return {
     title: f.spec.title || 'untitled', width: f.W, height: f.H, fps: f.fps,
     duration: +f.duration.toFixed(6), frames: f.frames, beat: f.beat,
-    cuts: f.reg.cuts, smears: f.reg.smears.slice().sort((a, b) => a[0] - b[0]),
+    cuts: f.reg.cuts, seams: f.reg.seams, blanks: f.reg.blanks, changes: f.reg.changes.map(c => c[0]), change_windows: f.reg.changes, smears: f.reg.smears.slice().sort((a, b) => a[0] - b[0]),
     fast: f.reg.fast.slice().sort((a, b) => a[0] - b[0]), rests, flashes: f.reg.flashes,
     music: musicInfo(f), pace: f.spec.pace || null, cues, captions: f.reg.captions,
     texts: f.reg.texts.map(x => ({ id: x.id, role: x.role, string: x.string, fact: x.fact, scene: x.scene + 1 })),

@@ -45,9 +45,11 @@ export default function film(kit) {
     const mc = map.getContext('2d');
     const img = mc.createImageData(mw, mh);
     const rgb = c => ctx.parse(c).map(v => Math.round(v * 255));
-    const sea = rgb(ctx.mix(pal.deep, pal.accent, 0.32)), land = rgb(ctx.mix(pal.panel, pal.paper, 0.42));
-    const high = rgb(ctx.mix(pal.panel, pal.paper, 0.56)), coast = rgb(ctx.mix(pal.accent, pal.paper, 0.25));
-    const contour = rgb(ctx.mix(pal.panel, pal.paper, 0.7));
+    const sea = rgb(ctx.mix(pal.deep, pal.accent, 0.32)), land = rgb(ctx.mix(pal.panel, pal.paper, 0.3));
+    const high = rgb(ctx.mix(pal.panel, pal.paper, 0.42));
+    const coast = rgb(ctx.mix(pal.accent, pal.paper, 0.25));
+    // Land stays close in tone to the sea: a bright map moving under a camera push saws window luminance.
+    const contour = rgb(ctx.mix(pal.panel, pal.paper, 0.55));
     const LEVEL = 0.45;
     const seaLine = rgb(ctx.mix(pal.deep, pal.accent, 0.5));
     const mixc = (a, b, k) => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
@@ -124,20 +126,22 @@ export default function film(kit) {
       const a = Math.atan2(scatter[1], scatter[0]) + (R() - 0.5) * 0.6;
       const from = [Math.cos(a) * ctx.W * 0.9, Math.sin(a) * ctx.H * 0.9];
       const d = Math.hypot(c - (cols - 1) / 2, r - (rows - 1) / 2) / centreR;
-      const it = { card, ph, tile, grid, scatter, from, rot: (R() * 2 - 1) * 24, inAt: at(0.15) + R() * T.b(1.6), foldAt: at(2) + Math.min(1, d) * T.b(1.6) + R() * 0.06, side: null };
+      const it = { card, ph, tile, grid, scatter, from, rot: (R() * 2 - 1) * 24, inAt: k % 4 === 0 ? ctx.t0 - 0.12 - 0.08 * R() : ctx.t0 + R() * T.b(1.1), /* every fourth card is already flying when the cut lands; the rest arrive together */ foldAt: at(2) + Math.min(1, d) * T.b(1.6) + R() * 0.06, side: null };
       let shown = null;
       card.onFlush = n => {
         const side = n.extra ? 1 : 0;
         if (side !== shown) { ph.style.visibility = side ? 'hidden' : 'visible'; tile.style.visibility = side ? 'visible' : 'hidden'; shown = side; }
       };
       ctx.track(card, `card-${k + 1}`);
+      ctx.plate(card, '#7d8597');   // the cards' mean tone, for the flash prediction
       cards.push(it);
     }
     const foldDur = T.b(1.15);
     // The clock never depends on layout (5 x 3 wide, 3 x 5 tall): the lock is a fixed beat time.
     const allIn = at(2) + T.b(1.6) + 0.06 + foldDur;
     const lock = allIn + 0.06;
-    ctx.cue({ t: at(0.15), role: 'whoosh', sync: 'apex', gain_db: -8, picture: 'photo cards fly in and scatter' });
+    // A hard cut into motion: the cards already flying carry the energy across the join.
+    ctx.cue({ t: ctx.t0, role: 'whoosh', sync: 'apex', gain_db: -6, picture: 'cut into photo cards already in flight' });
     ctx.cue({ t: at(2), role: 'riser', sync: 'end', sound: 'optional', gain_db: -9, picture: 'the fold begins' });
     ctx.cue({ t: lock, role: 'impact', sync: 'attack', picture: 'the last tile locks: the photos are one map' });
     ctx.bump(lock, { amt: 0.025 });
@@ -167,7 +171,8 @@ export default function film(kit) {
       ctx.track(n, `pin-${i + 1}`);
       p.x = -mapW / 2 + p.fx * mapW; p.y = -mapH / 2 + p.fy * mapH;
       p.at = lock + T.b(0.5) + i * 0.07;
-      ctx.cue({ t: p.at, role: 'pop', sync: 'attack', gain_db: -7, picture: `pin ${i + 1} drops` });
+      // The pins drop as one run: the first one sounds; the rest are texture.
+      if (i === 0) ctx.cue({ t: p.at, role: 'pop', sync: 'attack', gain_db: -7, picture: 'the pins drop (a run of five)' });
     });
     const matches = [1, 3];
 
@@ -191,14 +196,17 @@ export default function film(kit) {
     caret.el.style.cssText += `;width:${u * 0.35}px;height:${u * 4}px;background:${pal.accent};`;
     const barAt = lock + T.b(1.05), typeAt = barAt + 0.14, cps = 20, typeEnd = typeAt + q.length / cps;
     const found = typeEnd + 0.2;
-    ctx.text({ id: 'ui-search', role: 'ui', string: q, fact: 'map-illustration', nodes: [qNode], bg: () => pal.paper });
+    ctx.text({ id: 'ui-search', role: 'ui', string: q, fact: 'map-illustration', nodes: [qNode], bg: () => pal.paper, readFrom: typeEnd });
     ctx.cue({ t: typeAt, role: 'key', sync: 'attack', gain_db: -8, picture: 'the query starts typing' });
     ctx.cue({ t: found, role: 'tick', sync: 'attack', gain_db: -2, picture: 'matching photos light up on the map' });
     const len = T.b(o.beats ?? 10);
 
     const label = ctx.textNode(ctx.screenGroup, { string: 'ILLUSTRATION', font: 'mono', size: u * 3.1, weight: 600, tracking: 0.14, color: ctx.mix(pal.paper, ground, 0.2), anchor: [0, 1] });
     label.rest({ x: ctx.safe[0] - ctx.W / 2, y: ctx.safe[3] - ctx.H / 2 });
-    ctx.text({ id: 'qualifier-illustration', role: 'qualifier', string: 'ILLUSTRATION', fact: 'map-illustration', nodes: [label], bg: () => ground });
+    ctx.text({ id: 'qualifier-illustration', role: 'qualifier', string: 'ILLUSTRATION', fact: 'map-illustration', nodes: [label], bg: () => ground, readFrom: ctx.t0 });
+    ctx.change(lock - 0.1, lock + 0.1, 'the last tile locks');
+    ctx.change(ctx.t0, Math.max(...cards.map(x => x.inAt)) + 0.45, 'photo cards fly in');
+    ctx.change(at(2), allIn, 'the cards turn over into map tiles');
 
     function update(t) {
       for (const it of cards) {
@@ -252,8 +260,8 @@ export default function film(kit) {
       const z0 = 0.86, z1 = Math.min(1.02, (sw * 0.98) / mapW, (sh * 0.92) / (mapH + barH * 2.4));
       return {
         x: ctx.lerp(0, mx * 0.6, lean), y: ctx.lerp(0, u * 2, settle) + my * 0.5 * lean,
-        zoom: ctx.loglerp(z0, z1, settle) * ctx.loglerp(1, 1.75, ctx.curves.drift(after)),
-        rot: ctx.lerp(-1.6, 0, settle) + 2.2 * lean, drift: false,
+        zoom: ctx.loglerp(z0, z1, settle) * ctx.loglerp(1, 1.35, ctx.curves.drift(after)),
+        rot: ctx.lerp(-1.6, 0, settle) + 1.0 * lean, drift: false,
       };
     }
     return { len, update, camera, ground0: ground };
@@ -275,24 +283,24 @@ export default function film(kit) {
       Words({
         exit: 'through', through: { letter: 'A', shot: -1 }, throughD: 0.5,
         shots: [
-          { text: 'PHOTOS.', kicker: 'A FOLDER OF', style: 'stack', gap: '0.5b', dur: '3b', ground: 'ink', fact: 'what', hit: 'hit', pulse: ['1.5b'] },
+          { text: 'PHOTOS.', kicker: 'A FOLDER OF', style: 'stack', open: true, openHit: '1b', dur: '3b', ground: 'ink', fact: 'what', hit: 'hit' },
           { text: 'IS NOT', tall: 'IS/NOT', style: 'cut', dur: '2b', ground: 'paper', fact: 'what', fill: 0.78, rot: -3 },
           { text: 'A MAP.', tall: 'A/MAP.', style: 'outline', dur: '4b', fact: 'what', hit: 'beat' },
         ],
       }),
       // The command, typed: the product acting. Illustrative reconstruction (facts: terminal-illustration).
       Terminal({
-        enter: 'zoom', exit: 'whipX',
+        enter: 'zoom', exit: 'cut',
         prompt: '~/photos $', command: 'atlasfold .', title: 'atlasfold',
         output: [
           { text: 'reading photos', tone: 'mute', fact: 'terminal-illustration' },
           { text: 'placing them on a map', tone: 'mute', fact: 'terminal-illustration' },
           { text: 'map ready', tone: 'ok', fact: 'terminal-illustration' },
         ],
-        fact: 'terminal-illustration', cps: 20, len: '9b',
+        fact: 'terminal-illustration', cps: 20, len: '9b', arriveFrom: 1.2,
       }),
       // The fold: the photos turn over into one map (an illustration).
-      Fold({ enter: 'whipX', query: 'lisbon', beats: 9 }),
+      Fold({ enter: 'cut', query: 'lisbon', beats: 9 }),
       // The turn: the outline from the hook comes back, and fills on the beat. The film's peak.
       Words({
         enter: 'zoom', exit: 'collapse',
@@ -303,13 +311,13 @@ export default function film(kit) {
         exit: 'whipY',
         shots: [
           { text: 'RUNS/OFFLINE.', dur: '4b', ground: 'ink', role: 'claim', fact: 'offline', id: 'claim-offline', hit: 'hit' },
-          { text: 'MACOS./WINDOWS./LINUX.', build: 'lines', step: '1b', uniform: true, dur: '7b', ground: 'paper', role: 'claim', fact: 'platforms', id: 'claim-platforms', enter: 'whipX', hit: 'hit' },
-          { text: 'MIT.', dur: '2b', ground: 'accent', role: 'claim', fact: 'licence', id: 'claim-licence', enter: 'whipY', hit: 'hit', fill: 0.62 },
+          { text: 'MACOS./WINDOWS./LINUX.', build: 'lines', step: '1b', lineHit: 'none', uniform: true, dur: '7b', ground: 'paper', role: 'claim', fact: 'platforms', id: 'claim-platforms', enter: 'whipX', hit: 'hit' },
+          { text: 'MIT.', dur: '2b', ground: 'accent', role: 'claim', fact: 'licence', id: 'claim-licence', enter: 'whipY', hit: 'hit' },
         ],
       }),
       // The name, out of depth; the camera flies through its O to the end card.
-      Name({ name: 'ATLASFOLD', color: 'accent', kickerColor: 'paper', kicker: 'INTRODUCING', sub: 'VERSION 1.0', fact: 'release', subFact: 'release', subRole: 'identity', ground: 'ink', at: '1b', subDelay: 0.1, cps: 30, len: '6b', exit: 'through' }),
-      EndCard({ wordmark: 'atlasfold', typed: false, wordmarkFact: 'release', tagline: 'OUT TODAY', taglineFact: 'release', line: 'atlasfold.example', lineFact: 'url', ground: 'paper', len: '9b' }),
+      Name({ name: 'ATLASFOLD', color: 'accent', kickerColor: 'paper', kicker: 'INTRODUCING', sub: 'VERSION 1.0', fact: 'release', subFact: 'release', subRole: 'identity', ground: 'ink', at: '0.5b', fly: 0.36, subDelay: 0.1, cps: 30, len: '6b', exit: 'through' }),
+      EndCard({ wordmark: 'ATLASFOLD', typed: false, wordmarkFact: 'release', tagline: 'OUT TODAY', taglineFact: 'release', line: 'atlasfold.example', lineFact: 'url', ground: 'paper', len: '9b' }),
     ],
   };
 }

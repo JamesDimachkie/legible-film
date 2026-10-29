@@ -834,6 +834,18 @@ class Make:
         said += report.get('warnings', [])
         if report.get('gain_refused'):
             said.append(f"mastering or gain refused: {report['gain_refused']}")
+        mastering = report.get('mastering') or {}
+        short = mastering.get('short_of_target')
+        if short and not mastering.get('refused'):
+            # Safely quieter than the destination. Within 1 LU is delivery tolerance and only reported (the report's
+            # master line carries it); further short is a reason to listen and perhaps add a bed, like sound_check's.
+            gap = float(mastering.get('shortfall_lu') or 0)
+            if gap > 1.0:
+                said.append(f"listen for: the master reached {mastering.get('reached_lufs')} LUFS, {gap:.1f} LU under "
+                            f"the {mastering.get('preset')} target (limited by "
+                            f"{mastering.get('limited_by', 'the limiter cap')}); {short.get('reason', '')}")
+            elif not said:
+                return
         for detail in said or [f'the mixer exited 1: see {stems.name}/mix-report.json']:
             self.finding('sound', label, detail)
 
@@ -1566,6 +1578,9 @@ class Make:
                     + f", largest gain reduction {m.get('max_gain_reduction_db', 0) or 0:.2f} dB, true peak "
                     f"{mix.get('true_peak_dbtp')} dBTP, after an AAC 128 kbps re-encode "
                     + (f'{aac} dBTP' if aac is not None else 'not measured'))
+            if m.get('short_of_target'):
+                text += (f"; short of target by {m.get('shortfall_lu', 0):.1f} LU"
+                         f" (limited by {m.get('limited_by', 'the limiter cap')})")
             return text + (f"; REFUSED: {m['refused']}" if m.get('refused') else '')
         lines.append(mastered('Master (`mix_cues.py`)', sound))
         if sound.get('draft_mix'):

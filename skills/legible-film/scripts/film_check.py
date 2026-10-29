@@ -295,10 +295,16 @@ def main():
         save(os.path.join(folder, 'captions.srt'), text='\n'.join(srt))
         save(os.path.join(folder, 'captions.vtt'), text='\n'.join(vtt))
     rests, flashes, cuts = info.get('rests', []), info.get('flashes', []), info.get('cuts', [])
+    blanks = info.get('blanks', [])
     save(os.path.join(qa, 'declared.json'), {
-        'note': 'Designed events from the film itself, for the QC scripts. Pass "ignore" to --ignore; cuts are hard cuts.',
-        'ignore': ','.join(f'{r[0]:.3f}-{r[1]:.3f}' for r in sorted([*rests, *flashes])),
-        'cuts': cuts, 'rests': rests, 'flashes': flashes, 'smears': info.get('smears', []), 'fast': info.get('fast', []),
+        'note': ('Designed events from the film itself, for the QC scripts. Pass "ignore" to --ignore (rests, flashes and '
+                 'designed near-empty frames at seams). cuts are every hard cut (motion blur never samples across one); '
+                 'seams are the cuts that are invisible by design (fly-throughs, collapses), so a render shows no large '
+                 'change there; changes are designed large changes that are not cuts (slam landings, fills, punches, '
+                 'ground flips), with their spans in change_windows.'),
+        'ignore': ','.join(f'{r[0]:.3f}-{r[1]:.3f}' for r in sorted([*rests, *flashes, *blanks])),
+        'cuts': cuts, 'seams': info.get('seams', []), 'changes': info.get('changes', []), 'change_windows': info.get('change_windows', []),
+        'blanks': blanks, 'rests': rests, 'flashes': flashes, 'smears': info.get('smears', []), 'fast': info.get('fast', []),
         'music': info.get('music'), 'pace': info.get('pace'),
     })
     analysis = dict(an)

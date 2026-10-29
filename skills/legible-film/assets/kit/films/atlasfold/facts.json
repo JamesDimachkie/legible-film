@@ -4,7 +4,7 @@
   "claims": [
     {
       "id": "release",
-      "display": ["OUT TODAY", "ATLASFOLD 1.0", "ATLASFOLD", "atlasfold", "VERSION 1.0"],
+      "display": ["OUT TODAY", "ATLASFOLD 1.0", "ATLASFOLD", "VERSION 1.0"],
       "spoken": null,
       "value": "1.0",
       "unit": null,

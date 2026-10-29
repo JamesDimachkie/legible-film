@@ -26,9 +26,10 @@ export default function film(kit) {
 | `ground` | the starting ground (palette name or colour); blocks set their own |
 | `facts` | path to facts.json; every `claim` must equal a fact's `display` (a string or a list), every `qualifier` its `label_beside_value` |
 | `reading` | `{cps: 15, base: 0.3, captionCps: 20}`: the reading rule for need_s |
-| `readingRests` | default true: each claim, qualifier, identity and ui text declares its reading hold `[readStart, readStart + need_s]` as a rest (excluded from pace gates). Headlines and texture never do |
+| `readingRests` | default true: each claim, qualifier, identity, ui and headline text declares its reading hold `[readFrom, readFrom + need_s]` as a rest (excluded from pace gates). `readFrom` comes from the block's own timeline (the landing, the end of typing), so rests are identical at every size; analyse() checks the text really is readable by then. Texture never gets one |
 | `pace` | the film's own pace contract, passed through info (for example `{maxStill: 0.6, maxStillShare: 0.4}`) |
 | `music` | `{stop, drop}` film times; an end card sets `stop`, a Words shot with `drop: true` sets `drop` |
+| `pace` | your pace contract, passed to info() for make_film.py |
 | `texture` | `{kind: 'dots' \| 'rows', spacing, dot, words, maxDiff: 8, alpha}`: a sparse world texture that moves with the camera. Its alpha is set per ground so the light-dark difference is `maxDiff` cd/m2 (8 by default, under the 20 cd/m2 pattern criterion) |
 | `safe` | `{x, top, bottom}` margins as fractions (defaults 0.06/0.08/0.08 wide; 0.07/0.10/0.17 tall). Reels ads ask for about 0.06/0.14/0.35 |
 | `fonts` | `{display: {url, family, weight: '200 900', stretch: '75% 125%'}, text, mono}`: a supplied brand font replaces the kit's |
@@ -65,11 +66,13 @@ One idea per beat or half beat. `Words({shots, exit, through: {letter, shot}, dr
 | `fillAt`, `fillHit`, `fillCue` | outline only: when it becomes true, and how that lands |
 | `pulse` | camera bumps on later beats of a long hold (`['1.5b']`) |
 | `drop` | this landing (or fill) is the planned musical drop |
+| `open`, `openHit` | already in place on the scene's first frame (frame 0 reads as a feed cover); its hit and cue land `openHit` later (default one beat). The first shot of a scene entered by a collapse (grow) or a fly-through (arrive) behaves the same way, landing when the growth or arrival ends |
+| `still` | default: every shot whose role must be read holds locked off (no drift, push or roll); only `texture` words move. Big high-contrast type drifting even 30-50 px/s carried letter stems across third-of-frame windows and measured as flashing |
+| `lineEntrance`, `lineHit` | in a line build, later lines appear in place on their beat (`lineEntrance: 'slam'` restores the slam); `lineHit` for them (`beat` by default, `none` for no bump) |
 | `cue`, `lead`, `rot`, `depth` | cue role override or `false`; entrance lead; rotation; extrusion depth (em) |
 
-Each shot has its own slow push and roll from its cut. Drift and push share the room the widest
-line leaves inside the safe area, along whichever axis has more room, so they never carry a word out
-of it. Display words are fitted to the safe width after fonts load; a word that would fall below 7%
+Texture shots have their own slow push and roll from their cut; drift and push share the room the
+widest line leaves inside the safe area, along whichever axis has more room. Reading shots are still. Display words are fitted to the safe width after fonts load; a word that would fall below 7%
 of the frame height warns that the phrase should be split. Reveals are whole letters or whole words;
 word spaces are margins, so they never collapse.
 
@@ -150,6 +153,29 @@ opacity). Tokens for interface devices: `token(kind, size, distance)` with sizes
 `small` 0.16, `medium` 0.24, `large` 0.34, `stage` 0.55; exits 0.68 of arrivals; duration grows up to
 60% with distance (a fraction of the frame diagonal).
 
+## Hits
+`beat` is a quick camera bump; `hit` a bump and one kick (the camera moves out once along a seeded
+direction and returns without reversing; an oscillating shake over large type measured as flashing);
+`punch` adds a short charge of sparse, thin accent speed lines (0.24 s), a ring, six rays and sparks.
+Each punch, fill, slam landing and ground flip off a cut is declared in `changes`.
+
+## Cue rules (applied after the build, each change reported in the warnings)
+Same-role cues closer than 120 ms keep the first (the rest of a run is texture); different cues closer
+than 60 ms are one gesture and keep the stronger role; nothing sounds on frame 0 unless the cue says
+`atZero`. Blocks follow the same rules by design: typing gets one key accent where it starts, a run of
+pins one pop, a name's kicker and typed sub line ride on its landing, an end card's tagline on the
+logo hit; the end card's silent window starts after the logo hit's ring-out (`ringOut`, 1.6 s).
+
+## Joins in info()
+`cuts` lists every hard cut (motion blur never samples across one). `seams` lists the cuts that are
+invisible by design (fly-throughs, collapses): the frame is already the next shot there, so a render
+shows no large change. `changes` (with spans in `change_windows`) lists designed large changes that
+are not cuts: slam landings, fills, punches, the mark landing, ground flips off a cut, cards flying
+in. `blanks` lists designed near-empty frames (the end of a dive, a collapse point, a whip arrival).
+film_check.py writes all of them to `qa/declared.json`, blanks included in `ignore`. A whip is a
+visible cut: give the arriving shot content already in motion; a fast exit into an empty arrival
+reads as a drop-out.
+
 ## Cue roles
 `impact`, `impact_big`, `hit`, `whoosh`, `whoosh_big`, `tick`, `pop`, `key`, `riser` (sync `end`),
 `logo_hit`, `glitch`, matching the sound lane's palette. Whips and fly-throughs cue at their apex.
@@ -158,9 +184,14 @@ opacity). Tokens for interface devices: `token(kind, size, distance)` with sizes
 Per text: `in`, `readStart` (every glyph visible: opacity through all ancestors at least 0.98, own
 scale within 2% of rest, blur under 0.35 px, inside the safe area, uncovered), `readEnd`, `out`,
 `need_s`, `min_font_px`, colour, ground and WCAG contrast (3:1 at 24 px or 18.66 px bold and up,
-otherwise 4.5:1). Per frame: ground luminance (with flashes, plates, windows and an ink-area estimate
-for text) and saturated red; flashing as opposing transitions of at least 0.1 with the darker below
-0.8 in any 1 s window (more than 6 is an error). Truth against facts.json. Motion per tracked
+otherwise 4.5:1). Flashing by flash_scan.py's own method on a small raster of every frame:
+the ground, world effects, plates, counter windows, the type itself (whole letters, outlines, blur)
+and the screen effect canvases, drawn at three times 192 px wide and area-averaged down, with two
+sub-samples inside each frame's exposure (six inside fast and smear windows); windows a third of the
+frame on a sixth-of-the-frame grid; 74th and 26th percentiles; a swing of at least 0.10 with the
+darker below 0.80, and 20 in the saturated-red amount; more than 6 in any second is an error, 5-6 a
+warning. On the first showcase render it predicted 13 and 11 where flash_scan.py measured 13 and 12.
+The whole-frame ground series stays as the luminance strip. Truth against facts.json. Motion per tracked
 element: jumps (a step over 5x the move's median, 2x both neighbours and 6 px; steps on a designed
 bump or shake are counted as `jumps_on_hits`), speed (more than one own width, its larger dimension,
 per frame outside smear and fast windows), competing onsets (unrelated elements starting within 2

@@ -59,7 +59,7 @@ export const EndCard = block('endcard', (ctx, o) => {
   for (const it of items) { it.node.rest({ y: y + it.h / 2 }); y += it.h + it.gap; }
   if (logoNode) logoNode.ay = 0.5;
 
-  const hit = ctx.t0 + ctx.time(o.at ?? (o.typed === false ? 0.12 : 0.1));
+  const hit = ctx.t0 + ctx.time(o.at ?? (o.typed === false ? 0.24 : 0.1));
   const cps = o.cps ?? 16;
   const typeEnd = wordNode && o.typed !== false ? hit + o.wordmark.length / cps : hit;
   const lockAt = wordNode && o.typed !== false ? typeEnd : hit;
@@ -68,12 +68,15 @@ export const EndCard = block('endcard', (ctx, o) => {
   const lastIn = (lineNode ? lineAt : tagNode ? tagAt : lockAt) + 0.25;
   const len = o.len != null ? ctx.time(o.len) : lastIn - ctx.t0 + ctx.time(o.hold ?? 2.6);
   const end = ctx.t0 + len;
-  if (wordNode) ctx.text({ id: 'identity-wordmark', role: 'identity', string: o.wordmark, fact: o.wordmarkFact, nodes: [wordNode] });
-  if (tagNode) ctx.text({ id: 'endcard-tagline', role: o.taglineRole || 'claim', string: o.tagline, fact: o.taglineFact, nodes: [tagNode] });
-  if (lineNode) ctx.text({ id: 'endcard-line', role: o.lineRole || 'claim', string: o.line, fact: o.lineFact, nodes: [lineNode] });
+  if (wordNode) ctx.text({ id: 'identity-wordmark', role: 'identity', string: o.wordmark, fact: o.wordmarkFact, nodes: [wordNode], readFrom: lockAt });
+  if (tagNode) ctx.text({ id: 'endcard-tagline', role: o.taglineRole || 'claim', string: o.tagline, fact: o.taglineFact, nodes: [tagNode], readFrom: tagAt + 0.22 });
+  if (lineNode) ctx.text({ id: 'endcard-line', role: o.lineRole || 'claim', string: o.line, fact: o.lineFact, nodes: [lineNode], readFrom: lineAt + 0.22 });
+  if (wordNode || logoNode) ctx.change(Math.min(hit - 0.12, ctx.t0), hit + 0.05, 'the mark lands');
   ctx.cue({ id: 'logo-hit', t: lockAt, role: 'logo_hit', sync: 'attack', gain_db: o.logoGain ?? -6, duck_db: 0, picture: 'the mark locks' });
-  if (tagNode) ctx.cue({ t: tagAt, role: 'tick', sync: 'attack', gain_db: -8, picture: 'tagline appears' });
-  ctx.cue({ id: 'end-read', t: Math.min(end - 0.5, lastIn + 1), sound: 'silent', window_ms: 600, picture: 'the end card is read' });
+  // The tagline and line ride on the logo hit's ring-out (a tick inside it was inaudible). The
+  // silent window starts after the ring-out (o.ringOut, 1.6 s by default) so it guards new sounds only.
+  const quiet0 = lockAt + (o.ringOut ?? 1.6), quiet1 = end - 0.15;
+  if (quiet1 - quiet0 > 0.2) ctx.cue({ id: 'end-read', t: +((quiet0 + quiet1) / 2).toFixed(6), sound: 'silent', window_ms: Math.round(((quiet1 - quiet0) / 2) * 1000), picture: 'the end card is read: no new sound' });
   ctx.rest(lockAt, end, 'end card');
   if (o.musicStop !== false) ctx.music({ stop: +lockAt.toFixed(6) });
   ctx.bump(lockAt, { amt: 0.02, tau: 0.05 });
@@ -88,9 +91,11 @@ export const EndCard = block('endcard', (ctx, o) => {
       if (o.typed !== false) wordNode.reveal = ctx.typed(wordNode, ctx.locked(t) < hit ? 0 : (ctx.locked(t) - hit) * cps + 1 + 1e-6).reveal;
       else {
         // Slams in: scale and blur into the contact frame, then holds.
-        const q = ctx.progress(t, hit - 0.1, hit);
-        wordNode.opacity = t < hit - 0.1 ? 0 : ctx.ease.fade(Math.min(1, q * 2.5));
-        if (t < hit) { const e = ctx.curves.slam(q); wordNode.s = ctx.loglerp(1.8, 1, e); wordNode.blur = (1 - e) * u * 1.4; }
+        // The slam starts on the card's first frame, so the arrival is never an empty card.
+        const s0 = Math.min(hit - 0.08, ctx.t0);
+        const q = ctx.progress(t, s0, hit);
+        wordNode.opacity = t < s0 ? 0 : ctx.ease.fade(Math.min(1, q * 3));
+        if (t < hit) { const e = ctx.curves.slam(q); wordNode.s = ctx.loglerp(1.35, 1, e); wordNode.blur = (1 - e) * u * 1.2; }
       }
     }
     for (const [n, at] of [[tagNode, tagAt], [lineNode, lineAt]]) {
