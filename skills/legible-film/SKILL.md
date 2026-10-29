@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. The film kit's checks and renders also need Node 18+ with Playwright and a Chromium. No accounts or paid services required."
 metadata:
   author: "James Dimachkie"
-  version: "1.2.2"
+  version: "1.2.3"
 ---
 
 # Legible Film
@@ -51,19 +51,40 @@ stop only processes you started, by their own PID.
 
 ## Choose the path
 
-| The request | Path |
-|---|---|
-| A new video | Steps 1-9 |
-| An edit of recordings: an interview, talking head, screen recording, event film or cut-down | Steps 1-9 with [footage](references/footage.md) |
-| A fast, beat-cut film of big words (a teaser, trailer or hype film) | Steps 1-9 in the [kinetic-type](references/kinetic-type.md) register |
-| A type-led film built with the bundled engine | Steps 1-9, building with the [film kit](references/kit.md) |
-| The best film possible, with a budget for premium work | Steps 1-9 at [studio grade](#studio-grade) |
-| A logo sting, a loop, or a clip under about 15 s | Steps 1-9, done lightly ([short pieces](#short-pieces)) |
-| A change to an approved cut | [Revisions](#revisions), then steps 6-9 |
-| Check or review an existing file | Steps 7-8 |
-| Captions for an existing video: build, check or burn them | [footage](references/footage.md#11-captions) §11 and [formats](references/formats.md#7-captions) §7, with `captions.py` |
-| Clean or mix existing dialogue | [footage](references/footage.md#10-dialogue) §10 and [sound](references/sound.md); keep the stems and get a person to listen |
-| Choose or set up tools | [engines](references/engines.md); for the film kit, `python scripts/make_film.py --doctor` and [kit](references/kit.md) §2 |
+The person may start with a command (`/legible-film cut interview.mp4`; `$legible-film cut interview.mp4` in Codex)
+or simply describe the work. Either way, take the matching row's path.
+
+- **The command alone, with no request:** list every command below under its group, each with its "For" line, and ask
+  what they want to make. Start nothing.
+- **A command:** take its path, with the rest of the request as its target. If another row fits the request better,
+  say so once and continue on the path they confirm.
+- **`studio` before another command** (`/legible-film studio film ...`): that command's path at
+  [studio grade](#studio-grade).
+
+| Command | For | Path |
+|---|---|---|
+| **Plan** | | |
+| `brief` | Turn a request into a brief, a facts file and a QC plan before anything is made | Step 1, from the [brief](assets/templates/brief.md) and [facts](assets/templates/facts.json) templates |
+| `setup` | Choose the tools for a job, and check this machine can run them | [engines](references/engines.md); `python scripts/make_film.py --doctor` and `python scripts/selftest.py --quick`; for the film kit, [kit](references/kit.md) §2 |
+| **Make** | | |
+| `film` | A new video, on whichever engine fits: HyperFrames, Remotion, Blender, an editor or FFmpeg | Steps 1-9 |
+| `kit` | A type-led film built with the bundled engine, taken to delivered files by one command | Steps 1-9, building with the [film kit](references/kit.md) and `make_film.py` |
+| `teaser` | A fast, beat-cut film of big words: a teaser, trailer or hype film | Steps 1-9 in the [kinetic-type](references/kinetic-type.md) register |
+| `short` | A logo sting, a loop, or a clip under about 15 s | Steps 1-9, done lightly ([short pieces](#short-pieces)) |
+| `studio` | The best film possible, with a budget for premium work | Steps 1-9 at [studio grade](#studio-grade) |
+| **Edit** | | |
+| `cut` | An edit of recordings: an interview, talking head, screen recording or event film | Steps 1-9 with [footage](references/footage.md) |
+| `cutdown` | A new length or shape from an approved cut: 9:16, 1:1, a 15-second version | Steps 1-9 with [footage](references/footage.md#6-other-ratios) §6 and §13: a new length is a new edit with its own timeline; a new shape reframes the approved one |
+| `captions` | Captions for an existing video: build, check or burn them | [footage](references/footage.md#11-captions) §11 and [formats](references/formats.md#7-captions) §7, with `captions.py` |
+| **Sound** | | |
+| `score` | Sound and music for a picture, on the picture's clock | Step 5 with [sound](references/sound.md); for a kit film, `make_film.py FILM --sound draft` (or `library:FOLDER`), then `--sound-only` to remix without re-rendering |
+| `mix` | Clean and mix existing dialogue over music, mastered for where it plays | [footage](references/footage.md#10-dialogue) §10 and [sound](references/sound.md); keep the stems and get a person to listen |
+| **Check** | | |
+| `check` | Run every applicable check on an existing file before it ships, then hand it to a person to watch | Step 7, then step 8 |
+| `review` | A review round: people's notes, and critics whose findings are verified before anything changes | Step 8 with [review](references/review.md) |
+| **Change and deliver** | | |
+| `revise` | A change to an approved cut, checked against the approved version for anything else that moved | [Revisions](#revisions), then steps 6-9 |
+| `deliver` | Encode for each platform, with hashes and a delivery report | Steps 6, 7 and 9 with [formats](references/formats.md) and [finishing](references/finishing.md) |
 
 When an input the path needs is missing (the footage, the approved mix, the baseline), name the operations it blocks
 and finish everything that does not depend on it: the plan, the hypotheses, and the comparisons and checks to run when
@@ -299,6 +320,7 @@ after an update or with `--force`), and `python scripts/kit_selftest.py` before 
 | `spot_cues.py` | Turn the picture's cue list into sound gestures: merge collisions, thin dense runs, keep layer limits, apply sound edits. |
 | `mix_cues.py` | Build the effects stem, the bed and the mix from the cue list and the palette, and master them; which hits are missing, smeared or under the music? |
 | `sound_check.py` | Listening candidates in a mix: phone-band loss, brightness, digital silence, crest, layers, the ending. |
+| `voice_clean.py` | A conservative cleanup of a dialogue recording (high-pass, noise reduction sized from the measured floor, de-essing, light compression), each step measured and the original kept: a starting point for a listener. |
 | **Check the delivered file** | |
 | `qc_file.py` | Does the file meet its spec and decode cleanly? Colour tags, loudness, true peak before and after a lossy re-encode, head and tail levels, mono fold-down, brand colour patches. |
 | `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? Paginates to a pixel budget, or writes single frames. |
