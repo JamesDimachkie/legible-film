@@ -17,7 +17,10 @@ Frames are paired by index, whatever each file's own timing; an inserted or remo
 everything after it (use --offset-frames or compare windows separately). Reported times are NEW's
 own presentation times. When one render has more frames than the other,
 the frames without a counterpart are reported as a change at the end, never as identical.
-Needs FFmpeg. Exit code 0 when changes fall only inside --expect ranges, 1 when a change is found
+For the strongest change proof when the pipeline can re-render, compare lossless intermediates
+(or renders made with -qp 0) with --lossless-proof. This flag asserts that both inputs are
+lossless; it does not verify their provenance. Native decoded frame hashes give exact ranges.
+Needs FFmpeg and ffprobe. Exit code 0 when changes fall only inside --expect ranges, 1 when a change is found
 outside them, 2 on error.
 """
 
@@ -34,6 +37,7 @@ from fractions import Fraction
 
 
 def find_tool(name, explicit=None):
+    """Find an explicitly named tool, environment override or PATH executable."""
     candidate = explicit or os.environ.get(name.upper())
     if candidate:
         return candidate if (os.path.isfile(candidate) or shutil.which(candidate)) else None
@@ -89,6 +93,45 @@ def parse_ranges(text):
     return out
 
 
+
+
+def pixel_format(ffprobe, path):
+    """Read the decoded pixel format for an exact comparison."""
+    cmd = [ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=pix_fmt', '-of', 'json', path]
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    streams = json.loads(result.stdout or '{}').get('streams', []) if result.returncode == 0 else []
+    if not streams or not streams[0].get('pix_fmt'):
+        raise RuntimeError('cannot read native decoded pixel format')
+    return streams[0]['pix_fmt']
+
+def frame_hashes(ffmpeg, path):
+    """Return native decoded frame size and hash without converting the pixel format."""
+    cmd = [ffmpeg, '-hide_banner', '-nostdin', '-v', 'error', '-i', path, '-map', '0:v:0',
+           *passthrough(ffmpeg), '-f', 'framemd5', '-']
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if r.returncode:
+        raise RuntimeError('native frame hashing failed: ' + (r.stderr.strip().splitlines() or ['?'])[-1])
+    headers = tuple(line for line in r.stdout.splitlines() if line.startswith(('#format:', '#dimensions:', '#sar:')))
+    return [(headers, tuple(line.split(',')[-2:])) for line in r.stdout.splitlines()
+            if line and not line.startswith('#')]
+
+
+def frame_ranges(exact, target, offset, times):
+    """Group matching frames into inclusive frame and presentation-time ranges."""
+    runs = []
+    i = 0
+    while i < len(exact):
+        if exact[i] != target:
+            i += 1
+            continue
+        end = i + 1
+        while end < len(exact) and exact[end] == target:
+            end += 1
+        runs.append({'start_frame': offset + i, 'end_frame': offset + end - 1,
+                     'start_s': times[offset + i], 'end_s': times[offset + end - 1]})
+        i = end
+    return runs
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('new')
@@ -98,6 +141,8 @@ def main():
     p.add_argument('--expect', help='ranges (seconds, in NEW) where a change is intended, e.g. 19-21.5')
     p.add_argument('--offset-frames', type=int, default=0,
                    help='positive: drop this many frames from the start of NEW; negative: from BASELINE')
+    p.add_argument('--lossless-proof', action='store_true',
+                   help='assert both inputs are lossless and compare exact decoded frames')
     p.add_argument('--json')
     p.add_argument('--ffmpeg')
     p.add_argument('--ffprobe')
@@ -147,28 +192,60 @@ def main():
         with open(os.path.join(tmp, 'psnr.log'), encoding='utf-8') as fh:
             lines = fh.read().splitlines()
     values = []
+    exact = []
     for line in lines:
-        m = re.search(r'psnr_avg:(\S+)', line)
-        if m:
-            v = m.group(1)
-            values.append(99.0 if v == 'inf' else float(v))
+        number = re.search(r'(?:^|\s)n:(\d+)', line)
+        measurement = re.search(r'psnr_avg:(\S+)', line)
+        if not number or not measurement or int(number.group(1)) - 1 != len(values):
+            print('compare_versions.py: invalid or non-sequential PSNR frame log', file=sys.stderr)
+            return 2
+        value = measurement.group(1)
+        exact.append(value == 'inf')
+        values.append(99.0 if value == 'inf' else float(value))
     pairs = min(new_left, base_left)
     if len(values) != pairs:
         print(f'compare_versions.py: compared {len(values)} frame pairs but expected {pairs}; '
               'the change proof is incomplete', file=sys.stderr)
         return 2
-    finite = [v for v in values if v < 99.0]
+    finite = [v for v, same in zip(values, exact) if not same]
     median = statistics.median(values)
-    threshold = max(min(median - a.drop_db, 99.0), a.floor_db) if finite else a.floor_db
+    outside = [v for i, (v, same) in enumerate(zip(values, exact)) if not same
+               and not any(lo - 1e-6 <= new_times[skip_new + i] <= hi + 1e-6 for lo, hi in expect)]
+    if sum(exact) > len(exact) / 2 and finite:
+        candidate = min(55.0, statistics.median(outside) - a.drop_db) if outside else 55.0
+        threshold = max(a.floor_db, candidate)
+        method = 'identical majority: outside-expected non-identical median minus drop, capped at 55 dB'
+    else:
+        threshold = max(min(median - a.drop_db, 99.0), a.floor_db) if finite else a.floor_db
+        method = 'overall median minus drop with floor' if finite else 'all compared frames identical: floor'
+    psnr_exact = list(exact)
+    if a.lossless_proof:
+        try:
+            if pixel_format(ffprobe, a.new) != pixel_format(ffprobe, a.baseline):
+                raise RuntimeError('native decoded pixel formats differ; exact comparison unavailable')
+            new_hashes = frame_hashes(ffmpeg, a.new)
+            base_hashes = frame_hashes(ffmpeg, a.baseline)
+        except RuntimeError as e:
+            print(f'compare_versions.py: {e}', file=sys.stderr)
+            return 2
+        if len(new_hashes) != len(new_times) or len(base_hashes) != len(base_times):
+            print('compare_versions.py: incomplete native frame hashes', file=sys.stderr)
+            return 2
+        if new_hashes[0][0] != base_hashes[0][0]:
+            print('compare_versions.py: native decoded formats differ; exact comparison unavailable', file=sys.stderr)
+            return 2
+        exact = [new_hashes[skip_new + i] == base_hashes[skip_base + i] for i in range(pairs)]
+        method = 'exact native decoded-frame hashes; inputs asserted lossless'
+
 
     def at(i):  # NEW's own time for compared pair i
         return new_times[skip_new + i]
 
     runs, i = [], 0
     while i < len(values):
-        if values[i] < threshold:
+        if (not exact[i]) if a.lossless_proof else (values[i] < threshold):
             j = i
-            while j < len(values) and values[j] < threshold:
+            while j < len(values) and ((not exact[j]) if a.lossless_proof else (values[j] < threshold)):
                 j += 1
             start, end = at(i), at(j - 1)
             inside = any(s - 1e-6 <= start and end <= e + 1e-6 for s, e in expect)
@@ -191,7 +268,7 @@ def main():
                      'unmatched': ('NEW has frames the baseline lacks' if extra > 0
                                    else 'the baseline continues after NEW ends')})
     unexpected = [r for r in runs if not r['expected']]
-    identical = sum(1 for v in values if v >= 99.0)
+    identical = sum(exact)
     result = {'new': a.new, 'baseline': a.baseline, 'frames_new': len(new_times), 'frames_baseline': len(base_times),
               'frames_compared': len(values),
               'identical_frames': identical, 'median_psnr_db': round(median, 2),
@@ -199,12 +276,23 @@ def main():
               'verdict': (f'{len(unexpected)} change(s) outside the expected ranges' if unexpected
                           else 'changes only where expected' if runs else 'no change above the threshold'),
               'limit': 'Locates differences; does not prove a small change is absent or that meaning survived.'}
+    result['threshold_method'] = method
+    result['per_frame_psnr'] = [{'frame': skip_new + i, 'pts': new_times[skip_new + i],
+                                 'psnr': 'inf' if psnr_exact[i] else values[i]}
+                                for i in range(pairs)]
+    if a.lossless_proof:
+        result['lossless_proof'] = {'assertion': 'both inputs are lossless',
+                                    'identical_ranges': frame_ranges(exact, True, skip_new, new_times),
+                                    'changed_ranges': frame_ranges(exact, False, skip_new, new_times)}
     if a.json:
         with open(a.json, 'w', encoding='utf-8') as fh:
             json.dump(result, fh, indent=1)
     print(f"{os.path.basename(a.new)} vs {os.path.basename(a.baseline)}: {len(values)} frames; median "
           f"{result['median_psnr_db']} dB, min {result['min_psnr_db']} dB, {identical} identical; threshold "
           f"{result['threshold_db']} dB")
+    print('  threshold method: ' + method)
+    if a.lossless_proof:
+        print('  exact frame ranges: ' + str(result['lossless_proof']))
     for r in runs:
         what = r['unmatched'] if 'unmatched' in r else f"min {r['min_psnr_db']} dB"
         print(f"  {'expected' if r['expected'] else 'UNEXPECTED'} change {r['start_s']:.3f}-{r['end_s']:.3f} s "

@@ -2,13 +2,19 @@
 
 [![CI](https://github.com/JamesDimachkie/legible-film/actions/workflows/ci.yml/badge.svg)](https://github.com/JamesDimachkie/legible-film/actions/workflows/ci.yml)
 
-Legible Film is an Agent Skill for video production: a folder of instructions, references and scripts that a coding
-agent (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot and others) loads when a task calls for it. Its name
-is the standard it holds every film to: legible to the viewer it is made for, and honest about what was checked.
+Legible Film is an Agent Skill that lets a coding agent (Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot and
+others) make video end to end: films built in code, edits cut from recordings, sound designed and mixed for the
+screens people actually use, and every delivered file checked before anyone ships it. Its name is the standard it
+holds every film to: legible to the viewer it is made for, and honest about what was checked.
 
-It teaches the agent to make short videos the way a careful director, editor and finisher would: one story, picture
-and sound composed on one clock, every claim traced to a source, and the delivered file checked before anyone ships
-it.
+It works the way a careful director, editor and finisher would: one story, picture and sound composed on one clock,
+every claim traced to a source, approved work kept approved, and nothing reported as watched or heard until a person
+has watched and listened.
+
+![Six frames from Atlasfold, a 24-second launch film for a fictional product, made with the bundled film kit](.github/media/atlasfold-stills.jpg)
+
+*Atlasfold, a launch film for a fictional product, built with the bundled film kit and rendered with one command at
+16:9 and 9:16. It passes the skill's flash screen in both shapes.*
 
 In a small blind-graded test (five requests, one run each on one model), agents with the skill met 35 of 35
 expectations and agents without it met 10 of 35. Every prompt, output and grade is
@@ -29,13 +35,39 @@ client videos with coding agents in 2026. Its rules come from defects found in r
 watched and listened, measurements on delivered files, and published standards and research checked against their
 sources. Its scripts were written for that work and are tested against synthetic media with known answers.
 
-## What it does
+## What it can do
+
+**Build a film in code.** A small, dependency-free browser engine for type-led films, from a calm launch film to
+beat-cut kinetic type, with the skill's rules built in. `make_film.py` takes a film from preflight to delivered,
+checked files in one command: claims bound to a facts file, contrast and reading time checked on the film's own
+timeline, flashing predicted before a frame renders, motion blur that respects cuts, one timeline rendered at 16:9,
+9:16 and 1:1, and a delivery report that says what was and was not checked.
+
+**Edit recordings.** Interviews, talking heads, screen recordings and cut-downs. An edit lives in one `edit.json` that
+`assemble.py` renders frame-accurately: J and L cuts, dissolves, retimes, crop paths, overlays, and HDR phone footage
+tone-mapped for ordinary screens. `transcript_cut.py` cuts from a word-timed transcript in the gaps between words,
+`reframe.py` follows the subject into a tall frame, and `captions.py` builds, checks and burns captions clear of
+faces and platform buttons.
+
+**Sound that survives a phone speaker.** A sound chain from the picture's own cue list: spotting that merges
+collisions and thins dense runs, licensed library sounds layered over synthesised low end and air, music that ducks
+under a voice phrase by phrase, mastering to the destination's loudness with a limiter checked after a lossy
+re-encode, and a blind, loudness-matched A/B pair so a person chooses by listening.
+
+**Checks an agent cannot do by eye.** Each script is tested against synthetic media with known answers: spec, colour
+tags and loudness; WCAG 2.3.1 flash screening; near-empty frames; cuts, holds and pace; a claim or qualifier present
+through every frame of its interval; sound on cue, or a moved sound gone from its old place; audio drift and the
+resampling that repairs it; the exact frames a revision changed.
+
+## How it works
 
 The agent works through nine steps, each ending on a condition it can check:
 
-1. **Brief, facts and format.** Who it is for, where it plays, what must read muted, and a facts file for every claim.
-2. **Story and score.** The change the film makes in its viewer, three concepts, one governing operation, and a score
-   that plans every moment across picture, motion, text, music, effects and the product's truth.
+1. **Brief, facts and format.** Who it is for, where it plays, what must read muted, a facts file for every claim,
+   and a QC plan that maps each requirement to the check that measures it.
+2. **Story and score.** The change the film makes in its viewer, three concepts (or, for an edit of recordings, the
+   selects and an outline drawn from them), and a score that plans every moment across picture, motion, text, music,
+   effects and the product's truth.
 3. **The clock.** One timing source for picture and sound, sync points computed from the animation, and a reading
    window for every essential text.
 4. **Picture.** A world with reasons, motion with weight and cause, joins chosen for what they mean, and craft rules
@@ -104,7 +136,9 @@ Add `-g` for a user-wide install or `-a codex` (or another agent name) to target
 (project) or `~/.agents/skills/` (user) for most other agents.
 
 **Requirements:** Python 3.9 or later, FFmpeg and ffprobe on `PATH`, and `pip install numpy Pillow` (into whichever
-Python environment the agent will use) for the scripts. If you are unsure whether these are installed, ask your coding
+Python environment the agent will use) for the scripts. The film kit also needs Node.js 18 or later with Playwright
+and Chromium; `python skills/legible-film/scripts/make_film.py --doctor` checks all of it and prints the one command
+that fixes each missing piece. If you are unsure whether these are installed, ask your coding
 agent: "Install Legible Film, check its requirements and run its self-test; ask me before changing anything that
 needs my permission."
 
@@ -117,8 +151,10 @@ python skills/legible-film/scripts/selftest.py
 ```
 
 If you installed through a plugin or `npx skills`, the same script sits in the installed skill's `scripts/` folder;
-ask your agent to run the Legible Film skill's self-test. It builds synthetic media with known answers and runs 38
-checks across every script in about half a minute, writing only to a temporary folder.
+ask your agent to run the Legible Film skill's self-test. It builds synthetic media with known answers and runs about
+360 checks across every script in a few minutes, writing only to a temporary folder. It counts any case it could not
+run (the film-kit cases need Playwright) and remembers a passing environment; `--quick` checks the dependencies in
+seconds.
 
 ## Use it
 
@@ -126,6 +162,9 @@ Ask for what you want. Agents that support skills load this one from its descrip
 to be certain, name it: "Use Legible Film to check this cut." For example:
 
 - "Make a 30-second launch film for our release, 16:9 for the post and 9:16 for stories. Facts are in `docs/`."
+- "Use the film kit to make a 15-second teaser for 2.0, with a draft soundtrack."
+- "Cut a 12-second Reels clip from the clean answer in `interview.mp4`, with captions burned in and an SRT."
+- "Put this voiceover over the music for the landing page and keep the voice clear throughout."
 - "Here is the cut. Check it before I post it."
 - "The client says the end feels rushed. Fix that without touching anything they already approved."
 - "Which tools should I use to turn these screen recordings into a two-minute tutorial with captions?"
@@ -170,41 +209,48 @@ preference medium confidence. It preferred 1.1.0 for leading a newcomer and for 
 skills/legible-film/
   SKILL.md            the method: principles, gates, nine steps, revisions, hard limits, gotchas
   references/         story-and-score, timing, picture, product-demos, sound, claims-and-rights, formats,
-                      engines, finishing, ffmpeg-cookbook, qc, review, case-library, sources;
-                      studio grade, finding assets, making assets with generative tools
-  scripts/            QC tools for the delivered file, plus a self-test
-  assets/templates/   brief, treatment, facts, score, cues, asset register, budget, review log, critic brief,
-                      delivery report
+                      engines, finishing, ffmpeg-cookbook, qc, review, case-library, sources; studio grade,
+                      finding assets, making assets with generative tools; the film kit, kinetic type, footage
+  scripts/            the tools below, each with --help, plus a self-test
+  assets/kit/         the film kit: engine, blocks, open-licence fonts, a starter film and the Atlasfold showcase
+  assets/templates/   brief, treatment, facts, score, cues, sound palette, asset register, budget, review log,
+                      critic brief, delivery report
   assets/examples/    a filled 40-second score for a fictional product
 evals/                behaviour and trigger evaluations for the skill itself
 ```
 
-| Script | Answers |
+| Stage | Scripts |
 |---|---|
-| `qc_file.py` | Does the file meet its spec and decode cleanly? Colour tags, loudness, true peak before and after a lossy re-encode, head and tail levels, mono fold-down, brand colour patches. |
-| `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? |
-| `flash_scan.py` | Is there a candidate WCAG 2.3.1 flash sequence? |
-| `blank_scan.py` | Are there near-empty frames outside the designed ones? |
-| `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam. |
-| `cue_onsets.py` | Does each sound start on its cue, do silent cues stay quiet, and is the hit rate better than chance? |
-| `sync_check.py` | Is the delivered audio offset or drifting against the approved mix? |
-| `compare_versions.py` | Where did the picture change between two renders? |
-| `onion_frames.py` | What path and spacing does a move have across these frames? |
+| Make a kit film | `new_film.py`, `film_check.py` (preflight), `make_film.py` (one command to delivered files), `film_render.py`, `motion_blur.py` |
+| Edit recordings | `transcript_cut.py`, `assemble.py`, `reframe.py`, `captions.py` |
+| Sound | `beat_grid.py`, `make_sound_kit.py`, `sound_library.py`, `spot_cues.py`, `mix_cues.py`, `sound_check.py`, `voice_clean.py` |
+| Check the delivered file | `qc_file.py`, `frame_sheet.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py`, `region_check.py`, `cue_onsets.py`, `sync_check.py`, `compare_versions.py`, `onion_frames.py` |
+| The environment | `selftest.py`, `kit_selftest.py` |
+
+What each one answers is in [SKILL.md](skills/legible-film/SKILL.md#scripts).
 
 ## Limits
 
 - The scripts measure; they do not watch or listen. Rhythm, feel, comprehension and how the sound sounds are decided
   by people, and the skill says so in every report.
 - `flash_scan.py` screens for WCAG 2.3.1 flashing. It is not a Harding, IRIS or broadcast PSE certification.
-- Tool versions, platform specs and provider terms in the references were checked on 2026-10-27 and 2026-10-28 and
-  change often; each is dated, and linked to its source wherever a stable page exists, so it can be re-checked.
+- Tool versions, platform specs and provider terms in the references were checked between 2026-10-27 and
+  2026-10-29 and change often; each is dated, and linked to its source wherever a stable page exists, so it can be
+  re-checked.
 - Evaluations are small:
   - seven requests: five on 1.0.0, with and without the skill, and two studio-grade ones comparing 1.1.0 with 1.0.1;
   - one or two runs per arm, on one model;
   - graded blind by another model family, against expectations written by the skill's author.
 
-  They measure plans and behaviour, not how good a finished film is. Whether agents load the skill unprompted has not
-  been tested. Details are in [evals/README.md](evals/README.md).
+  They measure plans and behaviour, not how good a finished film is. Evals 8-11, added in 1.2.0 for the film kit,
+  footage editing and dialogue, have not been run yet. Whether agents load the skill unprompted has not been tested.
+  Details are in [evals/README.md](evals/README.md).
+- The footage tools work on measurements, not understanding: `reframe.py` follows sustained motion and detail, not a
+  recognised subject, so its path is a proposal to review; `transcript_cut.py` proposes cuts in word gaps for a
+  person to listen to; the burned-caption check estimates text from frame changes, which moving faces and cuts can
+  confuse. `voice_clean.py` is a conservative starting point, never an automatic fix.
+- The film kit renders through a headless browser and is built for type-led motion graphics, not photoreal or 3D
+  work; the references route those to other engines.
 
 ## Contributing
 

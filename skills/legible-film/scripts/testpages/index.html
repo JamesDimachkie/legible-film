@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Legible Film render contract synthetic fixture</title>
+<style>
+* {box-sizing:border-box} html,body {margin:0;overflow:hidden;background:#000}
+#stage {position:absolute;inset:0;background:#000;overflow:hidden}
+#bar {position:absolute;top:20%;height:60%;width:16px;background:#fff;will-change:transform}
+#patch {position:absolute;right:8%;top:8%;width:12%;height:12%;background:#3080c0}
+#locked {position:absolute;left:2%;top:2%;font:20px monospace;color:#fff}
+</style>
+<div id="stage"><div id="bar"></div><div id="patch"></div><div id="locked"></div></div>
+<script>
+const q=new URLSearchParams(location.search), width=Number(q.get('w')||320),height=Number(q.get('h')||180);
+document.documentElement.style.width=width+'px';document.documentElement.style.height=height+'px';
+let locked=null;
+window.__lf={
+  ready:q.has('ready-error')?Promise.reject(Error('synthetic ready failure')):document.fonts.ready,
+  info:()=>({title:'synthetic moving bar, whip and cut',width,height,fps:60,duration:1,frames:60,
+    beat:{bpm:150,offset:0},cuts:[.5],smears:[[.4,.5,3]],fast:[[.4,.5,12]],rests:[],cues:[]}),
+  frame:t=>{locked=t},
+  seek:t=>{
+    document.querySelector('#stage').style.background=t<.5?'#000':'#600000';
+    const bar=document.querySelector('#bar');
+    bar.style.background=t<.5?'#fff':'#00ff00';
+    bar.style.transform=`translate3d(${(t<.5?20+t*200:20+(t-.5)*200)*width/320}px,0,0)`;
+    document.querySelector('#locked').textContent=String(Math.floor((locked===null?t:locked)*60+1e-7));
+    if(q.has('error')&&t>.1)throw Error('synthetic seek failure');
+    if(q.has('console-error')&&t>.1)console.error('synthetic console failure');
+  },
+  analyse:()=>({texts:[],errors:[],warnings:[],viewport:[innerWidth,innerHeight]})
+};
+window.__lf.seek(0);
+</script>

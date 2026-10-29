@@ -1,0 +1,43 @@
+{
+  "project": "starter",
+  "policy": "Every on-screen number and factual line comes from this file. Northwind is a placeholder product: replace every entry with the real product's facts, sources and dates.",
+  "claims": [
+    {
+      "id": "product", "display": ["northwind", "NORTHWIND"], "spoken": null, "value": null, "unit": null,
+      "conditions": null, "label_beside_value": null, "footnote": null,
+      "source": "placeholder", "read_on": "YYYY-MM-DD", "status": "illustrative",
+      "can_change_before_release": true, "approved_by": "", "notes": "The product's name."
+    },
+    {
+      "id": "what", "display": "ALL YOUR NOTES ON EVERY DEVICE", "spoken": null, "value": null, "unit": null,
+      "conditions": "on the platforms listed in 'platforms'", "label_beside_value": null, "footnote": null,
+      "source": "placeholder", "read_on": "YYYY-MM-DD", "status": "illustrative",
+      "can_change_before_release": false, "approved_by": "",
+      "notes": "The hook's headlines (ALL YOUR / NOTES. / EVERY DEVICE.) trace to this fact."
+    },
+    {
+      "id": "platforms", "display": "3", "spoken": "three", "value": 3, "unit": "platforms",
+      "conditions": "desktop apps", "label_beside_value": "MACOS, WINDOWS, LINUX", "footnote": null,
+      "source": "placeholder", "read_on": "YYYY-MM-DD", "status": "illustrative",
+      "can_change_before_release": true, "approved_by": "", "notes": "A number lands only from a fact like this one."
+    },
+    {
+      "id": "offline", "display": "WORKS OFFLINE.", "spoken": null, "value": null, "unit": null,
+      "conditions": null, "label_beside_value": null, "footnote": null,
+      "source": "placeholder", "read_on": "YYYY-MM-DD", "status": "illustrative",
+      "can_change_before_release": false, "approved_by": "", "notes": ""
+    },
+    {
+      "id": "release", "display": "AVAILABLE NOW", "spoken": null, "value": null, "unit": null,
+      "conditions": "release day", "label_beside_value": null, "footnote": null,
+      "source": "placeholder", "read_on": "YYYY-MM-DD", "status": "illustrative",
+      "can_change_before_release": true, "approved_by": "", "notes": "Re-read on release day."
+    },
+    {
+      "id": "url", "display": "northwind.example", "spoken": null, "value": null, "unit": null,
+      "conditions": "a reserved example domain until the real address is approved", "label_beside_value": null, "footnote": null,
+      "source": "placeholder", "read_on": "YYYY-MM-DD", "status": "illustrative",
+      "can_change_before_release": true, "approved_by": "", "notes": ""
+    }
+  ]
+}

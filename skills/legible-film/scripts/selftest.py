@@ -3,15 +3,27 @@
 
 Run it once after installing, and after changing any script:
 
-  python selftest.py            # about half a minute; writes only to a temporary folder
+  python selftest.py            # a few minutes; longer on a loaded machine
+  python selftest.py --quick  # dependency probe only
+  python selftest.py --force  # rerun even when the environment cache matches
   python selftest.py --keep DIR # keep the generated media and reports in DIR
 
 Each case states what it proves. A pass shows the scripts measure these synthetic answers on this
-machine's FFmpeg and Python; it says nothing about any real film. Needs numpy, Pillow and FFmpeg
-with libx264 and the native AAC encoder. Exit code 0 when every case passes.
+machine's FFmpeg and Python; it says nothing about any real film. The cache records an
+environment, not a project. --cache PATH overrides its per-user file; --no-cache disables it.
+--json writes counts and reasons for cases not run. A skip remains visible on a cache hit.
+Needs numpy, Pillow and FFmpeg with libx264 and the native AAC encoder.
+Exit code 0 for a pass or cache hit, 1 for failed cases, 2 if the test cannot run.
 """
 
 import argparse
+import ast
+import contextlib
+import io
+import importlib.util
+import hashlib
+import datetime
+import re
 import json
 import os
 import shutil
@@ -22,6 +34,8 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 RESULTS = []
+SKIPS = []
+CASE_MODULES = ('sound', 'render', 'make', 'gaps', 'library', 'chain', 'qcfix', 'captions', 'tracefix', 'footage', 'dialogue', 'reviewfix')
 
 
 def record(name, ok, detail=''):
@@ -70,10 +84,185 @@ def write_wav(path, samples, rate=48000):
        stdin=samples.astype('float32').tobytes())
 
 
+# Filters used by the Python scripts and their synthetic fixture generators.
+FILTERS = ('adelay', 'aformat', 'anullsrc', 'apad', 'aresample', 'asetpts', 'asetrate', 'asplit', 'atempo', 'atrim',
+           'blackdetect', 'color', 'concat', 'crop', 'drawbox', 'ebur128', 'format', 'fps',
+           'freezedetect', 'highpass', 'lowpass', 'pan', 'psnr', 'scale', 'select', 'setparams',
+           'setpts', 'separatefields', 'showinfo', 'silencedetect', 'sine', 'split', 'testsrc2', 'tinterlace', 'trim')
+
+
+def find_tool(name, explicit=None):
+    """Locate a tool by explicit path, environment or PATH."""
+    candidate = explicit or os.environ.get(name.upper())
+    if candidate:
+        return candidate if os.path.isfile(candidate) or shutil.which(candidate) else None
+    return shutil.which(name)
+
+
+def environment():
+    """Probe dependencies and identify the installed skill and scripts."""
+    import numpy
+    import PIL
+    versions = {}
+    for name in ('ffmpeg', 'ffprobe'):
+        path = find_tool(name)
+        if not path:
+            raise RuntimeError(name + ' not found')
+        r = subprocess.run([path, '-version'], capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if r.returncode or not r.stdout:
+            raise RuntimeError(name + ' version failed')
+        versions[name] = r.stdout.splitlines()[0]
+    r = subprocess.run([find_tool('ffmpeg'), '-hide_banner', '-filters'], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
+    available = set(re.findall(r'^\s*[TSC.]{2,3}\s+(\S+)', r.stdout, re.MULTILINE))
+    missing = sorted(set(FILTERS) - available)
+    if r.returncode or missing:
+        raise RuntimeError('missing FFmpeg filters: ' + ', '.join(missing))
+    h = hashlib.sha256()
+    for root, dirs, files in os.walk(HERE):
+        dirs[:] = sorted(d for d in dirs if d != '__pycache__')
+        for name in sorted(files):
+            if name.endswith(('.pyc', '.pyo')):
+                continue
+            path = os.path.join(root, name)
+            h.update(os.path.relpath(path, HERE).replace(os.sep, '/').encode('utf-8') + b'\0')
+            with open(path, 'rb') as fh:
+                h.update(fh.read())
+    skill = os.environ.get('LEGIBLE_FILM_SKILL', os.path.join(os.path.dirname(HERE), 'SKILL.md'))
+    try:
+        with open(skill, encoding='utf-8-sig') as fh:
+            front = fh.read().split('---', 2)[1]
+        match = re.search(r'^\s*version:\s*["\']?([^"\'\s]+)', front, re.MULTILINE)
+        version = match.group(1) if match else None
+    except (OSError, IndexError):
+        version = None
+    if not version:
+        raise RuntimeError('cannot read skill version from SKILL.md frontmatter')
+    node = find_tool('node')
+    node_version = None
+    if node:
+        result = subprocess.run([node, '--version'], capture_output=True, text=True, check=False)
+        node_version = result.stdout.strip() if result.returncode == 0 else None
+    return dict(python=sys.version, numpy=numpy.__version__, pillow=PIL.__version__,
+                ffmpeg=versions['ffmpeg'], ffprobe=versions['ffprobe'], skill_version=version,
+                scripts_sha256=h.hexdigest(), filters=list(FILTERS), node=node_version,
+                playwright_module=os.environ.get('LF_PLAYWRIGHT_MODULE'))
+
+
+def cache_path():
+    """Return the per-user cache record path."""
+    base = (os.environ.get('LOCALAPPDATA') if os.name == 'nt' else os.environ.get('XDG_CACHE_HOME'))
+    return os.path.join(base or os.path.expanduser('~/.cache'), 'legible-film', 'selftest.json')
+
+
+def make_case_count():
+    """Count the bundled make module's declared cases, including literal loops."""
+    path = os.path.join(HERE, 'selftest_cases', 'make.py')
+    with open(path, encoding='utf-8-sig') as fh:
+        tree = ast.parse(fh.read())
+    function = next(node for node in tree.body
+                    if isinstance(node, ast.FunctionDef) and node.name == 'run_make_cases')
+
+    def count(node):
+        """Count record calls, expanding only statically declared literal loops."""
+        if isinstance(node, ast.For):
+            try:
+                length = len(ast.literal_eval(node.iter))
+            except (ValueError, TypeError):
+                if any(isinstance(item, ast.Call) and isinstance(item.func, ast.Name) and item.func.id == 'record'
+                       for item in ast.walk(node)):
+                    raise ValueError('cannot count make cases in a dynamic loop')
+                return 0
+            return length * sum(count(child) for child in node.body) + sum(count(child) for child in node.orelse)
+        own = int(isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'record')
+        return own + sum(count(child) for child in ast.iter_child_nodes(node))
+
+    return sum(count(node) for node in function.body)
+
+
+def skipped_cases(area, output):
+    """Count declared module skips; optional online work is one grouped case."""
+    found = []
+    for line in output.splitlines():
+        if area == 'make' and line.startswith('skipped: make_film cases need '):
+            found.append({'count': make_case_count(), 'reason': line[len('skipped: '):]})
+        elif area == 'footage' and line.startswith('SKIP  footage: HLG '):
+            found.append({'count': 1, 'reason': line[len('SKIP  '):]})
+        elif area == 'library' and line.startswith('SKIP  Openverse live network cases:'):
+            found.append({'count': 1, 'reason': line[len('SKIP  '):]})
+    return found
+
+
+class OutputTee:
+    """Mirror module output while collecting declared skip lines."""
+    def __init__(self, stream):
+        self.stream = stream
+        self.buffer = io.StringIO()
+
+    def write(self, text):
+        self.stream.write(text)
+        return self.buffer.write(text)
+
+    def flush(self):
+        self.stream.flush()
+
+
+def report_summary(passed, failed, skips, json_path=None, work=None, cached=False):
+    """Show independent pass, fail and not-run counts and write optional JSON."""
+    skipped = sum(item['count'] for item in skips)
+    result = {'passed': passed, 'failed': failed, 'skipped': skipped, 'skip_reasons': skips, 'cached': cached}
+    if work:
+        result['files'] = work
+    if json_path:
+        with open(json_path, 'w', encoding='utf-8') as fh:
+            json.dump(result, fh, indent=1)
+    if work:
+        print(f'Files: {work}')
+    if skips:
+        print('not checked:')
+        for item in skips:
+            print(f"  {item['count']}: {item['reason']}")
+    reasons = '; '.join(item['reason'] for item in skips)
+    print(f'{passed} passed, {failed} failed, {skipped} not run' + (f' ({reasons})' if reasons else ''))
+    return result
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--keep', help='keep generated files in this folder')
+    ap.add_argument('--json', help='write counts and skip reasons as JSON')
+    ap.add_argument('--quick', action='store_true', help='probe dependencies and filters only')
+    ap.add_argument('--cache', default=cache_path(), help='cache record file')
+    ap.add_argument('--no-cache', action='store_true')
+    ap.add_argument('--force', action='store_true')
     a = ap.parse_args()
+    if sys.version_info < (3, 9):
+        print('Python 3.9 or later is required')
+        return 2
+    try:
+        identity = environment()
+    except (ImportError, OSError, RuntimeError) as exc:
+        print(f'dependency probe failed: {exc}')
+        return 2
+    print('Dependency probe: ' + json.dumps(identity, indent=1), flush=True)
+    if a.quick:
+        if a.json:
+            report_summary(0, 0, [{'count': 1, 'reason': 'full synthetic suite not run (--quick)'}], a.json)
+        return 0
+    if not a.no_cache and not a.force:
+        try:
+            with open(a.cache, 'rb') as fh:
+                raw = fh.read()
+            encoding = 'utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
+            cached = json.loads(raw.decode(encoding))
+            if (cached.get('result') == 'pass' and cached.get('environment') == identity
+                    and isinstance(cached.get('summary'), dict)):
+                summary = cached['summary']
+                print('Cached full self-test result for this identical environment (' + cached.get('date', '?') + ').')
+                report_summary(summary['passed'], summary['failed'], summary['skip_reasons'], a.json, cached=True)
+                return 0
+        except (OSError, ValueError, AttributeError):
+            pass
     missing = [t for t in ('ffmpeg', 'ffprobe') if not shutil.which(t)]
     try:
         import numpy as np
@@ -218,8 +407,10 @@ def main():
         json.dump(cues, fh)
     code, out = tool('cue_onsets.py', j('master.wav'), j('cues.json'), '--json', j('cue_report.json'))
     rows = {r['id']: r for r in json.load(open(j('cue_report.json'), encoding='utf-8'))['rows']}
-    record('cue_onsets: clicks on cue within 3 ms', rows['c1']['status'] == 'on cue' and abs(rows['c1']['offset_ms']) <= 3
-           and rows['c2']['status'] == 'on cue', f"c1 {rows['c1'].get('offset_ms')} ms, c2 {rows['c2'].get('offset_ms')} ms")
+    record('cue_onsets: clicks on cue within 3 ms',
+           rows['c1']['status'] == 'on cue' and abs(rows['c1']['offset_ms']) <= 3
+           and rows['c2']['status'] == 'on cue',
+           f"c1 {rows['c1'].get('offset_ms')} ms, c2 {rows['c2'].get('offset_ms')} ms")
     record('cue_onsets: a cue 50 ms early in the list reads LATE', rows['c3-late']['status'] == 'LATE'
            and abs(rows['c3-late']['offset_ms'] - 50) <= 3, f"{rows['c3-late'].get('offset_ms')} ms")
     record('cue_onsets: silent cues distinguish quiet from a new sound',
@@ -235,14 +426,17 @@ def main():
         dense[k:k + 240] += 0.6
     write_wav(j('dense.wav'), dense)
     with open(j('cues_dense.json'), 'w', encoding='utf-8') as fh:
-        json.dump({'events': [{'id': f'd{i}', 't': t, 'sound': 'required'} for i, t in enumerate((0.7, 1.4, 2.1, 2.8, 3.3))]}, fh)
-    code, out = tool('cue_onsets.py', j('dense.wav'), j('cues_dense.json'), '--chance', 100, '--json', j('cue_dense.json'))
+        json.dump({'events': [{'id': f'd{i}', 't': t, 'sound': 'required'}
+                              for i, t in enumerate((0.7, 1.4, 2.1, 2.8, 3.3))]}, fh)
+    code, out = tool('cue_onsets.py', j('dense.wav'), j('cues_dense.json'),
+                     '--chance', 100, '--json', j('cue_dense.json'))
     chd = json.load(open(j('cue_dense.json'), encoding='utf-8'))['summary'].get('chance', {})
     record('cue_onsets: dense audio is reported as inconclusive against chance',
            str(chd.get('verdict', '')).startswith('inconclusive'), chd.get('verdict', out[-120:]))
     with open(j('cues_lint.json'), 'w', encoding='utf-8') as fh:
-        json.dump({'events': [{'id': 'a', 't': 0.5}, {'id': 'b', 't': 0.52}, {'id': 'hush', 't': 1.25, 'sound': 'silent',
-                                                                            'window_ms': 400}, {'id': 'c', 't': 1.3}]}, fh)
+        json.dump({'events': [{'id': 'a', 't': 0.5}, {'id': 'b', 't': 0.52},
+                              {'id': 'hush', 't': 1.25, 'sound': 'silent', 'window_ms': 400},
+                              {'id': 'c', 't': 1.3}]}, fh)
     code, out = tool('cue_onsets.py', j('master.wav'), j('cues_lint.json'), '--json', j('cue_lint.json'))
     lint_notes = json.load(open(j('cue_lint.json'), encoding='utf-8'))['lint']
     record('cue_onsets: lints stacked cues and a sound planned inside a silence',
@@ -267,7 +461,8 @@ def main():
 
     # 10c. Holds and first motion.
     still = [square_frame(10)] * 60
-    encode_frames(j('hold.mp4'), [square_frame(i) for i in range(20)] + still + [square_frame(i) for i in range(20, 40)], 30)
+    encode_frames(j('hold.mp4'), [square_frame(i) for i in range(20)] + still
+                  + [square_frame(i) for i in range(20, 40)], 30)
     code, out = tool('motion_scan.py', j('hold.mp4'), '--json', j('hold.json'))
     hm = json.load(open(j('hold.json'), encoding='utf-8'))
     record('motion_scan: lists a two-second hold and the first motion',
@@ -335,7 +530,8 @@ def main():
              '-crf', '12', j('flash_vfr.mp4'))
     code, out = tool('flash_scan.py', j('flash_vfr.mp4'), '--json', j('flash_vfr.json'))
     vfr = json.load(open(j('flash_vfr.json'), encoding='utf-8')) if os.path.isfile(j('flash_vfr.json')) else {}
-    record('flash_scan: flags the flash in a variable-frame-rate file', code == 1 and vfr.get('frame_timing') == 'variable',
+    record('flash_scan: flags the flash in a variable-frame-rate file',
+           code == 1 and vfr.get('frame_timing') == 'variable',
            (out.strip().splitlines() or [''])[0][:110])
     code, out = tool('frame_sheet.py', j('flash_vfr.mp4'), '--at', 3.05, '--out', j('vfr_sheet.png'),
                      '--keep-frames', j('vfr_frames'))
@@ -411,7 +607,8 @@ def main():
              j('tail_changed_retimed.mkv'))
     code, out = tool('compare_versions.py', j('tail_changed_retimed.mkv'), j('flat_lossless.mkv'))
     record('compare_versions: pairs frames by index and finds a changed, re-timed tail',
-           code == 1 and '3.000-3.900' in out, next((x.strip() for x in out.splitlines() if 'UNEXPECTED' in x), out[-100:]))
+           code == 1 and '3.000-3.900' in out,
+           next((x.strip() for x in out.splitlines() if 'UNEXPECTED' in x), out[-100:]))
 
     # 21. The film clock: when the picture starts half a second after the sound, times stay on the film's clock.
     ff_timed('-i', j('blank.mp4'), '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono', '-filter_complex',
@@ -421,12 +618,42 @@ def main():
     record('blank_scan: times stay on the film clock when the picture starts late',
            code == 0 and '2.000-  2.500' in out, next((x.strip() for x in out.splitlines() if 'near-empty' in x), ''))
 
+    # 22. Cases for the sound, render and kit tools live beside this file, one module per area.
+    for area in CASE_MODULES:
+        path = os.path.join(HERE, 'selftest_cases', area + '.py')
+        try:
+            spec = importlib.util.spec_from_file_location('selftest_cases_' + area, path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            tee = OutputTee(sys.stdout)
+            with contextlib.redirect_stdout(tee):
+                getattr(module, f'run_{area}_cases')(tool, record, j, HERE)
+            SKIPS.extend(skipped_cases(area, tee.buffer.getvalue()))
+        except Exception as exc:  # a crashed module is a failed case, never a silent skip
+            record(f'{area} cases ran to the end', False, repr(exc)[:200])
+
     passed = sum(1 for _, ok, _ in RESULTS if ok)
-    print(f'\n{passed}/{len(RESULTS)} checks passed. Files: {work}' if a.keep else
-          f'\n{passed}/{len(RESULTS)} checks passed.')
+    failed = len(RESULTS) - passed
     if not a.keep:
         shutil.rmtree(work, ignore_errors=True)
-    return 0 if passed == len(RESULTS) else 1
+    summary = {'passed': passed, 'failed': failed, 'skip_reasons': SKIPS}
+    if not failed and not a.no_cache:
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(a.cache)), exist_ok=True)
+            with open(a.cache, 'w', encoding='utf-8') as fh:
+                date = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                cache_record = {'environment': identity, 'date': date, 'result': 'pass', 'summary': summary}
+                json.dump(cache_record, fh, indent=1)
+        except OSError as exc:
+            print(f'Could not write cache: {exc}', file=sys.stderr)
+            return 2
+    try:
+        report_summary(passed, failed, SKIPS, a.json, work if a.keep else None)
+    except OSError as exc:
+        print(f'Could not write JSON: {exc}', file=sys.stderr)
+        return 2
+    return 1 if failed else 0
+
 
 
 if __name__ == '__main__':

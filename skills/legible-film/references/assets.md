@@ -104,6 +104,7 @@ perspective, palette and grain across a series.
 | [Unsplash](https://unsplash.com/license) | landscapes, objects and editorial-feeling atmosphere | free commercial use; releases not guaranteed ([releases](https://help.unsplash.com/en/articles/2612329-releases-and-trademarks)) | free |
 | [Adobe Stock](https://stock.adobe.com/license-terms) | broad searches across photos, illustration and vectors | Standard licence covers social and web; audience limits and editorial restrictions apply | 10 credits for $29.99/month on an annual commitment; cancelling early can cost a fee ([plans](https://stock.adobe.com/plans)) |
 | [Stocksy](https://www.stocksy.com/pricing) | a small, coherent set with an individual point of view | Standard includes advertising, worldwide, unlimited term | $35 (2 MP) to $135 (12 MP and up) |
+| [10M](https://www.10m.co/about) | public-domain art, maps, engravings, botanical plates and posters from 22 museums and archives, searchable by colour, mood, era, medium or artist | rights are stated per work: about 130,000 works carry recorded public-domain or CC0 evidence, and others are display-only or restricted; download only works marked open, and confirm the rights at the institution's own page | free |
 
 **Search** by light and treatment (`soft north window portrait`, `cross-polarised product`, `backlit translucent
 glass`, `copy space left`) and stay inside one photographer's session before broadening. **Reject** extreme skin
@@ -157,6 +158,22 @@ and speech, in mono and on a phone.
 motion, and the room or tail. Check the stack for phase cancellation, and never pile full-spectrum impacts on a small
 interface change. **Reject** clipped attacks, denoising warble, baked-in music, rips from films or games, voices
 hidden in an ambience, and anything NC for advertising.
+
+**A local library for a pipeline.** Keep a small, auditioned set of the sounds a film actually uses (clicks,
+whooshes, impacts, risers, ambiences) with the original files, their licence evidence and a searchable manifest, and
+choose by the cue's job, material, distance, length and intensity; a large download is not a finished palette.
+`sound_library.py index` measures every file and records its licence, `pick` fills a palette for the film's cue list,
+and `search --openverse` finds CC0 or CC BY candidates. Keep what may ship in the finished film apart from what may be
+published as files: a licence can permit the film while forbidding the raw files, edited samples and stems in a public
+repository (Sonniss's bundles allow commercial films and forbid redistributing the sounds as such). A public example
+uses owned recordings, synthesis, or verified CC0 or CC BY files with their credit.
+
+**Search from code** through the provider's documented API with an explicit licence allowlist (CC0 and CC BY; never NC
+or ND in the automatic path), within its rate limits. Openverse helps discovery; verify the source page and the
+upstream permission, since a licence filter narrows a search and does not prove ownership. Freesound's own API is free
+for non-commercial use; commercial use needs a separate agreement. When rights or access are unknown, the answer is "no
+cleared candidate", not a scrape. A research dataset (for example LAION's audio sets, released for research) is not a
+stock library, and processing licensed audio with a model, or training on it, is a separate use the licence must allow.
 
 ## 7. Voice-over
 
@@ -247,6 +264,11 @@ never stand in for the real product's behaviour ([product-demos](product-demos.m
 | [UI8](https://ui8.net/terms) | a coherent illustration set or design kit | marketing videos and client work permitted; no standalone redistribution of the assets | per item |
 | [Apple Design Resources](https://developer.apple.com/design/resources/) | accurate presentation of a qualifying Apple app | separate conditions per resource | free downloads; terms per resource |
 
+**A house style from public-domain art.** An illustration language can start from a public-domain tradition (woodcut,
+engraving, botanical plate, early poster) found in open museum collections. Redraw it as layered vectors in the
+brand's colours, so every element can move on its own, rather than tracing one work. Credit the source collection
+where it asks, and keep each work's rights record in the asset register.
+
 **Device and platform owners have their own rules.** Apple's App Store marketing guidance forbids modifying, spinning
 or animating its supplied product images and 3D simulations of its products in that context, and requires trademark
 credit lines in video ([guidelines](https://developer.apple.com/app-store/marketing/guidelines/)). Google forbids
@@ -291,3 +313,7 @@ A filled row missing any of it is not evidence of clearance.
 - **Credit:** the exact required line and where it appears.
 - **Release check:** final file name and timecodes, licensed final confirmed in place of the comp, transformations
   allowed, Content ID clearance where relevant, and any unresolved restriction marked **hold, do not publish**.
+- **Acquisition:** the file URL and its source page, the route (API or by hand), the date, and the terms that permit
+  that route, with the licence evidence saved and hashed; never a credential.
+- **Distribution:** separate answers for the finished film, the project handover and publishing the raw files; an
+  unknown is **hold, do not publish**.

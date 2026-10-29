@@ -138,6 +138,8 @@ Halving the frame rate doubles every jump. Prefer 60 fps when interface, text or
   and temporary effects (shake, punch) on separate layers so they never fight over one transform.
 - Check the whole approach and the landing: text size after scale, the landing after a copy change, and the edges
   at the most extreme moment (a scaling layer can expose the stage edge; overscan moving layers).
+- A camera move over a flat ground is invisible: with nothing fixed to the world, a slow push reads as a still frame.
+  A sparse texture that moves with the world (a dot grid, faint type, grain of the material) makes the move visible.
 - Large or full-frame motion (fast zooms, rolls, parallax) can trigger dizziness or nausea in susceptible viewers;
   WCAG 2.3.3 names parallax and non-essential motion. Use it where it earns its place.
 - Flat layout suits reading and comparison; layered planes give hierarchy; full 3D earns its cost when form,
@@ -186,8 +188,10 @@ seek-and-measure probe.
 
 **The thread.** Hand the same element to a top layer at its identical screen position (its world points projected
 through the camera) and carry it on, rather than fading it and bringing in a new one. Control its line, head dot and
-glow together at every hand-off: a glow helper once faded its gradient but left its core dot at full opacity. A
-thread that would imply a false relationship stops short or recedes; it never connects.
+glow together at every hand-off: a glow helper once faded its gradient but left its core dot at full opacity. Drawn
+additively in two passes, a wide dim glow under a thin bright core, it reads as light; when it arrives, its tail
+drains into its head rather than vanishing. A thread that would imply a false relationship stops short or recedes; it
+never connects.
 
 **A contact.** A velocity discontinuity plus a shadow change on the contact frame, then a short squash (about 80 ms),
 reads as an impact; a soft ease into rest does not. Other materials need other responses, and an abstract state
@@ -208,6 +212,12 @@ three times longer, with fading tails and glowing heads.
 - Give colour, light and texture each a job: selection, separation, material or atmosphere. Colour is never the only
   carrier of meaning (WCAG 1.4.1). Essential text needs at least 4.5:1 contrast (3:1 for large text, WCAG 1.4.3) and
   essential graphics 3:1 (WCAG 1.4.11), checked against the background as it changes.
+- **Tint the neutrals.** From the brand colour, build a scale from near-white to near-black that keeps the brand's hue
+  at low chroma (OKLCH makes this a matter of holding the hue and lowering the chroma), and use it for every ground,
+  panel, rule and text colour instead of pure greys: the light ground is a very light tint, the dark ground a very
+  dark one. The film carries the brand without spending the accent, and semantic colours (success, error) keep their
+  meaning without dominating. Check that a dark tint survives the encode with `qc_file.py --color-patch` on a patch of
+  ground.
 - Interpolate colours in a perceptual space; blending in gamma-encoded sRGB gives muddy, darker midpoints.
 - 8-bit pipelines step slow changes: a background drifting from 20 to 24 on the 0-255 scale over four seconds can only
   take five values. Keep slow tint changes small, hide them in motion, or dither. Smooth gradients that span few code

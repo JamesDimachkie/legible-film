@@ -1,11 +1,11 @@
 ---
 name: legible-film
-description: "Video production for coding agents: plans, builds, scores, renders, revises and quality-checks short videos such as product and launch films, explainers, demos, ads, loops, logo stings, motion graphics, screen recordings, edited footage and generated clips. Use when making or changing a video, choosing video tools, designing its story, picture or sound, encoding or muxing a deliverable, or checking an exported file before it ships. Includes an opt-in studio grade for the highest quality at higher spend: study, watchable choices, premium and generated assets, specialist craft passes. Works with any engine: HyperFrames, Remotion, Blender, an editor or plain FFmpeg. Not for transcription, downloading or metadata lookups alone."
+description: "Video production for coding agents: plans, builds, scores, renders, revises and quality-checks short videos such as product and launch films, teasers, explainers, demos, ads, loops, logo stings, kinetic type, motion graphics, screen recordings, edited footage and generated clips. Use when making or changing a video, choosing video tools, designing its story, picture or sound, timing it to music, encoding or muxing a deliverable, or checking an exported file before it ships. Includes a film kit (a small engine whose films check their own facts, reading time and flashing before they render), sound tools, a motion-blur renderer, and an opt-in studio grade for the highest quality at higher spend. Works with any engine: the kit, HyperFrames, Remotion, Blender, an editor or plain FFmpeg. Not for transcription, downloading or metadata lookups alone."
 license: Apache-2.0
-compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. No network access or accounts required."
+compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. The film kit's checks and renders also need Node 18+ with Playwright and a Chromium. No accounts or paid services required."
 metadata:
   author: "James Dimachkie"
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Legible Film
@@ -54,11 +54,20 @@ stop only processes you started, by their own PID.
 | The request | Path |
 |---|---|
 | A new video | Steps 1-9 |
+| An edit of recordings: an interview, talking head, screen recording, event film or cut-down | Steps 1-9 with [footage](references/footage.md) |
+| A fast, beat-cut film of big words (a teaser, trailer or hype film) | Steps 1-9 in the [kinetic-type](references/kinetic-type.md) register |
+| A type-led film built with the bundled engine | Steps 1-9, building with the [film kit](references/kit.md) |
 | The best film possible, with a budget for premium work | Steps 1-9 at [studio grade](#studio-grade) |
 | A logo sting, a loop, or a clip under about 15 s | Steps 1-9, done lightly ([short pieces](#short-pieces)) |
 | A change to an approved cut | [Revisions](#revisions), then steps 6-9 |
 | Check or review an existing file | Steps 7-8 |
-| Choose or set up tools | [engines](references/engines.md) |
+| Captions for an existing video: build, check or burn them | [footage](references/footage.md#11-captions) §11 and [formats](references/formats.md#7-captions) §7, with `captions.py` |
+| Clean or mix existing dialogue | [footage](references/footage.md#10-dialogue) §10 and [sound](references/sound.md); keep the stems and get a person to listen |
+| Choose or set up tools | [engines](references/engines.md); for the film kit, `python scripts/make_film.py --doctor` and [kit](references/kit.md) §2 |
+
+When an input the path needs is missing (the footage, the approved mix, the baseline), name the operations it blocks
+and finish everything that does not depend on it: the plan, the hypotheses, and the comparisons and checks to run when
+it arrives. Report missing media as not assessed.
 
 ## Studio grade
 
@@ -82,8 +91,9 @@ Each step leaves a file in the project, so the next session, person or agent can
   date read, conditions and on-screen label.
 - Ask only for what is genuinely missing (usually the audience, where it plays, or the facts); write down everything
   you assumed instead of asking.
-- Write down how the delivered file will be checked (step 7) and who will watch it, so the plan carries its QC from
-  the start.
+- Write the QC plan as a table: each requirement of the brief (a claim on screen for its whole interval, a sound on
+  its event, a duration, a loudness), the check that measures it, its frame interval and its tolerance, and who will
+  watch. A safety screen such as the flash scan never stands in for a requirement's own check.
 
 Done when `brief.md` ([template](assets/templates/brief.md)) states the deliverable in one line (size, frame rate,
 duration, renditions, sound, captions), every claim in the draft has a facts entry, and the person has agreed the
@@ -95,7 +105,8 @@ Read [story-and-score](references/story-and-score.md); for product interfaces, [
 
 - Write the change, its evidence and its boundary ("This does not establish ___").
 - Write three concepts (the product in use, a relational analogy, a reframe), choose one, state it as a governing
-  operation, and run the operation, truth, decoding and specificity tests.
+  operation, and run the operation, truth, decoding and specificity tests. For an edit of recordings, the approved
+  selects and an outline drawn from the sources take the place of the concepts ([footage](references/footage.md) §1).
 - Choose the structure, the turn, the peak and the ending's job, then fill the score
   ([score.csv](assets/templates/score.csv); a [filled example](assets/examples/score-example.md) shows the method).
 
@@ -110,6 +121,7 @@ Read [timing](references/timing.md).
 - Keep every event picture and sound share in one timing source that both the picture code and the cue export read;
   compute sync points from the animation, never by hand.
 - Give each essential text its `in`, `readStart`, `readEnd` and `out`.
+- When music is the clock, measure the track's grid with `beat_grid.py` before building on it.
 
 Done when the cue list ([cues.json](assets/templates/cues.json)) is exported from the same source as the picture, and
 every essential text has a usable reading window that fits its task at viewing size.
@@ -120,10 +132,13 @@ Read [picture](references/picture.md), and [engines](references/engines.md) for 
 
 - Decide a world with reasons: a type scale, one accent with one meaning, a few named motion curves, and the thread
   the viewer follows if the concept has one.
-- Build every frame as a pure function of time: no wall clock, no unseeded randomness, no CSS transitions in a
-  captured page, fonts loaded before anything is measured.
+- Build every code-rendered frame as a pure function of time: no wall clock, no unseeded randomness, no CSS
+  transitions in a captured page, fonts loaded before anything is measured. Footage keeps its captured motion,
+  performances and frame rate.
 - Work in a lab loop before any full render: stills at each cue's frames, short motion windows, seeks out of order
   and back, and sheets at viewing size (`frame_sheet.py`).
+- With the [film kit](references/kit.md), run `film_check.py` before every render: it reports facts mismatches,
+  contrast, reading windows and predicted flashing from the film's own timeline.
 
 Done when style frames are judged at full size and at viewing size, every changed moment is checked in stills and a
 short motion render, and the engine's own checks pass.
@@ -138,7 +153,9 @@ track.
   how it ends.
 - Where the choice is open, prepare treatments that differ in one choice, picture fixed and loudness matched, so the
   person chooses by listening.
-- Place each take by its sync point against the cue list, and master with a light safety limiter.
+- Place each take by its sync point against the cue list (`mix_cues.py` builds the stem and mix from the cue list and
+  the palette), and master with a light safety limiter. `make_sound_kit.py` gives a rights-clean draft palette and a
+  temp track to time against before any sound is bought or generated.
 
 Done when each passage has a lead and a job, `cue_onsets.py` matches the cue list, the true peak stays below 0 dBTP
 after a lossy re-encode, and the person's listening decision is recorded or the sound is reported as unheard.
@@ -147,7 +164,9 @@ after a lossy re-encode, and the person's listening decision is recorded or the 
 
 Read [finishing](references/finishing.md) and the [ffmpeg-cookbook](references/ffmpeg-cookbook.md).
 
-- Render a frozen copy of the source, recording tool versions and input hashes; render a short window first.
+- Render a frozen copy of the source, recording tool versions and input hashes; render a short window first. Give
+  fast code-rendered motion real motion blur (`film_render.py` for the kit, `motion_blur.py` for other engines);
+  photographed footage keeps its own shutter.
 - Convert and tag colour explicitly (BT.709 for HD SDR) and verify it; deliver H.264 as `yuv420p` unless the spec
   says otherwise.
 - Mux the mastered mix onto the finished picture with the audio length matched to the picture.
@@ -161,7 +180,9 @@ Read [qc](references/qc.md). Check the file a viewer will receive.
 
 - Declare designed cuts, holds, flashes and silences, with reasons, before running detectors.
 - Run `qc_file.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py` and `frame_sheet.py` (overview, every
-  transition, viewing size); with sound, `cue_onsets.py` and `sync_check.py`; on a revision, `compare_versions.py`.
+  transition, viewing size); `region_check.py` on every essential claim, qualifier and logo across its whole
+  interval, because stills say nothing about the frames between them; with sound, `cue_onsets.py` and
+  `sync_check.py`; on a revision, `compare_versions.py`. Run each check as its own command and keep its exit status.
 - Inspect every flag in context and record it as confirmed, refuted or unresolved; check every string against the
   facts file.
 
@@ -196,8 +217,14 @@ sending wait for the person.
   **baseline**.
 - Fix the cause where it lives, then check every use of anything shared you changed. When resolving an ambiguous
   note would change the approved design, show a still or a short motion proposal first.
-- Prove it: `compare_versions.py` shows changes only where intended; after a picture-only change, the re-exported cue
-  list is byte-identical before the mix is reused; decoded audio hashes match when the sound should be unchanged.
+- Check preservation: `compare_versions.py` locates candidate picture changes (with `--lossless-proof` on lossless
+  re-renders, the exact frames); inspect the changed moment and every essential text at full size, since a lossy
+  PSNR pass cannot prove every pixel unchanged. After a picture-only change, the re-exported cue list is
+  byte-identical before the mix is reused; decoded audio hashes match when the sound should be unchanged.
+- Before rebuilding a mix, record each event's picture time, each sound's sync point and the brief's tolerance, and
+  check the delivered mix against that record. When a sound moves or goes, check both windows on the delivered mix:
+  the old one quiet, the new one on cue. Keep the effects stem and the mix recipe; without them, a removal is
+  unverified, and the report says so.
 
 ## Short pieces
 
@@ -223,8 +250,9 @@ Each was hit in real production or measured while building this skill.
 
 - Default RGB-to-YUV conversion uses the BT.601 matrix; tagging the result BT.709 shifted a brand blue from
   (48,128,192) to (39,123,195). Convert with an explicit BT.709 matrix, then tag ([finishing](references/finishing.md) §3).
-- On FFmpeg 9, colour options alone left primaries and transfer untagged, and some filters (`tmix`) drop tags: end
-  every filter chain with `setparams` and check the tags on the output.
+- On FFmpeg 9, encoding RGB frames (a browser capture, PNGs) with colour options alone left primaries and transfer
+  untagged in both libx264 and libvpx-vp9, and some filters (`tmix`) drop tags; re-encoding an already tagged file
+  kept them. End every filter chain with `setparams` and check the tags on the output.
 - `-shortest` with a short soundtrack truncated a 120-frame picture to 94 frames; pad with `apad` and cut with `-t`.
 - Lossy encoders push true peak up on sharp transients; measure after a simulated platform re-encode.
 - An engine's own audio path can render far below its source (11.6 dB in one HTML renderer); mux the mastered mix.
@@ -236,6 +264,8 @@ Each was hit in real production or measured while building this skill.
 - A two-frames-a-second overview passed defects that full-resolution frames caught, and a frame-by-frame check passed
   an ending that looked wrong at speed. Use each check for what it can see.
 - In FFmpeg filter arguments, a Windows drive-letter colon breaks the graph; run from the file's folder.
+- PowerShell has no brace expansion, and a here-string's closing delimiter must start its own line; `ffprobe` reads
+  one input per call. List files explicitly and probe each file on its own ([ffmpeg-cookbook](references/ffmpeg-cookbook.md#windows-and-quoting-notes)).
 - Screen recordings and GIFs often vary their frame timing, so frame number divided by frame rate is not when a
   frame plays; a flash screen that assumed it cleared a 4 Hz flash. Time frames by their presentation timestamps,
   as the scripts do.
@@ -244,20 +274,47 @@ Each was hit in real production or measured while building this skill.
 
 In `scripts/`; each prints `--help`. The measuring scripts also write JSON with `--json`; `frame_sheet.py` and
 `onion_frames.py` write PNG images. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2 the
-check could not run, which the report lists as not checked. Run `python scripts/selftest.py` once to confirm the
-environment (about half a minute, synthetic media only).
+check could not run, which the report lists as not checked. Run `python scripts/selftest.py` once per environment
+and skill version to confirm it (a few minutes, synthetic media only; it remembers a passing environment, and reruns
+after an update or with `--force`), and `python scripts/kit_selftest.py` before using the film kit
+(it checks Node, Playwright and Chromium, and skips with the reason when one is missing).
 
 | Script | Answers |
 |---|---|
+| **Make a kit film** | |
+| `new_film.py` | Start a film project from the kit. |
+| `film_check.py` | Before rendering a kit film: facts, contrast, reading windows, predicted flashing, determinism; writes the cue list, captions and QC declarations. |
+| `make_film.py` | One command from a kit film to delivered, checked files: doctor, preflight, sound chain, render, mux, the QC battery, an A/B listening pair and the delivery report. `--doctor` checks the setup. |
+| `film_render.py` | Render a kit film with cut-aware motion blur and the correct colour path (it drives `film_capture.mjs`). |
+| `motion_blur.py` | Turn a render made at a multiple of the frame rate into true motion blur, never across a cut. |
+| **Edit recordings** | |
+| `transcript_cut.py` | Turn selects from a word-timed transcript into edit items, with cuts proposed in the gaps between words; which joins lack measured silence, and which are same-shot jump cuts? |
+| `assemble.py` | Render an `edit.json` frame-accurately: cuts, J and L cuts, dissolves, retimes, crop paths, overlays, colour conversion; stems, cue list and declarations. |
+| `reframe.py` | Propose or check a crop path that keeps the subject in a tall or square frame; flag frames where it leaves. |
+| `captions.py` | Build SRT and WebVTT under reading rules, check a caption file (or a burned-in one) against them, and burn captions clear of faces and platform overlays. |
+| **Sound** | |
+| `beat_grid.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
+| `make_sound_kit.py` | Synthesise a rights-clean draft palette and temp track with exactly known sync points. |
+| `sound_library.py` | Index a folder of licensed effects (sync points, brightness, loudness, licences) and pick a palette for a cue list. |
+| `spot_cues.py` | Turn the picture's cue list into sound gestures: merge collisions, thin dense runs, keep layer limits, apply sound edits. |
+| `mix_cues.py` | Build the effects stem, the bed and the mix from the cue list and the palette, and master them; which hits are missing, smeared or under the music? |
+| `sound_check.py` | Listening candidates in a mix: phone-band loss, brightness, digital silence, crest, layers, the ending. |
+| **Check the delivered file** | |
 | `qc_file.py` | Does the file meet its spec and decode cleanly? Colour tags, loudness, true peak before and after a lossy re-encode, head and tail levels, mono fold-down, brand colour patches. |
-| `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? |
+| `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? Paginates to a pixel budget, or writes single frames. |
 | `flash_scan.py` | Is there a candidate WCAG 2.3.1 flash sequence? |
 | `blank_scan.py` | Are there near-empty frames outside the designed ones? |
-| `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam. |
-| `cue_onsets.py` | Does each sound start on its cue, do silent cues stay quiet, and is the hit rate better than chance? |
-| `sync_check.py` | Is the delivered audio offset or drifting against the approved mix? |
+| `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam; pace (still share, still stretches, cuts per 10 s) against a declared contract. |
+| `region_check.py` | Does a text, logo or patch survive its whole interval in the delivered file, or does it drop out early? |
+| `cue_onsets.py` | Does each sound start, peak or end on its cue, do silent cues stay quiet, and is the hit rate better than chance? With a reference file, is that sound in the mix, and has a moved sound left its old place? |
+| `sync_check.py` | Is the delivered audio offset or drifting against the approved mix, and if it drifts, what resampling repairs it? |
 | `compare_versions.py` | Where did the picture change between two renders? |
 | `onion_frames.py` | What path and spacing does a move have across these frames? |
+| **The environment** | |
+| `selftest.py` | Do the scripts work here? Synthetic media with known answers, every script; `--quick` probes the dependencies in seconds. |
+| `kit_selftest.py` | Do Node, Playwright and Chromium capture and render the kit correctly here? |
+
+`film_capture.mjs`, `render_common.py` and `sound_io.py` are helpers the scripts above load.
 
 ## References
 
@@ -274,6 +331,9 @@ environment (about half a minute, synthetic media only).
 | Step 7 | [qc](references/qc.md) |
 | Step 8 and revisions | [review](references/review.md) |
 | Studio grade | [studio](references/studio.md) |
+| A fast, beat-cut film of big words | [kinetic-type](references/kinetic-type.md) |
+| Building with the bundled engine | [kit](references/kit.md) |
+| Editing recordings: selects, the edit file, reframing, colour, dialogue, captions | [footage](references/footage.md) |
 | Finding assets: footage, stills, music, effects, voice, type, 3D, textures | [assets](references/assets.md) |
 | Making assets with generative or enhancement tools | [generation](references/generation.md) |
 | Checking a figure | [sources](references/sources.md) |

@@ -6,7 +6,7 @@ work on FFmpeg 5.1 or later. Replace file names, times and sizes with your own. 
 
 Contents: [Inspect](#inspect) · [Frames and sheets](#frames-and-sheets) · [Colour](#colour) · [Encode](#encode) ·
 [Frame rate](#frame-rate) · [Audio](#audio) · [Mux](#mux) · [Captions](#captions) · [Compare](#compare) ·
-[Recordings](#recordings) · [Windows notes](#windows-and-quoting-notes)
+[Cut and reframe](#cut-and-reframe) · [Recordings](#recordings) · [Windows notes](#windows-and-quoting-notes)
 
 ## Inspect
 
@@ -76,6 +76,12 @@ ffmpeg -i loop.mp4 -vf "fps=25,scale=960:-1:flags=lanczos,split[a][b];[a]palette
 # Alpha for editors: ProRes 4444
 ffmpeg -framerate 60 -i frames/%05d.png -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le sting-alpha.mov
 
+# Opaque VP9 WebM for a landing page, from a lossless master so it is not a second lossy generation
+ffmpeg -i master.mkv -c:v libvpx-vp9 -crf 32 -b:v 0 -row-mt 1 -pix_fmt yuv420p -color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -c:a libopus -b:a 128k loop.webm
+
+# Lossless H.264 master to make renditions from (large; keep it out of delivery)
+ffmpeg -framerate 60 -i frames/%05d.png -vf "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -c:v libx264 -qp 0 master.mkv
+
 # Alpha for browsers: VP9 WebM (ffprobe reports yuv420p plus alpha_mode=1)
 ffmpeg -framerate 60 -i frames/%05d.png -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 0 -crf 30 sting-alpha.webm
 
@@ -131,6 +137,43 @@ falls back to dynamic normalisation (a fallback reproduced on a synthetic tone i
 `print_format=json` to the second pass and read `normalization_type`; if it says `dynamic` and the dynamics must
 be kept, relax the target or apply plain gain with `volume=` instead.
 
+### Repair a steadily growing audio offset
+
+A global shift cannot remove drift. Compare separated non-silent windows with
+`sync_check.py delivered.mp4 approved.wav --windows 8 --json qa/sync.json`. A supported affine fit reports
+`delivered_time = time_scale * reference_time + offset_s`, with `rate_ratio = 1 / time_scale`.
+Positive offset means late audio. For a sample-clock error made by slowing audio to **0.99** of the approved
+rate, `rate_ratio` is about **0.99**, and the repair speed is **1.010101010101**. The tool retains the original
+window measurements and validates the proposed rate against full-length rate-adjusted windows. A step edit,
+nonlinear drift or weak/ambiguous correlation does not justify a single global repair.
+
+Use the tool's printed command and exact measured values. General recipe, with a 24 s picture, a fitted
+`time_scale` of 1.010101010101 and a fitted `offset_s` of +0.043 s:
+
+```bash
+# Inverse sample-clock repair: speed up, reset PTS, remove the corrected offset,
+# then pad/trim audio to the picture's measured duration. Copy every picture frame.
+ffmpeg -i delivered.mp4 -map 0:v:0 -map 0:a:0 -c:v copy \
+  -af "aresample=48000,asetrate=48000*1.010101010101,aresample=48000,asetpts=PTS-STARTPTS,atrim=start=0.042570000,asetpts=PTS-STARTPTS,apad,atrim=duration=24,asetpts=N/SR/TB" \
+  -t 24 -c:a aac -b:a 256k -ar 48000 -movflags +faststart delivered-rate-repaired.mp4
+```
+
+For general values `S = time_scale`, `B = offset_s`, and picture duration `D`, use `asetrate=48000*S`, then
+`aresample=48000,asetpts=PTS-STARTPTS`. If `B > 0`, remove `B/S` seconds with `atrim=start=B/S` and reset
+PTS again. If `B < 0`, insert `round(-B/S*48000)` samples of silence with `adelay=NS:all=1` (replace `N`
+with that integer); do not trim. If `B = 0`, omit both. Finish with `apad,atrim=duration=D,asetpts=N/SR/TB`
+and output `-t D`, never `-shortest`. Substitute evaluated numbers in filter arguments. Measure `D` from the
+picture, not the longer drifting audio or the container duration. The printed command requires a zero-origin
+picture; resolve nonzero container origins and discontinuities before applying this decoded-sample-clock fit.
+
+`asetrate` plus `aresample` changes pitch and is the inverse of a sample-clock error. For a true tempo error
+whose pitch should stay unchanged, substitute `atempo=S,asetpts=PTS-STARTPTS` for the rate filters (chain
+supported factors for a large change), then apply the same offset and duration steps. It is not the inverse
+of a pitch-changing resample. Prefer reconforming the approved master when the cause is uncertain.
+Re-run `sync_check.py` at every separated window on the repaired deliverable, `cue_onsets.py` against the
+picture's cue list, and the file/true-peak checks; a person must listen. These synthetic repairs establish
+measured alignment only, not picture-event sync or audio quality.
+
 ## Mux
 
 ```bash
@@ -145,13 +188,33 @@ audio and video lengths.
 
 ## Captions
 
+`scripts/captions.py burn` renders captions with Pillow in pixels inside the safe area and needs no libass. With
+FFmpeg's `subtitles` filter, sizes in an SRT are in libass script units (a 384x288 canvas scaled to the video), not
+pixels; convert to ASS and set `PlayResX`/`PlayResY` to the video size to work in pixels.
+
 ```bash
-# Burn in (run from the folder holding the .srt; see the Windows notes)
+# Burn in (run from the folder holding the .srt; see the Windows notes); FontSize is in script units here
 ffmpeg -i film.mp4 -vf "subtitles=captions.srt:force_style='FontSize=24,Outline=2'" -c:a copy film-captioned.mp4
 
 # Soft captions in MP4
 ffmpeg -i film.mp4 -i captions.srt -map 0 -map 1 -c copy -c:s mov_text -metadata:s:s:0 language=eng film-cc.mp4
 ```
+
+## Cut and reframe
+
+```bash
+# Frame-accurate trim with re-encode, and 15 ms audio fades so the edges do not click (here 3 s from 2 s)
+ffmpeg -i source.mp4 -ss 2.000 -t 3.000 -af "afade=t=in:d=0.015,afade=t=out:st=2.985:d=0.015" -c:v libx264 -crf 18 -c:a aac -b:a 192k trim.mp4
+
+# 9:16 from a 16:9 source, crop centred on a subject at x = 960 px (not the frame centre), Lanczos to 1080x1920
+ffmpeg -i wide.mp4 -vf "crop=ih*9/16:ih:960-ih*9/32:0,scale=1080:1920:flags=lanczos,setsar=1,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -c:v libx264 -crf 18 -c:a aac tall.mp4
+
+# Pauses in speech (start and end times on stderr): candidate cut points, never a transcript
+ffmpeg -hide_banner -nostats -i interview.wav -af "silencedetect=noise=-35dB:d=0.3" -f null - 2>&1 | grep silence_
+```
+
+A crop that follows a moving subject needs a path, not one `x`: `scripts/reframe.py` proposes and checks one, and
+`scripts/assemble.py` renders it.
 
 ## Compare
 
@@ -182,6 +245,24 @@ Periodic changes every few seconds in a VP8 or VP9 recording can be keyframes, n
   folder and use relative names, or escape the colon (`C\:/path`).
 - Escape commas inside filter expressions (`eq(n\,120)`) and quote the whole filter graph.
 - Some builds do not support `-pattern_type glob`; use numbered sequences (`frames/%05d.png`).
+- `ffprobe` takes one input per call ("Argument 'b.mp4' provided as input filename, but 'a.mp4' was already
+  specified"), and `-vsync` is gone from FFmpeg 9 (use `-fps_mode`). Probe each file on its own and check each exit
+  code; a chained batch reports only the last.
+- PowerShell has no brace expansion (`{a,b}.mp4`), and a here-string's closing `'@` must start its own line. Windows
+  PowerShell 5.1 writes text files with a byte-order mark (`Set-Content -Encoding UTF8`) or as UTF-16 (`Out-File`,
+  `>`); write files for other tools with `[IO.File]::WriteAllText`, which writes UTF-8 without one. Tested in
+  PowerShell 5.1 and 7:
+
+  ```powershell
+  $cues = @'
+  [{"id": "hit", "t": 0.5, "sound": "required", "sync": "attack", "tolerance_ms": 25}]
+  '@
+  [IO.File]::WriteAllText("$PWD\cues.json", $cues)
+  foreach ($f in @('a.mp4', 'b.mp4')) {
+    ffprobe -v error -show_entries format=duration -of csv=p=0 $f
+    if ($LASTEXITCODE -ne 0) { Write-Output "$f could not be probed (exit $LASTEXITCODE)" }
+  }
+  ```
 - `drawtext` needs fontconfig or an explicit `fontfile=`. On a Windows static build without a fontconfig file,
   FFmpeg 9.0.2 printed fontconfig errors and fell back to a default font, and an 8.1 build crashed. Pass
   `fontfile=` explicitly, or label images with Pillow (as `frame_sheet.py` does).

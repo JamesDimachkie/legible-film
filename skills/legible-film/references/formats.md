@@ -44,7 +44,11 @@ idea per bar, and every scene then had room to land.
 ## 3. Other aspect ratios
 
 - Compose each aspect ratio for its own frame, driven by the same timeline so the soundtrack and cue list carry over
-  unchanged. A centre slice of a wide master shrinks the product and wastes most of a tall frame.
+  unchanged. A centre slice of a wide master shrinks the product and wastes most of a tall frame, and a wide film
+  letterboxed inside a tall one wastes even more. The film kit lays its blocks out in frame units, so one timeline
+  renders 16:9, 9:16 and 1:1 ([kit](kit.md)).
+- A rendition with its own length or story (a 15 s cut-down of a 60 s film) gets its own timeline, cue list and mix;
+  one timeline serves only renditions that share the story and the length.
 - In a tall frame, stack the composition and bring the camera closer to the region that matters.
 - Decide line breaks for each rendition in the copy itself, not by wherever a box happens to wrap.
 - Keep text and essential interface clear of the platform's own overlays (names, captions, buttons). For Instagram
@@ -90,8 +94,13 @@ duration.
   prerecorded web video.
 - When captions are also burned in for muted feeds, generate both from one caption source so their timings cannot
   drift apart, and compare them.
-- A transcript from a speech model is a first draft: check every caption against the audio, and time it to the reading
-  limits in [timing](timing.md).
+- In a tall crop of a wide talking head the face fills the middle of the frame (about 20-67% of the height in one test
+  1080x1920 cut) and the platform's own text covers the bottom. Put burned captions between the chin and the bottom
+  overlay zone, in short lines, over a plate when the ground is busy. When no position clears both the mouth and the
+  overlays, keep the mouth clear, record the conflict as the weakest point, and check it on the platform's preview.
+- A transcript from a speech model is a first draft. Time it to the reading limits in [timing](timing.md), then have a
+  named person check every caption against the audio, names and numbers first; a second model's transcript is a
+  comparison, not that check.
 
 ## 8. The first frame and the cover
 

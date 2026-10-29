@@ -4,14 +4,17 @@ Two kinds of evaluation for the skill itself.
 
 ## Behaviour (`evals.json`)
 
-Seven realistic requests, each paired with expectations describing what the skill should change in an agent's
+Eleven realistic requests, each paired with expectations describing what the skill should change in an agent's
 behaviour: honest status (unwatched, unheard), the approval gates, a facts file, QC on the delivered file, baselines
 for revisions, treatments chosen by listening, and (evals 6 and 7, added in 1.1.0) studio-grade plans for someone new
-to video, for a consumer app and for an open-source command-line tool.
+to video, for a consumer app and for an open-source command-line tool. Evals 10 and 11 test a captioned
+vertical interview cut and a dialogue-over-music mix, including measured delivery checks and honest review limits.
 
 To run one:
 
-1. `python evals/make_fixtures.py` builds the input files evals 2, 4 and 5 use into `evals/files/`.
+1. `python evals/make_fixtures.py` builds the input files evals 2, 4, 5, 10 and 11 use into `evals/files/`.
+   It needs FFmpeg (libx264 and AAC), NumPy and Pillow. The footage inputs are synthetic; `files/answers.json` is
+   for graders only and must not be given to either runner. Evals 10 and 11 have not been run.
 2. Give the request to two fresh agent sessions on the same model, each in its own empty folder holding the eval's
    files: one with the skill installed and told to follow it, one without it.
 3. Grade both runs' outputs against the expectations under neutral labels that hide which run had the skill, with a

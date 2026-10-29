@@ -43,9 +43,10 @@ Contents: [1. Human review](#1-human-review) · [2. Notes to fixes](#2-notes-to-
 
 - Before editing, name the approved properties that must not move and keep the approved source and export as the
   **baseline**.
-- After the fix, prove the change ([qc](qc.md) §6): `compare_versions.py` shows differences only where intended; the
-  cue list is byte-identical when only the picture changed; decoded audio hashes match when the sound should be
-  unchanged.
+- After the fix, check the change ([qc](qc.md) §6): `compare_versions.py` locates candidate differences (exact frames
+  with `--lossless-proof` on lossless re-renders), and the changed moment and essential text are inspected at full
+  size; the cue list is byte-identical when only the picture changed; decoded audio hashes match when the sound
+  should be unchanged.
 - One note once became a shared-helper change plus a new closing move; the reviewer asked for the original back, and
   the pre-edit baseline restored it exactly.
 - Static checks do not prove motion: an ending checked frame by frame and on dense sheets was still called "a little

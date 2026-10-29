@@ -15,6 +15,8 @@ index, and every label shows the frame's decoded time from the start of the film
 claims a time the frame does not have. Tiles are scaled to --width (the viewing-size check: a
 1920-wide film shown 384 px wide is at one-fifth scale). Labels sit above each tile, never on the
 picture. Needs Pillow and FFmpeg. Exit code 0 when the sheet is written, 2 on error.
+Use --max-width and --max-height to paginate without shrinking tiles; --single writes
+individual timestamped PNGs. Budgets too small for one labelled tile exit 2.
 A sheet shows selected instants; it does not show motion between them, rhythm or sound.
 """
 
@@ -120,11 +122,17 @@ def main():
     p.add_argument('--cols', type=int, default=0,
                    help='tiles per row; default up to 8 for tiles 400 px wide or less, otherwise up to 4')
     p.add_argument('--per-sheet', type=int, default=64)
+    p.add_argument('--max-width', type=int, help='maximum sheet width in pixels')
+    p.add_argument('--max-height', type=int, help='maximum sheet height in pixels')
+    p.add_argument('--single', action='store_true', help='write timestamped individual PNGs at tile width')
     p.add_argument('--keep-frames', help='also save each full-size frame into this folder')
     p.add_argument('--ffmpeg')
     p.add_argument('--ffprobe')
     a = p.parse_args()
 
+    if (a.width <= 0 or a.per_sheet <= 0 or a.cols < 0 or
+            any(v is not None and v <= 0 for v in (a.max_width, a.max_height))):
+        p.error('width, per-sheet and budgets must be positive; cols must be nonnegative')
     ffmpeg, ffprobe = find_tool('ffmpeg', a.ffmpeg), find_tool('ffprobe', a.ffprobe)
     if not ffmpeg or not ffprobe:
         fail('ffmpeg and ffprobe are required (PATH, FFMPEG/FFPROBE, or --ffmpeg/--ffprobe)')
@@ -193,11 +201,29 @@ def main():
     cols = a.cols or max(1, min(len(tiles), 8 if tw <= 400 else 4))
     font = label_font(max(11, min(18, tw // 22)))
     pad, label_h = 6, max(16, min(24, tw // 16))
+    if a.max_width is not None:
+        fit = (a.max_width - pad) // (tw + pad)
+        if fit < 1:
+            fail('max-width cannot fit one tile')
+        cols = min(cols, fit)
+    page_size = a.per_sheet
+    if a.max_height is not None:
+        fit = (a.max_height - pad) // (th + label_h + pad)
+        if fit < 1:
+            fail('max-height cannot fit one labelled tile')
+        page_size = min(page_size, fit * cols)
     outputs = []
     base, ext = os.path.splitext(a.out)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
-    for s in range(0, len(tiles), a.per_sheet):
-        chunk = tiles[s:s + a.per_sheet]
+    if a.single:
+        for n, t, im in tiles:
+            path = f'{base}-frame-{n:06d}-at-{t:.3f}s.png'
+            im.save(path)
+            outputs.append(path)
+        print(f'{len(outputs)} individual frames -> ' + ', '.join(outputs))
+        return
+    for s in range(0, len(tiles), page_size):
+        chunk = tiles[s:s + page_size]
         rows = (len(chunk) + cols - 1) // cols
         sheet = Image.new('RGB', (cols * (tw + pad) + pad, rows * (th + label_h + pad) + pad), (28, 28, 30))
         draw = ImageDraw.Draw(sheet)
@@ -206,7 +232,7 @@ def main():
             y = pad + (i // cols) * (th + label_h + pad)
             draw.text((x + 2, y + 1), f'{t:.3f}s  #{n}', fill=(235, 235, 235), font=font)
             sheet.paste(im, (x, y + label_h))
-        path = a.out if s == 0 else f'{base}-{s // a.per_sheet + 1}{ext or ".png"}'
+        path = a.out if s == 0 else f'{base}-{s // page_size + 1}{ext or ".png"}'
         sheet.save(path)
         outputs.append(path)
     rate = f'{float(fps):g} fps' if fps else 'unknown frame rate'

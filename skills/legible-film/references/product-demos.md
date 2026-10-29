@@ -51,6 +51,10 @@ companies are plausibly fictional and never real.
 - Keep moving elements off text while it is being read: give them their own lanes, or keep the text on top, and
   look at the busiest frames at full resolution to be sure.
 - Compressed time and unexplained waits imply speed. Keep measured waits at real time, or label the compression.
+- Reproduce the product's own interface motion where it has one. Where a reconstruction needs motion the product
+  does not define, take durations and curves from a small scale named by what each move does: arrivals take longer
+  than exits, small elements move faster than large ones, duration grows with distance, and a menu or panel opens
+  from the element that triggered it.
 - Type at a pace a person could read; for long strings, reveal by word.
 
 ## 4. Framing the interface to be read

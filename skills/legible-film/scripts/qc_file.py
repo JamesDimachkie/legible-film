@@ -270,6 +270,8 @@ def main():
     parser.add_argument('--duration-tolerance', type=float, help='seconds; default one frame, or 0.05 without --fps')
     parser.add_argument('--frames', type=int, help='expected decoded video frame count')
     parser.add_argument('--vcodec', help='expected video codec name, e.g. h264, hevc, prores')
+    parser.add_argument('--max-level', type=float, help='maximum H.264/HEVC level, e.g. 4.2 or 5.2')
+    parser.add_argument('--max-size-mb', type=float, help='maximum file size in decimal MB (1,000,000 bytes)')
     parser.add_argument('--pix-fmt', help='expected pixel format, e.g. yuv420p')
     parser.add_argument('--color', help='expected colour primaries, transfer and matrix tag, e.g. bt709')
     parser.add_argument('--audio', choices=('required', 'none', 'any'), default='any')
@@ -296,6 +298,10 @@ def main():
     parser.add_argument('--ffmpeg')
     parser.add_argument('--ffprobe')
     args = parser.parse_args()
+    for key in ('max_level', 'max_size_mb'):
+        value = getattr(args, key)
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            parser.error('--' + key.replace('_', '-') + ' must be positive and finite')
 
     if args.spec:
         try:
@@ -340,7 +346,11 @@ def main():
         'container': {'format': container, 'duration_s': as_float(fmt.get('duration')),
                       'size_bytes': int(fmt['size']) if str(fmt.get('size', '')).isdigit() else None,
                       'bit_rate': as_float(fmt.get('bit_rate'))},
-        'video': {'codec': v.get('codec_name'), 'profile': v.get('profile'), 'width': v.get('width'),
+        'video': {'codec': v.get('codec_name'), 'profile': v.get('profile'), 'level': v.get('level'),
+                  'level_display': (v['level'] / (30.0 if v.get('codec_name') == 'hevc' else 10.0)
+                                    if v.get('codec_name') in ('h264', 'hevc') and
+                                    isinstance(v.get('level'), (int, float)) and v['level'] > 0 else None),
+                  'width': v.get('width'),
                   'height': v.get('height'), 'pix_fmt': v.get('pix_fmt'),
                   'sample_aspect_ratio': v.get('sample_aspect_ratio'),
                   'fps': str(fps) if fps else None, 'fps_float': round(float(fps), 6) if fps else None,
@@ -407,6 +417,14 @@ def main():
             check('frames_in_metadata', meta == args.frames, args.frames, meta)
     if args.vcodec:
         check('vcodec', v.get('codec_name') == args.vcodec, args.vcodec, v.get('codec_name'))
+    if args.max_level is not None:
+        measured = report['video']['level_display']
+        check('max_level', measured is not None and measured <= args.max_level + 1e-9,
+              f'H.264/HEVC level <= {args.max_level}', measured)
+    if args.max_size_mb is not None:
+        size = os.path.getsize(args.file)
+        check('max_size_mb', size <= args.max_size_mb * 1000000,
+              f'<= {args.max_size_mb} decimal MB', round(size / 1000000, 6))
     if args.pix_fmt:
         check('pix_fmt', v.get('pix_fmt') == args.pix_fmt, args.pix_fmt, v.get('pix_fmt'))
     if args.color:
@@ -500,6 +518,7 @@ def main():
           f"@ {vid['fps']} fps, {duration if duration is None else round(duration, 3)} s; "
           f"colour {vid['color_primaries']}/{vid['color_transfer']}/{vid['color_space']}; "
           f"faststart {report['faststart']}")
+    print(f"  level: {vid['level_display']} (stream value {vid['level']}); size {os.path.getsize(args.file) / 1000000:.6f} MB")
     for a in report['audio']:
         print(f"  audio: {a['codec']} {a['sample_rate']} Hz, {a['channels']} ch")
     if 'decode' in report:

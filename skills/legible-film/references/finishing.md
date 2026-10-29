@@ -37,12 +37,20 @@ Contents: [1. Render custody](#1-render-custody) · [2. Frame rate and motion bl
   - space samples a few pixels apart along the fastest movement, so an edge fades instead of stamping copies;
     frames with no fast motion need no extra samples;
   - a hard cut inside an accumulated range blends two shots into one double exposure: treat every cut as a shot
-    boundary and keep each frame's samples inside its own shot;
+    boundary and keep each frame's samples inside its own shot. Slide the window to its own side of the cut rather
+    than cutting it short: the frame just before a whip's cut is its fastest, and a truncated window leaves exactly
+    that frame sharp;
+  - a whip can take a longer shutter than the rest of the film (several times 180°) for a long-exposure smear;
+    declare it as a window around the whip, and spend extra samples only inside such fast windows;
   - discrete state (text, counts, carets, layout switches) and any grain are computed from the whole frame number,
     so every sample of one output frame agrees;
   - an element that crosses many times its own size per frame smears into stepped copies however many samples you
     take: redesign the move;
   - after the render, inspect the frames with the most movement at full resolution.
+
+  `film_render.py` does all of this for a film made with the kit, averaging in linear light by default and encoding
+  with the colour path in §3. For any other engine, render at a whole multiple of the delivery rate and let
+  `motion_blur.py` accumulate the frames with the same rules, given the cut list.
 
 ## 3. Colour: convert, then tag, then verify
 
@@ -81,6 +89,11 @@ Dark tints are flattened by 8-bit 4:2:0 encoding; judge exact dark brand colours
   24-30 fps and 12 Mbps at 48-60 fps as minimum guidance).
 - 4:2:2 and 4:4:4 H.264, and some HEVC variants, fail in browsers, phones or QuickTime; deliver them only when
   the spec asks.
+- **Set the H.264 level, then check it.** A hardware decoder plays streams up to the level it was built for, and a
+  device's specification names that level. x264 otherwise picks the level the stream needs, and slower presets use
+  more reference frames: on FFmpeg 9.0.2 a 2160p60 encode signalled level 5.2 with `-preset slow` but 6.0 with
+  `slower` and `veryslow`, while `-level 5.2` kept all three at 5.2. Pass `-level 4.2` for 1080p60 and `5.2` for
+  2160p60 unless the spec says otherwise, and verify with `qc_file.py --max-level`.
 - Alpha deliverables: ProRes 4444 (`.mov`) for editors, VP9 WebM with alpha for browsers. Check the alpha
   channel itself; a page background is not always captured as opaque.
 - A seamless loop survives encoding better from a lossless intermediate (PNG sequence) encoded once; check the

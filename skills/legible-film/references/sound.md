@@ -85,6 +85,8 @@ None of this yields a tempo, a cue density, a silence length, a loudness or a ra
   about 20% more length than the film needs and build the structure in the edit (crossfades at bar lines,
   gain automation, filtering). Per-section audio references made requested structure land where text alone
   did not.
+- When a generator has a tempo control, set it, then measure every take with `beat_grid.py` (tempo, phase, drops,
+  drift) and choose by the grid and the drop the film needs, not by the take heard first ([timing](timing.md) §9).
 - To lengthen or reshape a sustained take (pads, choirs), regenerate rather than splice repeated bars;
   splices mid-chord sound glitchy even on the bar grid.
 - Conforming, beat phase and swing are in [timing](timing.md).
@@ -106,9 +108,19 @@ None of this yields a tempo, a cue density, a silence length, a loudness or a ra
 - Audition every sound alone and every composite moment alone before using them; context hides defects and
   layers combine. Tool labels can be revealing: a "fast air whoosh" that reads alone as "a balloon squeak" is
   a palette problem, not a timing one.
-- Keep a manifest for the palette: each role's approved take, its file hash, provenance, gain, pitch and the
-  sync point inside the take. Reuse accepted takes instead of regenerating them on every mix, and disclose any
-  unavailable role or substitution before calling a mix final.
+- Keep a manifest for the palette ([palette.json](../assets/templates/palette.json)): each role's approved takes,
+  their file hashes, provenance, gain and the sync point inside each take. Reuse accepted takes instead of
+  regenerating them on every mix, and disclose any unavailable role or substitution before calling a mix final.
+- `make_sound_kit.py` synthesises a rights-clean starter palette (impacts, hits, whooshes, ticks, pops, keys, a
+  riser, a logo hit) with exactly known sync points, and a temp music track at an exact tempo, so a film can be
+  timed, mixed and checked before anyone buys or generates sound. It is a draft palette: replace roles as better
+  takes are chosen, and let a person decide whether any of it ships.
+- `mix_cues.py` builds the effects stem, the music bed and the mix from the cue list and the palette, placing each
+  take by its own sync point (attack, apex or end), rotating the takes of a role across repeats, ducking the bed only
+  where an event asks, and reporting missing roles, events that would smear together, and hits that sit under the
+  music. It places and reports; the listener decides.
+- A sound of the film's own (a knock, a stamp, a shutter, the product's real alert) carries more than another
+  generic impact.
 - Repeated takes with equal peaks can differ in perceived loudness; compare short-term loudness and audition
   them in context before trimming.
 - Tonal effects belong to the music when pitched to its key; rerun artifact checks after retuning.

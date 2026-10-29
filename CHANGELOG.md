@@ -1,5 +1,80 @@
 # Changelog
 
+## 1.2.0 (2026-10-29)
+
+Legible Film now makes video end to end: films built in code, edits cut from recordings, a sound chain designed for
+phone speakers, and checks for what an agent cannot see by eye. Every new script is tested against synthetic media
+with known answers, and its help says what it does not prove.
+
+### Make a film in code
+
+- **The film kit** (`assets/kit/`, `references/kit.md`): a small, dependency-free browser engine for type-led films,
+  from a calm launch film to beat-cut kinetic type, laid out in frame units so one timeline renders 16:9, 9:16 and
+  1:1. Blocks for the common devices (big words on the beat, a terminal, a number, the name, a picture, a chain of
+  linked ideas, a denial, an end card, a running caption), a camera rig, a palette built from one brand colour as
+  tinted neutrals, and variable type fitted to the frame.
+- **Checks before rendering** (`film_check.py`): claims bound to the facts file, contrast at every ground, reading
+  windows, flashing predicted with `flash_scan.py`'s own method, regular-pattern warnings, and a determinism lint; it writes the cue list, captions and QC declarations.
+- **One command to delivered files** (`make_film.py`): doctor, preflight, the sound chain, render with cut-aware
+  motion blur in linear light, mux, the QC battery per size, a blind A/B listening pair and an auto-filled delivery
+  report; `--resume` skips finished work.
+- `new_film.py`, `film_render.py` (with `film_capture.mjs`) and `motion_blur.py` for any engine rendered at a
+  multiple of the frame rate. A starter film and the Atlasfold showcase.
+- `references/kinetic-type.md`: the register of big words on a beat, its devices with their truth checks, pace you
+  can measure, and its safety limits (flash budgets, regular patterns, readable qualifiers, motion).
+
+### Edit recordings
+
+- `references/footage.md`: ingest, selects, the edit, the `edit.json` contract, other ratios, speed and
+  stabilisation, colour and HDR, screen recordings, dialogue, captions, approvals and lock, variants and hand-off.
+- `assemble.py`: renders `edit.json` frame-accurately on presentation timestamps, with J and L cuts, dissolves,
+  dips, retimes (nearest, blend, motion), crop paths, image overlays and burned captions; converts HDR, BT.601 and
+  BT.2020 sources deliberately; writes stems per track, the cue list and QC declarations.
+- `reframe.py` proposes or checks a subject crop path for tall and square frames, rate-limited, and flags frames
+  where the subject leaves it. `transcript_cut.py` turns selects in a word-timed transcript into edit items, with
+  cuts proposed in the gaps between words and jump cuts flagged. `captions.py` builds SRT and WebVTT under reading
+  rules, checks caption files and burned-in captions (timing and contrast), and burns captions clear of faces and
+  platform overlays.
+
+### Sound
+
+- The sound chain from the picture's cue list: `beat_grid.py` measures a track's tempo, downbeats, drops and drift;
+  `spot_cues.py` merges collisions and thins dense runs; `make_sound_kit.py` synthesises a rights-clean draft palette
+  with sub, air and a looping bed; `sound_library.py` indexes licensed effects and picks a palette;
+  `mix_cues.py` builds stems and the mix, ducks music under a voice by phrase, and masters to the destination
+  (social, web, broadcast) with a safety limiter checked after an AAC re-encode, reporting any shortfall;
+  `sound_check.py` reports listening candidates (phone-band loss, brightness, digital silence, crest, layers, the
+  ending, voice-to-bed separation). `voice_clean.py` is a guarded dialogue cleanup measured step by step.
+
+### Checks
+
+- `region_check.py`: a claim, qualifier or logo through every decoded frame of its interval.
+- `cue_onsets.py`: end sync, matching a reference sound in a mix, a moved sound's old window, and explicit
+  inconclusive results with the next diagnostic. `sync_check.py`: drift with its rate ratio and the resampling that
+  repairs it.
+- `motion_scan.py`: pace (still share, still stretches, change events) against a declared contract, `--footage` for
+  camera footage, and pace inside a small moving area. `compare_versions.py`: thresholds for deterministic pipelines,
+  per-frame PSNR and `--lossless-proof`. `frame_sheet.py`: pages within a pixel budget and single frames.
+  `qc_file.py`: H.264 level and file size.
+- `selftest.py --quick` probes dependencies in seconds; a passing run is remembered per environment and skill
+  version; skipped cases are counted. `kit_selftest.py` checks capture and render in the browser.
+- Scripts read JSON written by Windows PowerShell 5.1 (UTF-8 and UTF-16 with a byte-order mark).
+
+### The method
+
+- The QC plan maps each requirement to the check that measures it; claims are checked across their whole interval;
+  a moved sound is checked in both places; inconclusive results stay open; missing media is reported as not assessed
+  while the rest of the work continues.
+- Code-render rules (pure-function frames, synthetic motion blur) apply to code-rendered picture; footage keeps its
+  own motion and shutter. A cut-down with its own length gets its own timeline.
+- Tested Windows recipes (PowerShell here-strings and files without a byte-order mark, one input per `ffprobe`,
+  `-fps_mode`), and recipes for WebM, trims, tall crops, pauses in speech, stabilisation, scopes and HDR tone mapping.
+
+### Evaluations
+
+- Evals 8 (a kinetic teaser plan), 9 (a film built with the kit), 10 (a captioned 9:16 cut-down from an interview)
+  and 11 (a dialogue-over-music mix), with synthetic fixtures and grader-only answers for 10 and 11.
+
 ## 1.1.0 (2026-10-27)
 
 Studio grade: an opt-in path to the best film the budget allows, on top of the unchanged method.
