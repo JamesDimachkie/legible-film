@@ -12,7 +12,9 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
      Chromium found the way film_capture.mjs finds them, free memory and disk. Missing
      pieces print the one command that fixes them. Also runs before every make.
   2. preflight: film_check.py per size into OUT/qa/WxH/; stops on errors unless --force.
-     The sizes must export one cue list (one timeline), or the run stops.
+     The sizes must export one cue list and one set of cuts (one timeline), or the run
+     stops. Rests, smears, flashes, seams and changes follow each size's layout: they
+     are reported per size and each size is checked against its own.
   3. sound: none (no audio stream), a palette (--sound PATH, or FILM/palette.json or
      FILM/audio/palette.json), or draft: make_sound_kit.py into FILM/audio/draft/ with a
      temp track at info.beat.bpm, beat 0 on the film's beat 0 (info.beat.offset), the
@@ -26,11 +28,14 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
   6. QC per size into OUT/qa/WxH/: qc_file.py, flash_scan.py, blank_scan.py and
      motion_scan.py with the declared ranges (and info.pace as gates when declared:
      max_still_share, max_still, start, end), cue_onsets.py on the effects stem,
-     sync_check.py against mix.wav, frame_sheet.py (overview, every declared cut, essential
-     texts at 384 px at their readStart), and the declared-cut check: every info.cuts
-     entry must show as a large change (motion_scan's change-area or step-cut measure)
-     within one frame of the first frame of its arriving shot; large changes outside
-     declared cuts, smears and flashes are listed too.
+     sync_check.py against mix.wav, frame_sheet.py (an overview; one sheet per declared
+     cut, 480 px tiles, so memory stays bounded; essential texts at 384 px at their
+     readStart), and the declared-cut check: every info.cuts entry must show as a large
+     change (motion_scan's change-area or step-cut measure) within one frame of the first
+     frame of its arriving shot, except cuts listed in info.seams (seamless joins, already
+     the next shot); large changes outside declared cuts, seams, smears, flashes and
+     info.changes (designed flips, fills and punches: a time, or [t0, t1, label]) are
+     listed too.
   7. deliver: OUT/deliver/ holds only the deliverables, a manifest each, caption
      sidecars and delivery-report.md (filled from assets/templates/delivery-report.md).
 
@@ -44,7 +49,7 @@ It measures and reports; it does not watch or listen. Every film it makes is rep
 unwatched and its sound unheard (a draft soundtrack says so); the weakest point is left
 as a marked line for the agent to write after looking at the sheets; nothing is posted.
 A cut between two similar shots can fall below the change measures and be listed as
-not found: inspect it in the joins sheet. Needs Python 3.9+, numpy, Pillow, FFmpeg and
+not found: declare it in info.seams if it is seamless, else inspect its joins sheet. Needs Python 3.9+, numpy, Pillow, FFmpeg and
 ffprobe with libx264 and the AAC encoder, Node 18+, Playwright, Chromium, and the
 skill's scripts beside this one (film_check.py, film_render.py, the QC tools).
 Exit 0 every check passed; 1 something needs inspection (each item listed) or the
@@ -70,6 +75,9 @@ sys.dont_write_bytecode = True
 VERSION = '1.2.0'
 EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
 SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
+SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
+PER_SIZE = ('rests', 'smears', 'fast', 'flashes', 'seams', 'changes')
+SHEET_TILE = 480   # long side of a cut-sheet tile; one frame_sheet.py call per cut keeps memory bounded
 FLAG = re.compile(r'FAIL|INSPECT|flag|inconclusive|drift|offset|miss|near-empty|look at|outside', re.I)
 QC_TOOLS = ('qc_file.py', 'flash_scan.py', 'blank_scan.py', 'motion_scan.py', 'cue_onsets.py', 'sync_check.py',
             'frame_sheet.py')
@@ -310,6 +318,56 @@ def free_memory():
         raise RuntimeError('cannot measure free physical memory')
 
 
+def seam_times(rows):
+    """info.seams: seconds, [t, label...] rows or {t} objects -> sorted times."""
+    out = []
+    for row in rows or []:
+        t = row.get('t') if isinstance(row, dict) else row[0] if isinstance(row, (list, tuple)) and row else row
+        if isinstance(t, (int, float)) and math.isfinite(t):
+            out.append(float(t))
+    return sorted(out)
+
+
+def change_ranges(rows, fps):
+    """info.changes: a time t (one frame either side), [t0, t1, label?], [t, label] or {t} / {t0, t1}."""
+    out = []
+    for row in rows or []:
+        if isinstance(row, dict):
+            row = [row['t0'], row['t1']] if 't0' in row and 't1' in row else [row.get('t')]
+        elif not isinstance(row, (list, tuple)):
+            row = [row]
+        nums = [float(x) for x in row[:2] if isinstance(x, (int, float)) and not isinstance(x, bool)]
+        if len(nums) == 2 and nums[1] >= nums[0]:
+            out.append((nums[0] - 1 / fps, nums[1] + 1 / fps))
+        elif nums:
+            out.append((nums[0] - 1 / fps, nums[0] + 1 / fps))
+    return out
+
+
+def cut_sheets(py, video, cuts, size, fps, folder, span=1.6):
+    """One frame_sheet.py call per cut, tiles SHEET_TILE px on the long side: bounded memory at any film length.
+
+    A single call with every cut built one FFmpeg select expression of about 33 terms per cut; at ten cuts on a
+    1440-frame film FFmpeg failed with 'Cannot allocate memory' while about 3.8 GB were free.
+    py(label, script, *args) -> (exit code, text). Returns (status, summary lines, flags, sheet paths)."""
+    w, h = size
+    tile = SHEET_TILE if w >= h else max(2, round(SHEET_TILE * w / h / 2) * 2)
+    folder = Path(folder)
+    for old in folder.glob('joins*.png'):
+        old.unlink()   # this step's own earlier output; a stale sheet must not pass for a fresh one
+    sheets, failed = [], []
+    for k, c in enumerate(cuts, 1):
+        out = folder / f'joins-{k:02d}-{c:.3f}s.png'
+        code, text = py(f'sheet_cut-{k:02d}', 'frame_sheet.py', video, '--around', f'{c:.6f}', '--span', span,
+                        '--rate', min(20, fps), '--width', tile, '--per-sheet', 64, '--out', out)
+        if code:
+            failed.append(f'cut {c:.3f} s: ' + ((text.strip().splitlines() or ['?'])[-1])[:200])
+        sheets += sorted(folder.glob(f'joins-{k:02d}-*.png'))
+    summary = [f'{len(cuts) - len(failed)} of {len(cuts)} cut sheets made, one per cut, {tile} px tiles, '
+               f'{span} s at {min(20, fps):g} frames/s around each cut']
+    return ('could not run' if failed else 'pass'), summary + failed, failed, [str(s) for s in sheets]
+
+
 class Make:
     def __init__(self, a, film, out, sizes):
         self.a, self.film, self.out, self.sizes = a, film, out, sizes
@@ -320,6 +378,7 @@ class Make:
         self.old_steps = old.get('steps', {}) if isinstance(old, dict) else {}
         self.state = {'version': 1, 'film': str(film), 'steps': {}}
         self.findings, self.not_checked, self.notes, self.log = [], [], [], []
+        self.size_notes = {}
         self.stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         self.env = dict(os.environ)
         for key, value in (('FFMPEG', a.ffmpeg), ('FFPROBE', a.ffprobe), ('NODE', a.node),
@@ -518,8 +577,15 @@ class Make:
                     'mix_sha256': sha256(stems / 'mix.wav') if (stems / 'mix.wav').is_file() else None}, outputs
         result = self.step('sound', inputs, go)
         if result.get('exit') == 1:
-            self.finding('sound', 'mix_cues.py', 'the mixer flagged missing required events, a broken silent window, '
-                         'clipping or refused gain: see OUT/sound/mix-report.json')
+            report = load_json(stems / 'mix-report.json', {}) or {}
+            said = [f"required role {m.get('role')} missing for {m.get('id')}" for m in report.get('missing_roles', [])
+                    if m.get('sound') == 'required']
+            said += [f"{v.get('take_event_id')} sounds inside silent window {v.get('silent_id')} "
+                     f"({v['overlap_s'][0]:.3f}-{v['overlap_s'][1]:.3f} s)" for v in report.get('silent_window_violations', [])]
+            said += [f'required sync outside the film: {x}' for x in report.get('required_sync_outside_output', [])]
+            said += report.get('warnings', []) + ([f"gain refused: {report['gain_refused']}"] if report.get('gain_refused') else [])
+            for detail in said or ['the mixer exited 1: see sound/mix-report.json']:
+                self.finding('sound', 'mix_cues.py', detail)
         return result
 
     @staticmethod
@@ -623,10 +689,15 @@ class Make:
             self.finding(label, 'film_render.py', 'render failed: ' + result.get('error', '')[-300:])
             return None
         other = result.get('info', {})
-        keys = ('fps', 'duration', 'frames', 'cuts', 'smears', 'fast', 'rests', 'flashes', 'beat', 'music', 'cues')
-        differ = [k for k in keys if other.get(k) != info.get(k)]
+        # One timeline: the clock, the cuts and everything the shared soundtrack follows must agree. Reading rests,
+        # smears, flashes, seams and changes follow each size's layout, so they are reported per size, not failed.
+        differ = [k for k in SHARED if other.get(k) != info.get(k)]
         if differ:
             self.finding(label, 'one timeline', 'the page reports a different ' + ', '.join(differ) + ' at this size')
+        own = [k for k in PER_SIZE if (other.get(k) or []) != (info.get(k) or [])]
+        if own:
+            self.size_notes[label] = (', '.join(own) + f' differ from {self.label(self.sizes[0])} (they follow this '
+                                      'size\'s layout; reported, not failed)')
         return result
 
     def mux(self, size, render, sound, info):
@@ -679,6 +750,7 @@ class Make:
                     row = [row.get('t0', row.get('start')), row.get('t1', row.get('end'))]
                 if row and len(row) >= 2 and row[0] is not None:
                     ranges.append((float(row[0]), float(row[1])))
+        ranges += [(max(0.0, lo), hi) for lo, hi in change_ranges(info.get('changes'), fps)]
         merged = []
         for lo, hi in sorted(ranges):
             if merged and lo <= merged[-1][1]:
@@ -698,8 +770,9 @@ class Make:
         inputs = {'file': sha256(path), 'cues': sha256(cues_path), 'mix': sound.get('mix_sha256'),
                   'declared': sha256(qa / 'declared.json') if (qa / 'declared.json').is_file() else None,
                   'reading': sha256(qa / 'reading.json') if (qa / 'reading.json').is_file() else None,
-                  'info': {k: info.get(k) for k in ('fps', 'frames', 'cuts', 'smears', 'rests', 'flashes', 'pace', 'beat')},
-                  'tools': self.tool_hashes(*QC_TOOLS)}
+                  'info': {k: info.get(k) for k in ('fps', 'frames', 'cuts', 'smears', 'rests', 'flashes', 'pace', 'beat',
+                                                    'seams', 'changes')},
+                  'tools': self.tool_hashes(*QC_TOOLS, 'make_film.py')}
 
         def go():
             checks, outputs = {}, []
@@ -709,7 +782,8 @@ class Make:
                 status = {0: 'pass', 1: 'inspect'}.get(code, 'could not run')
                 lines = [x.strip() for x in text.strip().splitlines() if x.strip()]
                 checks[name] = {'tool': script, 'exit': code, 'status': status, 'summary': lines[:12],
-                                'flags': [x for x in lines if FLAG.search(x)][:8] if code else [],
+                                'flags': [x for x in lines if FLAG.search(x) and
+                                          not x.lower().startswith('declared')][:8] if code else [],
                                 'json': str(json_path) if json_path else None}
                 if json_path and Path(json_path).is_file():
                     outputs.append(Path(json_path))
@@ -764,9 +838,10 @@ class Make:
             sheets.append(qa / 'overview.png')
             cuts = [float(c) for c in info.get('cuts', [])]
             if cuts:
-                tool('sheet_cuts', 'frame_sheet.py', path, '--around', ','.join(f'{c:.6f}' for c in cuts),
-                     '--span', 1.6, '--rate', min(20, fps), '--out', qa / 'joins.png')
-                sheets.append(qa / 'joins.png')
+                status, summary, failed, made_sheets = cut_sheets(
+                    lambda name, script, *args: self.py(f'{name}-{label}', script, *args), path, cuts, (w, h), fps, qa)
+                checks['sheet_cuts'] = {'tool': 'frame_sheet.py', 'status': status, 'summary': summary,
+                                        'flags': failed, 'sheets': made_sheets}
             else:
                 checks['sheet_cuts'] = {'status': 'not run', 'summary': ['the film declares no cuts']}
             texts = self.essential_texts(qa)
@@ -823,23 +898,31 @@ class Make:
         big = [r for r in rows[1:] if r[3] >= cut_area or r[2] > step_cut]
         frame = 1 / fps
         declared = [float(c) for c in info.get('cuts', [])]
-        found, missing = [], []
+        seams = seam_times(info.get('seams'))
+        changes = change_ranges(info.get('changes'), fps)
+        is_seam = lambda c: any(abs(c - s) <= frame / 2 for s in seams)  # noqa: E731
+        found, missing, skipped = [], [], []
         for c in declared:
             arrive = math.ceil(c * fps - 1e-6) / fps
             hits = [r for r in big if abs(r[1] - arrive) <= frame + 1e-4]
             if hits:
                 best = max(hits, key=lambda r: r[3])
-                found.append({'cut_s': c, 'frame': best[0], 'time_s': round(best[1], 6),
+                found.append({'cut_s': c, 'frame': best[0], 'time_s': round(best[1], 6), 'seam': is_seam(c),
                               'offset_frames': round((best[1] - arrive) * fps, 3), 'change_area': best[3],
                               'step': best[2]})
+            elif is_seam(c):
+                # A seamless join (a dive through, a collapse) is already the next shot: no change is expected.
+                skipped.append(c)
             else:
                 near = [r for r in rows[1:] if abs(r[1] - arrive) <= frame + 1e-4]
                 peak = max(near, key=lambda r: r[3]) if near else None
                 missing.append({'cut_s': c, 'expected_frame_s': round(arrive, 6),
                                 'largest_change_area_nearby': peak[3] if peak else None,
                                 'largest_step_nearby': peak[2] if peak else None})
+        declared = sorted(set(declared) | set(seams))
         windows = [(float(a), float(b)) for a, b, *_ in (info.get('smears') or [])]
         windows += [(float(r[0]), float(r[1])) for r in (info.get('flashes') or []) if len(r) >= 2]
+        windows += changes
         events = []
         for r in big:
             if events and r[0] - events[-1][-1][0] <= 2:
@@ -857,13 +940,20 @@ class Make:
                     f"(largest change area nearby {m['largest_change_area_nearby']})" for m in missing] +
                    [f"undeclared large change at {u['start_s']:.3f} s ({u['frames']} frame(s), change area "
                     f"{u['max_change_area']:.3f})" for u in undeclared])
-        return {'status': 'inspect' if details else 'pass', 'tool': 'make_film.py', 'declared': len(declared),
-                'found': found, 'missing': missing, 'undeclared_large_changes': undeclared, 'details': details,
-                'summary': [f'{len(found)} of {len(declared)} declared cuts found within one frame; '
-                            f'{len(undeclared)} undeclared large change(s)'],
+        cuts = len(info.get('cuts', []))
+        return {'status': 'inspect' if details else 'pass', 'tool': 'make_film.py', 'declared': cuts,
+                'found': found, 'missing': missing, 'seams_skipped': skipped, 'seams': seams,
+                'changes_declared': [[round(a, 6), round(b, 6)] for a, b in changes],
+                'undeclared_large_changes': undeclared, 'details': details,
+                'summary': [f'{len(found)} of {cuts} declared cuts found within one frame'
+                            + (f'; {len(skipped)} seamless join(s) not expected to show' if skipped else '')
+                            + (f'; {len(changes)} designed change(s) declared' if changes else '')
+                            + f'; {len(undeclared)} undeclared large change(s)'],
                 'method': f'a large change is a frame with change area >= {cut_area} or a step > {step_cut} '
                           '(motion_scan.py measures); a declared cut c is found when one lies within one frame of '
-                          'the first frame at or after c'}
+                          'the first frame at or after c; cuts listed in info.seams are not required to show; '
+                          'large changes within one frame of a cut or seam, or inside a smear, flash or '
+                          'info.changes range (one frame either side), are declared'}
 
     def cue_onsets(self, sound, cues_path):
         if sound['mode'] == 'none':
@@ -981,9 +1071,14 @@ class Make:
                          + f"; declared cuts in the render: {cut['status']} ({'; '.join(cut.get('summary', []))})")
             for d in cut.get('details', []):
                 scans.append(f'{label}: {d}')
-            sheets = (qcs.get(label) or {}).get('sheets', [])
-            frames.append(f"{label}: sheets made, not yet looked at: " +
-                          (', '.join(f'`qa/{label}/{Path(s).name}`' for s in sheets) or 'none') +
+            if label in self.size_notes:
+                scans.append(f'{label}: {self.size_notes[label]}')
+            sheets = [Path(s).name for s in (qcs.get(label) or {}).get('sheets', [])]
+            joins = [s for s in sheets if s.startswith('joins')]
+            named = [f'`qa/{label}/{s}`' for s in sheets if not s.startswith('joins')]
+            if joins:
+                named.append(f'`qa/{label}/joins-*.png` ({len(joins)} sheet(s), one per cut)')
+            frames.append(f"{label}: sheets made, not yet looked at: " + (', '.join(named) or 'none') +
                           '; full-resolution moments not made (choose the changed and busiest moments)')
             if not silent:
                 sc = check(label, 'sync_check')
@@ -1180,7 +1275,7 @@ def main():
                 raise CouldNotRun(f'{m.label(size)} at --res {a.res} gives {w}x{h}; H.264 4:2:0 needs even sides')
         print(f'make_film.py: {film.name} -> {out}', flush=True)
         source = m.picture_source()
-        cue_lists, stopped = {}, []
+        cue_lists, declared_cuts, stopped = {}, {}, []
         for size in sizes:
             r = m.preflight(size, source)
             label = m.label(size)
@@ -1191,12 +1286,18 @@ def main():
                     m.finding(label, 'film_check.py', e)
                 stopped.append(label)
             cue_lists[label] = load_json(out / 'qa' / label / 'cues.json', {})
+            declared = load_json(out / 'qa' / label / 'declared.json')
+            if isinstance(declared, dict) and isinstance(declared.get('cuts'), list):
+                declared_cuts[label] = [float(c[0] if isinstance(c, (list, tuple)) else c) for c in declared['cuts']]
         if stopped and not a.force:
             raise Stopped('preflight found errors at ' + ', '.join(stopped) + '; fix them, or pass --force')
         events = {k: json.dumps((v or {}).get('events'), sort_keys=True) for k, v in cue_lists.items()}
         if len(set(events.values())) > 1:
             raise Stopped('the sizes export different cue lists (one timeline must mean one cue list): ' +
                           ', '.join(events))
+        if len({json.dumps(v) for v in declared_cuts.values()}) > 1:
+            raise Stopped('the sizes declare different cuts (one timeline must mean one set of cuts): ' +
+                          '; '.join(f'{k}: {v}' for k, v in declared_cuts.items()))
         cues_path = out / 'cues.json'
         first = out / 'qa' / m.label(sizes[0]) / 'cues.json'
         if not cues_path.is_file() or sha256(cues_path) != sha256(first):
@@ -1212,13 +1313,15 @@ def main():
             if not r:
                 continue
             renders[label] = r
-            print(f'  render {label}: {Path(r["path"]).name}', flush=True)
+            print(f'  render {label}: {Path(r["path"]).name}' +
+                  (f'; {m.size_notes[label]}' if label in m.size_notes else ''), flush=True)
             delivered[label] = m.mux(size, r, sound, info)
         onsets = m.cue_onsets(sound, cues_path)
         for size in sizes:
             label = m.label(size)
             if label in delivered:
-                qcs[label] = m.qc(size, delivered[label], sound, info, cues_path)
+                own = dict(info, **{k: renders[label].get('info', {}).get(k) for k in PER_SIZE})
+                qcs[label] = m.qc(size, delivered[label], sound, own, cues_path)
                 states = ', '.join(f"{k} {c.get('status')}" for k, c in qcs[label]['checks'].items())
                 print(f'  qc {label}: {states}', flush=True)
         if not delivered:

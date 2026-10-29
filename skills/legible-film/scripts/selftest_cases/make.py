@@ -10,7 +10,10 @@ run_make_cases(tool, record, j, HERE). The runner uses the existing tool(), reco
 Builds tiny original __lf pages (320x180 and 180x320, 30 fps, 3 s) and runs make_film.py
 end to end: the doctor finding a missing tool, a silent and a draft-sound run whose audio
 and picture lengths match exactly, a declared cut that is not in the picture, sizes that
-export different cue lists, --resume skipping a finished render, and the exit codes.
+export different cue lists or cuts (stopped) or different reading rests (reported, not
+failed), info.seams and info.changes, --resume skipping a finished render, and the exit
+codes. It also builds 1440-frame 1920x1080 and 1080x1920 films with FFmpeg (no browser)
+and makes a dozen cut sheets on each, one bounded frame_sheet.py call per cut.
 One Chromium at a time. Missing Node, Playwright or Chromium (or too little free memory
 for a render) prints 'skipped: <reason>' and records nothing. Needs numpy, Pillow, FFmpeg,
 Node, Playwright, Chromium and film_check.py beside make_film.py. Exit 0 all passed (or
@@ -40,11 +43,13 @@ PAGE = """<!doctype html>
 const P=__PARAMS__;
 const q=new URLSearchParams(location.search), width=Number(q.get('w')||320), height=Number(q.get('h')||180);
 document.documentElement.style.width=width+'px';document.documentElement.style.height=height+'px';
-const shift=(P.cueShift&&width<height)?P.cueShift:0;
+const portrait=width<height, shift=(P.cueShift&&portrait)?P.cueShift:0;
 window.__lf={
   ready:document.fonts.ready,
   info:()=>({title:'make_film synthetic film',width,height,fps:30,duration:3,frames:90,
-    beat:{bpm:120,offset:0},cuts:P.cuts,smears:[],fast:[],rests:[[2.6,3,'end hold']],flashes:[],
+    beat:{bpm:120,offset:0},cuts:P.cuts.map(c=>c+(portrait&&P.cutShift?P.cutShift:0)),smears:[],fast:[],
+    rests:[[portrait?2.55:2.6,3,'end hold']],flashes:[],
+    ...(P.seams?{seams:P.seams}:{}),...(P.changes?{changes:P.changes}:{}),
     music:{stop:2.9},pace:{max_still_share:.9,max_still:2},
     cues:[{id:'swing',t:.8,role:'whoosh',sound:'required',sync:'apex',tolerance_ms:25,picture:'the bar passes centre'},
           {id:'cut',t:1.5+shift,role:'impact',sound:'required',sync:'attack',tolerance_ms:17,picture:'the light shot arrives'}],
@@ -76,10 +81,11 @@ def run_make_cases(tool, record, j, scripts_dir):
         except (OSError, ValueError):
             return {}
 
-    def film(name, cuts, flip=None, cue_shift=0):
+    def film(name, cuts, flip=None, cue_shift=0, cut_shift=0, seams=None, changes=None):
         folder = Path(j('make-films', name))
         folder.mkdir(parents=True, exist_ok=True)
-        params = json.dumps({'cuts': cuts, 'flip': flip, 'cueShift': cue_shift})
+        params = json.dumps({'cuts': cuts, 'flip': flip, 'cueShift': cue_shift, 'cutShift': cut_shift,
+                             'seams': seams, 'changes': changes})
         (folder / 'index.html').write_text(PAGE.replace('__PARAMS__', params), encoding='utf-8')
         return folder
 
@@ -171,6 +177,11 @@ def run_make_cases(tool, record, j, scripts_dir):
            and 'Nothing has been posted' in text)
     listed = sorted(p.name for p in Path(j('make-out', 'draft', 'deliver')).iterdir()) \
         if Path(j('make-out', 'draft', 'deliver')).is_dir() else []
+    record('make_film: reading rests that differ by size are reported per size, not failed',
+           'rests differ from 320x180' in text and not any(f['check'] == 'one timeline' for f in d.get('findings', [])),
+           next((x.strip() for x in text.splitlines() if 'rests differ' in x), 'no per-size line'))
+    record('make_film: one sheet per declared cut', bool(list(Path(j('make-out', 'draft', 'qa', '320x180')).glob(
+        'joins-01-1.500s.png'))))
     record('make_film: deliver/ holds only deliverables, manifests, captions and the report',
            listed == ['clean.srt', 'clean.vtt', 'clean_180x320.mp4', 'clean_180x320.mp4.manifest.json',
                       'clean_320x180.mp4', 'clean_320x180.mp4.manifest.json', 'delivery-report.md'], str(listed))
@@ -205,12 +216,47 @@ def run_make_cases(tool, record, j, scripts_dir):
            details[:200])
     record('make_film: the cut that is there is found', 'declared cut 1.500' not in details)
 
-    # 7. One timeline means one cue list: sizes that export different cues stop the run; exit 1.
+    # 7. Designed seams and changes: a seamless join need not show, a designed flip is not undeclared; exit 0.
+    designed = film('designed', [1.5, 2.2], flip=.6, seams=[2.2], changes=[[.6, .7, 'ground flip']])
+    code, out = tool('make_film.py', designed, '--sizes', '320x180', '--sound', 'none', '--preview',
+                     '--out', j('make-out', 'designed'), '--json', j('make-designed.json'))
+    cut = load(j('make-out', 'designed', 'qa', '320x180', 'cut-check.json'))
+    record('make_film: info.seams and info.changes accepted: seam skipped, designed change declared; exit 0',
+           code == 0 and cut.get('seams_skipped') == [2.2] and not cut.get('missing') and
+           not cut.get('undeclared_large_changes') and len(cut.get('changes_declared', [])) == 1,
+           f"exit {code}; {cut.get('summary')}")
+
+    # 8. Cut sheets stay bounded on a full-length film: 1440 frames, a dozen cuts, both aspect ratios.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('make_film_for_cases', scripts_dir / 'make_film.py')
+    make_film = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_film)
+    cuts = [round(1.2 + 1.8 * k, 3) for k in range(12)]
+    for w, h in ((1920, 1080), (1080, 1920)):
+        video = Path(j('make-sheets', f'long_{w}x{h}.mp4'))
+        video.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-nostdin', '-f', 'lavfi', '-i',
+                            f'testsrc2=s={w}x{h}:r=60:d=24', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35',
+                            '-pix_fmt', 'yuv420p', str(video)], capture_output=True, text=True)
+        status, summary, failed, sheets = make_film.cut_sheets(
+            lambda label, script, *args: tool(script, *args), video, cuts, (w, h), 60, video.parent / f'{w}x{h}')
+        frames, _ = lengths(video) if not r.returncode else (0, None)
+        record(f'make_film: 12 cut sheets on a 1440-frame {w}x{h} film, one bounded call per cut',
+               frames == 1440 and status == 'pass' and len(sheets) == 12 and not failed,
+               f'{frames} frames; {summary[0]}; {failed[:1]}')
+
+    # 9. One timeline means one cue list and one set of cuts: sizes that differ stop the run; exit 1.
     split = film('split', [1.5], cue_shift=.1)
     code, out = tool('make_film.py', split, '--sizes', '320x180,180x320', '--sound', 'none', '--preview',
                      '--out', j('make-out', 'split'))
     record('make_film: different cue lists across sizes stop the run before rendering; exit 1',
            code == 1 and 'different cue lists' in out and not Path(j('make-out', 'split', 'renders')).exists(),
+           f'exit {code}')
+    splitcuts = film('splitcuts', [1.5], cut_shift=.1)
+    code, out = tool('make_film.py', splitcuts, '--sizes', '320x180,180x320', '--sound', 'none', '--preview',
+                     '--out', j('make-out', 'splitcuts'))
+    record('make_film: different cuts across sizes stop the run before rendering; exit 1',
+           code == 1 and 'different cuts' in out and not Path(j('make-out', 'splitcuts', 'renders')).exists(),
            f'exit {code}')
 
 
