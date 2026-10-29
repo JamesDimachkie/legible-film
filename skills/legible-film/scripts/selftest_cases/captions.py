@@ -251,11 +251,19 @@ def run_captions_cases(tool, record, j, scripts_dir):
 
     from PIL import Image, ImageDraw, ImageFont
     test_frames = []
-    fonts = [Path('C:/Windows/Fonts/arial.ttf'), Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')]
-    font_path = next((path for path in fonts if path.is_file()), None)
-    if not font_path:
-        raise RuntimeError('synthetic burned caption test requires Arial or DejaVu Sans')
-    font = ImageFont.truetype(str(font_path), 24)
+    fonts = [Path(scripts_dir).parent / 'assets/kit/fonts/MonaSansVF.woff2',
+             Path('/System/Library/Fonts/Supplemental/Arial.ttf'),
+             Path('C:/Windows/Fonts/arial.ttf'), Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf')]
+    font = None
+    for font_path in fonts:
+        if font_path.is_file():
+            try:
+                font = ImageFont.truetype(str(font_path), 24)
+                break
+            except OSError:
+                continue
+    if font is None:
+        raise RuntimeError('synthetic burned caption test requires a loadable font')
     for index in range(30):
         frame = Image.new('RGB', (320, 180), (0, 0, 0))
         if 12 <= index < 22:

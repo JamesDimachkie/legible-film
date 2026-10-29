@@ -213,6 +213,15 @@ def run_footage_cases(tool, record, j, scripts_dir):
            code in (0, 1) and result.get('measured_max_rate', 1) <= .20000001,
            f"peak rate {result.get('measured_max_rate')}")
     # Synthetic HLG-coded levels exercise the actual HDR conversion chain and tags.
+    filters = subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True,
+                             encoding='utf-8', errors='replace')
+    import re
+    available = set(re.findall(r'^\s*[TSC.]{2,3}\s+(\S+)', filters.stdout, re.MULTILINE))
+    if filters.returncode:
+        raise RuntimeError('cannot inspect FFmpeg filters')
+    if 'zscale' not in available:
+        print('SKIP  footage: HLG this FFmpeg build lacks zscale; HDR conversion needs a build with libzimg')
+        return
     hlg = j('footage-hlg.mp4')
     ffmpeg('-f', 'lavfi', '-i', 'color=c=gray:s=160x90:r=10:d=1', '-vf',
            'setparams=colorspace=bt2020nc:color_trc=arib-std-b67:color_primaries=bt2020',

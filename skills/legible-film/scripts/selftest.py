@@ -186,6 +186,8 @@ def skipped_cases(area, output):
     for line in output.splitlines():
         if area == 'make' and line.startswith('skipped: make_film cases need '):
             found.append({'count': make_case_count(), 'reason': line[len('skipped: '):]})
+        elif area == 'footage' and line.startswith('SKIP  footage: HLG '):
+            found.append({'count': 1, 'reason': line[len('SKIP  '):]})
         elif area == 'library' and line.startswith('SKIP  Openverse live network cases:'):
             found.append({'count': 1, 'reason': line[len('SKIP  '):]})
     return found

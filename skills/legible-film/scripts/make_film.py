@@ -673,7 +673,7 @@ class Make:
         def moved(path, base):
             source = (Path(base).parent / path).resolve()
             try:
-                return Path(os.path.relpath(source, target.parent)).as_posix()
+                return Path(os.path.relpath(source, target.parent.resolve())).as_posix()
             except ValueError:   # another drive on Windows: keep it absolute
                 return str(source)
         palette = {k: v for k, v in draft.items() if k not in ('roles', 'music')}

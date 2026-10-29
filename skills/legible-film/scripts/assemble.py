@@ -17,6 +17,7 @@ import importlib.util
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -61,6 +62,15 @@ def source_path(root, sources, name):
     return str((root / filename).resolve())
 
 
+def has_filter(ffmpeg, name):
+    """Check the filters available in this FFmpeg build."""
+    result = subprocess.run([ffmpeg, '-hide_banner', '-filters'], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace')
+    if result.returncode:
+        raise RuntimeError('cannot inspect FFmpeg filters')
+    return name in set(re.findall(r'^\s*[TSC.]{2,3}\s+(\S+)', result.stdout, re.MULTILINE))
+
+
 def colour_filter(stream, width, height):
     """Build a source-aware SDR conversion and describe every assumption."""
     matrix = stream.get('color_space', 'unknown')
@@ -92,7 +102,8 @@ def colour_filter(stream, width, height):
     elif matrix == 'gbr':
         conversion = 'RGB decoded directly; output encoded as BT.709'
     else:
-        filters.extend(['zscale=p=bt709:t=bt709:m=bt709:r=tv', 'format=yuv444p'])
+        filters.extend(['format=yuv444p', 'colorspace=all=bt709:range=tv',
+                        'scale=out_color_matrix=bt709:out_range=tv'])
         conversion = f'{matrix}/{transfer}/{primaries} converted to BT.709'
     filters.append('format=rgb24')
     return ','.join(filters), assumed, conversion
@@ -116,6 +127,8 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit):
     for number, item in enumerate(edit['picture']):
         filename = source_path(root, edit['sources'], item['src'])
         stream, _, width, height = probe_source(ffprobe, filename)
+        if stream.get('color_transfer') in ('smpte2084', 'arib-std-b67') and not has_filter(ffmpeg, 'zscale'):
+            raise RuntimeError('this FFmpeg build lacks zscale; HDR conversion needs a build with libzimg')
         vf, assumptions, conversion = colour_filter(stream, width, height)
         start = max(0.0, float(item['in']) - 1.0)
         stop = float(item['out']) + 1.0

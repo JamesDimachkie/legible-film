@@ -37,7 +37,12 @@ def run_qcfix_cases(tool, record, j, scripts_dir):
         changed.append(edit)
     for label, frames in [('base', base), ('edit', changed)]:
         encode(j('q_' + label + '.mkv'), frames, 'ffv1', ['-pix_fmt', 'bgr0'])
-        encode(j('q_' + label + '.mp4'), frames, 'libx264', ['-crf', '18', '-pix_fmt', 'yuv420p'])
+        lossy_frames = [frame.copy() for frame in frames]
+        if label == 'edit':
+            # A small controlled outside difference models encoder ripple even when x264 emits none.
+            for frame in lossy_frames[50:]:
+                frame[0:8, 0:8] = np.minimum(frame[0:8, 0:8].astype(int) + 4, 255).astype(np.uint8)
+        encode(j('q_' + label + '.mp4'), lossy_frames, 'libx264', ['-crf', '18', '-pix_fmt', 'yuv420p'])
     encode(j('q_base_again.mp4'), base, 'libx264', ['-crf', '18', '-pix_fmt', 'yuv420p'])
     with open(j('q_base.mp4'), 'rb') as first, open(j('q_base_again.mp4'), 'rb') as second:
         identical = hashlib.sha256(first.read()).digest() == hashlib.sha256(second.read()).digest()

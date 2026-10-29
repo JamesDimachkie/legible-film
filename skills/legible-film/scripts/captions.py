@@ -489,12 +489,21 @@ def choose_font(path):
     """Choose an explicit or known system font."""
     if path:
         return path
-    candidates = [os.environ.get('WINDIR', 'C:/Windows') + '/Fonts/arial.ttf',
-                  '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf']
-    found = next((item for item in candidates if os.path.isfile(item)), None)
-    if not found:
-        raise ValueError('font not found; pass --font')
-    return found
+    bundled = Path(__file__).resolve().parent.parent / 'assets' / 'kit' / 'fonts'
+    candidates = [bundled / 'MonaSansVF.woff2', bundled / 'GeistMonoVF.woff2',
+                  Path('/System/Library/Fonts/Supplemental/Arial.ttf'),
+                  Path('/System/Library/Fonts/Helvetica.ttc'),
+                  Path('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'),
+                  Path('/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf'),
+                  Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts' / 'arial.ttf']
+    for item in candidates:
+        if item.is_file():
+            try:
+                ImageFont.truetype(str(item), 24)
+                return str(item)
+            except OSError:
+                continue
+    raise ValueError('font not found or unsupported; pass --font')
 
 
 def render_caption(width, height, safe, cue, active, font_path, requested_size, plate):
