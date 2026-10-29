@@ -1,10 +1,10 @@
 // EndCard: a logo (a safe SVG, drawn as an <img> unless it must be inlined) or a typed wordmark,
 // a tagline and a practical line (an address, "available now"), held readable and declared as a rest.
-// A slow push; a logo_hit cue whose default gain keeps it near the body's level (a logo hit louder
+// A slow push; a sting cue whose default gain keeps it near the body's level (a sting louder
 // than the film over a stopped bed was heard as jarring); exports where the music stops.
 //
 // EndCard({ logo?: 'logo.svg', logoHeight?, wordmark?, tagline?, line?, wordmarkFact?, taglineFact?, lineFact?,
-//           taglineRole?, ground?, hold?, len?, musicStop?: true, logoGain?: -6 })
+//           taglineRole?, ground?, hold?, len?, musicStop?: true, stingGain?: -6 })
 
 import { block, typeColour } from './common.js';
 import { sanitizeSvg } from '../lf/svg.js';
@@ -72,8 +72,8 @@ export const EndCard = block('endcard', (ctx, o) => {
   if (tagNode) ctx.text({ id: 'endcard-tagline', role: o.taglineRole || 'claim', string: o.tagline, fact: o.taglineFact, nodes: [tagNode], readFrom: tagAt + 0.22 });
   if (lineNode) ctx.text({ id: 'endcard-line', role: o.lineRole || 'claim', string: o.line, fact: o.lineFact, nodes: [lineNode], readFrom: lineAt + 0.22 });
   if (wordNode || logoNode) ctx.change(Math.min(hit - 0.12, ctx.t0), hit + 0.05, 'the mark lands');
-  ctx.cue({ id: 'logo-hit', t: lockAt, role: 'logo_hit', sync: 'attack', gain_db: o.logoGain ?? -6, duck_db: 0, picture: 'the mark locks' });
-  // The tagline and line ride on the logo hit's ring-out (a tick inside it was inaudible). The
+  ctx.cue({ id: 'sting', t: lockAt, role: 'sting', sync: 'attack', gain_db: o.stingGain ?? -6, duck_db: 0, picture: 'the mark locks' });
+  // The tagline and line ride on the sting's ring-out (a tick inside it was inaudible). The
   // silent window starts after the ring-out (o.ringOut, 1.6 s by default) so it guards new sounds only.
   const quiet0 = lockAt + (o.ringOut ?? 1.6), quiet1 = end - 0.15;
   if (quiet1 - quiet0 > 0.2) ctx.cue({ id: 'end-read', t: +((quiet0 + quiet1) / 2).toFixed(6), sound: 'silent', window_ms: Math.round(((quiet1 - quiet0) / 2) * 1000), picture: 'the end card is read: no new sound' });
@@ -85,17 +85,17 @@ export const EndCard = block('endcard', (ctx, o) => {
     if (logoNode) {
       const q = ctx.progress(t, hit - 0.12, hit);
       logoNode.opacity = ctx.ease.fade(q);
-      logoNode.s = ctx.loglerp(1.25, 1, ctx.curves.slam(q));
+      logoNode.s = ctx.loglerp(1.25, 1, ctx.curves.land(q));
     }
     if (wordNode) {
       if (o.typed !== false) wordNode.reveal = ctx.typed(wordNode, ctx.locked(t) < hit ? 0 : (ctx.locked(t) - hit) * cps + 1 + 1e-6).reveal;
       else {
         // Slams in: scale and blur into the contact frame, then holds.
-        // The slam starts on the card's first frame, so the arrival is never an empty card.
+        // The landing starts on the card's first frame, so the arrival is never an empty card.
         const s0 = Math.min(hit - 0.08, ctx.t0);
         const q = ctx.progress(t, s0, hit);
         wordNode.opacity = t < s0 ? 0 : ctx.ease.fade(Math.min(1, q * 3));
-        if (t < hit) { const e = ctx.curves.slam(q); wordNode.s = ctx.loglerp(1.35, 1, e); wordNode.blur = (1 - e) * u * 1.2; }
+        if (t < hit) { const e = ctx.curves.land(q); wordNode.s = ctx.loglerp(1.35, 1, e); wordNode.blur = (1 - e) * u * 1.2; }
       }
     }
     for (const [n, at] of [[tagNode, tagAt], [lineNode, lineAt]]) {

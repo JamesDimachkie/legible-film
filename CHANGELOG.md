@@ -7,17 +7,21 @@ film checks its own facts, reading time and flashing before it renders.
 
 - **The film kit** (`assets/kit/`, `references/kit.md`): a small, dependency-free browser engine for type-led films,
   from a calm launch film to beat-cut kinetic type.
-  - Blocks for the common devices (words on the beat, a terminal, a number, the name, a picture, a chain, a denial, an
+  - Blocks for the common devices (type on the beat, a terminal, a number, the name, a still, a thread, a denial, an
     end card, a running caption), laid out in frame units so one timeline renders 16:9, 9:16 and 1:1.
   - A camera rig that never parks, a palette built from one brand colour as tinted neutrals, variable type fitted to
     the frame, effects registered so flashing can be predicted.
   - `film_check.py` before every render: claims bound to the facts file, contrast at every ground, measured reading
     windows, predicted flashing, a determinism lint; it writes the cue list, the captions and the QC declarations.
   - `new_film.py` to start a project; a starter film and a showcase film for a fictional product.
+  - Loops: `loop: true` holds the camera and the preflight checks that the end returns to frame 0; a tracked
+    node that never paints (no size, transparent, nothing to draw) is a preflight error naming its block.
 - **Render:** `film_render.py` (with `film_capture.mjs`) renders kit films with cut-aware motion blur averaged in
   linear light, optional bloom and grain, and the BT.709 colour path; `motion_blur.py` does the same for any engine
-  rendered at a multiple of the frame rate.
-- **Sound:** `beat_grid.py` measures a track's tempo, phase, downbeats, drops and drift and computes the offset that
+  rendered at a multiple of the frame rate. `--res N` sets the output's short side; an odd side is refused.
+- **Make:** `make_film.py` takes a kit film from preflight to delivered, checked files in one command; `--loop`
+  measures the seam on each file, `--web` adds a VP9 WebM from a lossless render and a poster from frame 0.
+- **Sound:** `tempo_map.py` measures a track's tempo, phase, downbeats, drops and drift and computes the offset that
   lands a drop on a chosen beat; `make_sound_kit.py` synthesises a rights-clean draft palette and temp track with
   exact sync points; `mix_cues.py` builds the effects stem, the bed and the mix from the cue list and
   `assets/templates/palette.json`, and reports hits that are missing, smeared or under the music. `cue_onsets.py`

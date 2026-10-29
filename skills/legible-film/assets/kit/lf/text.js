@@ -1,6 +1,6 @@
 // Type: font loading, measurement after fonts load, fitting display words to the safe width,
 // whole-letter and whole-word spans with word spaces that never collapse, outlined type,
-// extruded 3D type, and the counter (hole) of a letter for camera fly-throughs.
+// extruded 3D type, and the counter (hole) of a letter for camera dives.
 
 import { Node } from './node.js';
 import { mix } from './color.js';
@@ -234,7 +234,7 @@ export function textNode(parent, opts) {
       if (kc !== prev.kc) { knock.style.color = kc; knock.style.visibility = out ? 'visible' : 'hidden'; prev.kc = kc; }
     }
     // `flat`: drop the 3-D stack (copies and perspective) and draw the face alone. Browsers stop
-    // rasterising 3-D layers at very high zoom, so fly-throughs go flat for their last stretch.
+    // rasterising 3-D layers at very high zoom, so dives go flat for their last stretch.
     const flat = !!n.flat;
     if (copies.length && flat !== prev.flat) {
       for (const c of copies) c.style.display = flat ? 'none' : '';

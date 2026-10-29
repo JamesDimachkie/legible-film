@@ -36,11 +36,11 @@
         }
       ]
     },
-    "impact_big": {
+    "boom": {
       "takes": [
-        "sfx/impact_big_1.wav",
-        "sfx/impact_big_2.wav",
-        "sfx/impact_big_3.wav"
+        "sfx/boom_1.wav",
+        "sfx/boom_2.wav",
+        "sfx/boom_3.wav"
       ],
       "sha256": [
         "1dce34333ab39cc00650fbcb6e251a0f614ab7d2349449f79c4a8c5812bcef79",
@@ -69,11 +69,11 @@
         }
       ]
     },
-    "hit": {
+    "tap": {
       "takes": [
-        "sfx/hit_1.wav",
-        "sfx/hit_2.wav",
-        "sfx/hit_3.wav"
+        "sfx/tap_1.wav",
+        "sfx/tap_2.wav",
+        "sfx/tap_3.wav"
       ],
       "sha256": [
         "d345ddfcdff982441266a50fd692a97b5afc29f7b3e9f141c5d1ae567f5146cd",
@@ -115,11 +115,11 @@
       "licence": "generated for this project",
       "attribution": "Original procedural synthesis; no third-party samples."
     },
-    "whoosh_big": {
+    "sweep": {
       "takes": [
-        "sfx/whoosh_big_1.wav",
-        "sfx/whoosh_big_2.wav",
-        "sfx/whoosh_big_3.wav"
+        "sfx/sweep_1.wav",
+        "sfx/sweep_2.wav",
+        "sfx/sweep_3.wav"
       ],
       "sha256": [
         "9227ef51a42983854fec47ed186cb7433d8709a68e64014224ce807b1fab3398",
@@ -240,11 +240,11 @@
       "licence": "generated for this project",
       "attribution": "Original procedural synthesis; no third-party samples."
     },
-    "logo_hit": {
+    "sting": {
       "takes": [
-        "sfx/logo_hit_1.wav",
-        "sfx/logo_hit_2.wav",
-        "sfx/logo_hit_3.wav"
+        "sfx/sting_1.wav",
+        "sfx/sting_2.wav",
+        "sfx/sting_3.wav"
       ],
       "sha256": [
         "6ff507d94ddf976eb8f545c8d4bb158e19ba3bfb908cae253e7bc734a566ef58",
@@ -356,39 +356,6 @@
       "attribution": "Original procedural synthesis; no third-party samples.",
       "loop": true,
       "crossfade_ms": 400
-    },
-    "boom": {
-      "takes": [
-        "sfx/boom_1.wav",
-        "sfx/boom_2.wav",
-        "sfx/boom_3.wav"
-      ],
-      "sha256": [
-        "d634ce8dca82059002bdfa61c5e39b5568cf9e8126c2efca166e250ebb9dd59d",
-        "be218ff56561709ecf7851142a10ce691cf077742bafaf16121d99d94e8251e1",
-        "76b2a60ea3e6d19991c1922d04ace893abfbb59346d78c26951dc31227d76413"
-      ],
-      "sync": "attack",
-      "points_s": [
-        0.0,
-        0.0,
-        0.0
-      ],
-      "meaning": "a large reveal lands",
-      "gain_db": -6,
-      "source": "make_sound_kit.py (synthesised; no third-party material)",
-      "licence": "generated for this project",
-      "attribution": "Original procedural synthesis; no third-party samples.",
-      "layers": [
-        {
-          "role": "sub",
-          "gain_db": -3
-        },
-        {
-          "role": "air",
-          "gain_db": -12
-        }
-      ]
     }
   },
   "status": "unheard",

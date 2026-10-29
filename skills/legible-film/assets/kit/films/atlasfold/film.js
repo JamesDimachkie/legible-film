@@ -9,7 +9,7 @@
 // Truth: every claim is in facts.json; the map, the photos and the search are labelled ILLUSTRATION.
 
 export default function film(kit) {
-  const { Words, Terminal, Name, EndCard, block, clock } = kit;
+  const { Type, Terminal, Name, EndCard, block, clock } = kit;
   const T = clock({ bpm: 150, offset: 0 });
 
   // ---- A device of this film's own: scattered photo cards fold into the tiles of one map. ----
@@ -276,16 +276,16 @@ export default function film(kit) {
     facts: 'facts.json',
     reading: { cps: 15, base: 0.3 },
     readingRests: true,   // claims, qualifiers, names and interface text declare their reading holds
-    pace: { maxStill: 0.6, maxStillShare: 0.4 },   // the film's own pace contract (before the end card)
+    pace: { max_still: 0.6, max_still_share: 0.4 },   // the film's own pace contract (before the end card)
     texture: { kind: 'dots', spacing: 4.4, dot: 0.16 },
     scenes: [
       // Hook: the problem in the viewer's terms. "A MAP." is an outline: it is not true yet.
-      Words({
-        exit: 'through', through: { letter: 'A', shot: -1 }, throughD: 0.5,
+      Type({
+        exit: 'dive', dive: { letter: 'A', shot: -1 }, diveD: 0.5,
         shots: [
-          { text: 'PHOTOS.', kicker: 'A FOLDER OF', style: 'stack', open: true, openHit: '1b', dur: '3b', ground: 'ink', fact: 'what', hit: 'hit' },
-          { text: 'IS NOT', tall: 'IS/NOT', style: 'cut', dur: '2b', ground: 'paper', fact: 'what', fill: 0.78, rot: -3 },
-          { text: 'A MAP.', tall: 'A/MAP.', style: 'outline', dur: '4b', fact: 'what', hit: 'beat' },
+          { text: 'PHOTOS.', kicker: 'A FOLDER OF', style: 'kicker', open: true, openHit: '1b', dur: '3b', ground: 'ink', fact: 'what', hit: 'shake' },
+          { text: 'IS NOT', tall: 'IS/NOT', style: 'snap', dur: '2b', ground: 'paper', fact: 'what', fill: 0.78, rot: -3 },
+          { text: 'A MAP.', tall: 'A/MAP.', style: 'outline', dur: '4b', fact: 'what', hit: 'bump' },
         ],
       }),
       // The command, typed: the product acting. Illustrative reconstruction (facts: terminal-illustration).
@@ -302,21 +302,21 @@ export default function film(kit) {
       // The fold: the photos turn over into one map (an illustration).
       Fold({ enter: 'cut', query: 'lisbon', beats: 9 }),
       // The turn: the outline from the hook comes back, and fills on the beat. The film's peak.
-      Words({
-        enter: 'zoom', exit: 'collapse',
-        shots: [{ text: 'A SEARCHABLE/MAP.', tall: 'A/SEARCHABLE/MAP.', style: 'outline', fillAt: '1b', fillHit: 'punch', fillCue: 'impact_big', drop: true, dur: '5b', ground: 'ink', role: 'claim', fact: 'what', id: 'claim-what' }],
+      Type({
+        enter: 'zoom', exit: 'shrink',
+        shots: [{ text: 'A SEARCHABLE/MAP.', tall: 'A/SEARCHABLE/MAP.', style: 'outline', fillAt: '1b', fillHit: 'burst', fillCue: 'boom', drop: true, dur: '5b', ground: 'ink', role: 'claim', fact: 'what', id: 'claim-what' }],
       }),
       // The facts, one idea per beat.
-      Words({
-        exit: 'whipY',
+      Type({
+        exit: 'whip-v',
         shots: [
-          { text: 'RUNS/OFFLINE.', dur: '4b', ground: 'ink', role: 'claim', fact: 'offline', id: 'claim-offline', hit: 'hit' },
-          { text: 'MACOS./WINDOWS./LINUX.', build: 'lines', step: '1b', lineHit: 'none', uniform: true, dur: '7b', ground: 'paper', role: 'claim', fact: 'platforms', id: 'claim-platforms', enter: 'whipX', hit: 'hit' },
-          { text: 'MIT.', dur: '2b', ground: 'accent', role: 'claim', fact: 'licence', id: 'claim-licence', enter: 'whipY', hit: 'hit' },
+          { text: 'RUNS/OFFLINE.', dur: '4b', ground: 'ink', role: 'claim', fact: 'offline', id: 'claim-offline', hit: 'shake' },
+          { text: 'MACOS./WINDOWS./LINUX.', build: 'lines', step: '1b', lineHit: 'none', uniform: true, dur: '7b', ground: 'paper', role: 'claim', fact: 'platforms', id: 'claim-platforms', enter: 'whip-h', hit: 'shake' },
+          { text: 'MIT.', dur: '2b', ground: 'accent', role: 'claim', fact: 'licence', id: 'claim-licence', enter: 'whip-v', hit: 'shake' },
         ],
       }),
       // The name, out of depth; the camera flies through its O to the end card.
-      Name({ name: 'ATLASFOLD', color: 'accent', kickerColor: 'paper', kicker: 'INTRODUCING', sub: 'VERSION 1.0', fact: 'release', subFact: 'release', subRole: 'identity', ground: 'ink', at: '0.5b', fly: 0.36, subDelay: 0.1, cps: 30, len: '6b', exit: 'through' }),
+      Name({ name: 'ATLASFOLD', color: 'accent', kickerColor: 'paper', kicker: 'INTRODUCING', sub: 'VERSION 1.0', fact: 'release', subFact: 'release', subRole: 'identity', ground: 'ink', at: '0.5b', fly: 0.36, subDelay: 0.1, cps: 30, len: '6b', exit: 'dive' }),
       EndCard({ wordmark: 'ATLASFOLD', typed: false, wordmarkFact: 'release', tagline: 'OUT TODAY', taglineFact: 'release', line: 'atlasfold.example', lineFact: 'url', ground: 'paper', len: '9b' }),
     ],
   };

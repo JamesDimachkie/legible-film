@@ -119,7 +119,7 @@ Read [timing](references/timing.md).
 - Keep every event picture and sound share in one timing source that both the picture code and the cue export read;
   compute sync points from the animation, never by hand.
 - Give each essential text its `in`, `readStart`, `readEnd` and `out`.
-- When music is the clock, measure the track's grid with `beat_grid.py` before building on it.
+- When music is the clock, measure the track's grid with `tempo_map.py` before building on it.
 
 Done when the cue list ([cues.json](assets/templates/cues.json)) is exported from the same source as the picture, and
 every essential text has a usable reading window that fits its task at viewing size.
@@ -280,7 +280,7 @@ after an update or with `--force`), and `python scripts/kit_selftest.py` before 
 | **Make a kit film** | |
 | `new_film.py` | Start a film project from the kit. |
 | `film_check.py` | Before rendering a kit film: facts, contrast, reading windows, predicted flashing, determinism; writes the cue list, captions and QC declarations. |
-| `make_film.py` | One command from a kit film to delivered, checked files: doctor, preflight, sound chain, render, mux, the QC battery, an A/B listening pair and the delivery report. `--doctor` checks the setup. |
+| `make_film.py` | One command from a kit film to delivered, checked files: doctor, preflight, sound chain, render, mux, the QC battery, an A/B listening pair and the delivery report. `--doctor` checks the setup; `--loop` measures a loop's seam, `--web` adds a WebM and poster, `--res` sets the output's short side. |
 | `film_render.py` | Render a kit film with cut-aware motion blur and the correct colour path (it drives `film_capture.mjs`). |
 | `motion_blur.py` | Turn a render made at a multiple of the frame rate into true motion blur, never across a cut. |
 | **Edit recordings** | |
@@ -289,7 +289,7 @@ after an update or with `--force`), and `python scripts/kit_selftest.py` before 
 | `reframe.py` | Propose or check a crop path that keeps the subject in a tall or square frame; flag frames where it leaves. |
 | `captions.py` | Build SRT and WebVTT under reading rules, check a caption file (or a burned-in one) against them, and burn captions clear of faces and platform overlays. |
 | **Sound** | |
-| `beat_grid.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
+| `tempo_map.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
 | `make_sound_kit.py` | Synthesise a rights-clean draft palette and temp track with exactly known sync points. |
 | `sound_library.py` | Index a folder of licensed effects (sync points, brightness, loudness, licences) and pick a palette for a cue list. |
 | `spot_cues.py` | Turn the picture's cue list into sound gestures: merge collisions, thin dense runs, keep layer limits, apply sound edits. |

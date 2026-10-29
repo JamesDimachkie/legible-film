@@ -41,16 +41,16 @@ def run_chain_cases(tool, record, j, scripts_dir):
     # gains. A forbidden nested ghost role proves that layers do not recurse.
     roles = {}
     for role, point, sync, channels in (
-            ('hit', .01, 'attack', (.2, 0)), ('sub', .04, 'apex', (0, .3)), ('air', .07, 'end', (.1, .1))):
+            ('tap', .01, 'attack', (.2, 0)), ('sub', .04, 'apex', (0, .3)), ('air', .07, 'end', (.1, .1))):
         x = np.zeros((4800, 2), np.float32)
         index = round(point * rate) - (1 if sync == 'end' else 0)
         x[index] = channels
         wav(role + '.wav', x)
         roles[role] = {'takes': [role + '.wav'], 'sync': sync, 'points_s': [point], 'gain_db': -2}
-    roles['hit']['layers'] = [{'role': 'sub', 'gain_db': -3}, {'role': 'air', 'gain_db': -4}]
+    roles['tap']['layers'] = [{'role': 'sub', 'gain_db': -3}, {'role': 'air', 'gain_db': -4}]
     roles['sub']['layers'] = [{'role': 'ghost'}]
     palette = save('layers-palette.json', {'version': 2, 'roles': roles})
-    cues = save('layers-cues.json', {'duration': 2, 'events': [{'id': 'composite', 't': 1, 'role': 'hit', 'gain_db': -1}]})
+    cues = save('layers-cues.json', {'duration': 2, 'events': [{'id': 'composite', 't': 1, 'role': 'tap', 'gain_db': -1}]})
     code, out = mix(cues, palette, 'layers')
     r = read('layers/mix-report.json')
     x = io.decode(ffmpeg, path('layers/effects.wav'))
@@ -144,7 +144,7 @@ def run_chain_cases(tool, record, j, scripts_dir):
     # Merge, run thinning, per-role cap and total cap live in separated seconds.
     events = [
         {'id': 'weak', 't': .5, 'role': 'air', 'gain_db': -8},
-        {'id': 'strong', 't': .54, 'role': 'hit', 'gain_db': 0},
+        {'id': 'strong', 't': .54, 'role': 'tap', 'gain_db': 0},
         {'id': 'quiet', 't': .52, 'sound': 'silent', 'window_ms': 5},
         {'id': 'read', 't': 1.5, 'role': 'hold', 'reading_hold': True}]
     events += [{'id': 'key' + str(i), 't': 2 + i * .1, 'role': 'key'} for i in range(5)]
@@ -176,12 +176,12 @@ def run_chain_cases(tool, record, j, scripts_dir):
     blank = np.zeros_like(stereo)
     wav('quiet.wav', blank)
     onsets = save('onset-spot-source.json', {'events': [
-        {'id': 'a', 't': 1, 'role': 'hit'}, {'id': 'b', 't': 1.03, 'role': 'hit'},
+        {'id': 'a', 't': 1, 'role': 'tap'}, {'id': 'b', 't': 1.03, 'role': 'tap'},
         {'id': 'hold', 't': 3, 'sound': 'silent'}]})
     tool('spot_cues.py', onsets, '--out-dir', path('onset-spot'))
     # Place the retained pulse at t=1 using the original role fixture.
-    basic = save('basic.json', {'version': 2, 'roles': {'hit': roles['hit']}})
-    basic_data = json.loads(basic.read_text()); basic_data['roles']['hit'].pop('layers'); io.save_json(basic, basic_data)
+    basic = save('basic.json', {'version': 2, 'roles': {'tap': roles['tap']}})
+    basic_data = json.loads(basic.read_text()); basic_data['roles']['tap'].pop('layers'); io.save_json(basic, basic_data)
     code_mix, _ = mix(path('onset-spot/cues.spotted.json'), basic, 'onset-mix', '--duration', 6)
     code, out = tool('cue_onsets.py', path('onset-mix/effects.wav'), path('onset-spot/cues.spotted.json'),
                      '--json', path('onset-check.json'))

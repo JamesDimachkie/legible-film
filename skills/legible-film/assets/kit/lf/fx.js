@@ -1,7 +1,7 @@
 // Effects. Each has one job and is a pure function of t; seeds are fixed at build time.
 //   speed:  inward speed lines charging into a point before a hit
 //   burst:  a ring, rays and sparks for the biggest hits only
-//   comet:  a thread drawn in two additive passes (wide dim glow, thin bright core) whose tail
+//   tracer:  a thread drawn in two additive passes (wide dim glow, thin bright core) whose tail
 //           drains into its head when it arrives
 //   flash:  a full-frame light flash (registered, so flashing is predicted before a render)
 //   texture: a sparse world-space dot grid or ghost rows of type that moves with the camera
@@ -155,10 +155,10 @@ export function smoothPath(points, steps = 24) {
 
 // o.path(t) -> world points; o.t0..o.t1 head travel; o.tail: tail length as a fraction of the path;
 // o.drain: seconds for the tail to drain into the head after arrival; o.hold: keep the drawn line after.
-export function comet(o) {
+export function tracer(o) {
   const drain = o.drain ?? 0.3;
   return {
-    kind: 'comet', layer: 'world', t0: o.t0, t1: o.t1 + drain + (o.hold ?? 0),
+    kind: 'tracer', layer: 'world', t0: o.t0, t1: o.t1 + drain + (o.hold ?? 0),
     head(t) {
       return (o.curve || ease.inOut2)((t - o.t0) / (o.t1 - o.t0));
     },
@@ -175,7 +175,7 @@ export function comet(o) {
       c.save();
       c.lineCap = 'round'; c.lineJoin = 'round';
       const w = env.u * (o.width ?? 0.5);
-      // A kept thread leaves the travelled line drawn, dimmer than the comet.
+      // A kept thread leaves the travelled line drawn, dimmer than the tracer.
       if (o.keep) {
         c.globalCompositeOperation = 'source-over';
         c.strokeStyle = rgba(o.lineColour ?? o.color, o.keepAlpha ?? 0.55);

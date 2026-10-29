@@ -150,8 +150,8 @@ def run_library_cases(tool, record, j, scripts_dir):
     record('sound_library: folder LICENCE.txt evidence', found['licensed'] and 'Permission' in found['licence'])
     # Exercise the actual make_film sound path without doing another picture render.
     make = load('make_film')
-    a = SimpleNamespace(name=None, res='1080', resume=True, ffmpeg=None, ffprobe=None, node=None,
-                        playwright=None, browser=None, drop_beat=None)
+    a = SimpleNamespace(name=None, res=None, loop=False, web=False, resume=True, ffmpeg=None, ffprobe=None,
+                        node=None, playwright=None, browser=None, drop_beat=None)
     m = make.Make(a, Path(j('make-film')), Path(j('make-library')), [(320, 180)])
     m.sound_mode = 'library:' + str(root)
     sound = m.sound({'frames': 270, 'fps': 30}, Path(j('library-cues.json')))

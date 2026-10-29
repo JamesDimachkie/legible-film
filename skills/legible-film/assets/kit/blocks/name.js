@@ -53,8 +53,8 @@ export const Name = block('name', (ctx, o) => {
   if (kNode) ctx.text({ id: 'name-kicker', role: o.kickerRole || 'headline', string: o.kicker, fact: o.kickerFact, nodes: [kNode], readFrom: kAt + 0.18 });
   if (sNode) ctx.text({ id: 'name-sub', role: o.subRole || 'headline', string: o.sub, fact: o.subFact, nodes: [sNode], readFrom: subEnd });
   ctx.change(land - 0.15, land + 0.05, `${o.name} lands`);
-  hitAt(ctx, land, o.hit ?? 'punch', { colour, at: () => ctx.screenOf(nameNode) });
-  ctx.cue({ t: land, role: 'impact_big', sync: 'attack', picture: `${o.name} lands out of depth` });
+  hitAt(ctx, land, o.hit ?? 'burst', { colour, at: () => ctx.screenOf(nameNode) });
+  ctx.cue({ t: land, role: 'boom', sync: 'attack', picture: `${o.name} lands out of depth` });
   ctx.cue({ t: land - fly, role: 'riser', sync: 'end', sound: 'optional', picture: 'the name begins its flight', gain_db: -6 });
   // The kicker and the typed sub line ride on the landing's sound (a quiet cue 100 ms after an
   // impact was inaudible in the mix); a kicker well before the landing keeps its tick.
@@ -67,8 +67,8 @@ export const Name = block('name', (ctx, o) => {
     nameNode.ry = ctx.lerp(52, -12, e) - 14 * ctx.clamp((t - land) / 2.4);
     nameNode.rx = ctx.lerp(22, 8, e) - 5 * ctx.clamp((t - land) / 2.4);
     nameNode.opacity = t < land - fly ? 0 : ctx.ease.fade(Math.min(1, p * 5));
-    // Before a fly-through, the face turns square to the camera so its counter is a true window.
-    if (o.exit === 'through') {
+    // Before a dive, the face turns square to the camera so its counter is a true window.
+    if (o.exit === 'dive') {
       const flat = ctx.curves.camera(ctx.progress(t, ctx.t0 + len - 1.05, ctx.t0 + len - 0.6));
       nameNode.ry *= 1 - flat; nameNode.rx *= 1 - flat;
       nameNode.flat = t >= ctx.t0 + len - (o.flatFor ?? 0.35);
@@ -89,9 +89,9 @@ export const Name = block('name', (ctx, o) => {
     const p = ctx.progress(t, ctx.t0, ctx.t0 + len - 0.55);
     return { x: 0, y: 0, zoom: ctx.loglerp(o.pushFrom ?? 0.98, 1.02, ctx.curves.drift(p)), rot: ctx.lerp(-1.4, 0.6, p), drift: false };
   }
-  return { len, update, camera, ground0: ground, through: () => {
+  return { len, update, camera, ground0: ground, dive: () => {
     // Prefer the roundest counter: O, then D, 0, Q, B, P, R, A.
-    const order = o.throughLetter ? [o.throughLetter] : ['O', 'D', '0', 'Q', 'B', 'P', 'R', 'A', 'o', 'a', 'e'];
+    const order = o.diveLetter ? [o.diveLetter] : ['O', 'D', '0', 'Q', 'B', 'P', 'R', 'A', 'o', 'a', 'e'];
     const ls = nameNode.letters.map(l => l.textContent);
     for (const c of order) { const k = ls.indexOf(c); if (k >= 0) return { node: nameNode, letter: k }; }
     return { node: nameNode, letter: 0 };

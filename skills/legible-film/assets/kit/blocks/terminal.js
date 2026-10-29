@@ -2,8 +2,11 @@
 // output lines arriving quickly, the camera following the caret and pushing in.
 //
 // Terminal({ command, prompt?, output?: [string | {text, tone: 'mute'|'ok'|'accent'|'text'}], title?,
-//            typeAt?, cps?, lineGap?, hold?, push?: 'content' | 'window' | false, ground?, role?, len? })
-// Interface text has role `ui`. Durations and curves come from the motion-token scale.
+//            typeAt?, cps?, lineGap?, hold?, push?: 'content' | 'window' | false, ground?, role?, len?,
+//            fullFrame? })
+// Interface text has role `ui`. Durations and curves come from the motion-token scale. With fullFrame: true
+// the window is the whole frame, as a terminal is on a phone (useful in a tall frame, where a short window
+// is a band across a tall empty field).
 
 import { block } from './common.js';
 
@@ -19,16 +22,24 @@ export const Terminal = block('terminal', (ctx, o) => {
   const prompt = o.prompt ?? '$';
   const command = String(o.command || '');
   const nLines = 1 + outputs.length;
-  const winW = Math.min(sw * (ctx.portrait ? 1 : 0.74), Math.max(sw * (ctx.portrait ? 0.9 : 0.62), fs * 0.62 * (Math.max(prompt.length + 1 + command.length, ...outputs.map(x => x.text.length)) + 6)));
+  const full = !!o.fullFrame;
   const barH = fs * 1.9;
-  const winH = barH + pad * 2 + lh * (nLines - 1) + fs;
+  // A full-frame window overhangs the frame (shakes and the arrival never show its edge). Its colour is the
+  // ground: once the window is the frame a lighter panel is invisible, and it would only add a light-dark swing.
+  const panel = full ? ground : pal.panel;
+  const winW = full ? ctx.W * 1.08 : Math.min(sw * (ctx.portrait ? 1 : 0.74), Math.max(sw * (ctx.portrait ? 0.9 : 0.62), fs * 0.62 * (Math.max(prompt.length + 1 + command.length, ...outputs.map(x => x.text.length)) + 6)));
+  const winH = full ? ctx.H * 1.08 : barH + pad * 2 + lh * (nLines - 1) + fs;
+  // Where the frame's safe area starts inside the window (zero for a window inside the frame).
+  const inset = full ? [(winW - ctx.W) / 2 + ctx.safe[0], (winH - ctx.H) / 2 + ctx.safe[1]] : [0, 0];
 
   // Window: a panel with a title bar.
   const win = ctx.group.add({ name: 'terminal', w: winW, h: winH });
-  win.el.style.cssText += `;width:${winW}px;height:${winH}px;border-radius:${fs * 0.55}px;background:${pal.panel};` +
+  win.el.style.cssText += full ? `;background:${panel};` : `;width:${winW}px;height:${winH}px;border-radius:${fs * 0.55}px;background:${pal.panel};` +
     `box-shadow:0 ${u * 1.2}px ${u * 5}px rgba(0,0,0,0.35), inset 0 0 0 1px ${ctx.mix(pal.panel, pal.paper, 0.1)};`;
+  // A full-frame window has no title bar (a phone terminal has none, and a pushed-in camera would cut it).
   const bar = win.add({ name: 'bar', w: winW, h: barH, ax: 0, ay: 0 });
   bar.el.style.cssText += `;width:${winW}px;height:${barH}px;border-bottom:1px solid ${ctx.mix(pal.panel, pal.paper, 0.08)};`;
+  if (full) bar.el.style.display = 'none';
   ['#ff5f57', '#febc2e', '#28c840'].forEach((c, i) => {
     const d = bar.add({ w: fs * 0.62, h: fs * 0.62 });
     d.el.style.cssText += `;width:${fs * 0.62}px;height:${fs * 0.62}px;border-radius:50%;background:${ctx.mix(c, pal.panel, 0.25)};`;
@@ -39,7 +50,9 @@ export const Terminal = block('terminal', (ctx, o) => {
     tt.rest({ x: winW / 2, y: barH / 2 });
   }
   const mono = { font: 'mono', size: fs, weight: 500, tracking: 0, lineHeight: 1.2, anchor: [0, 0.5] };
-  const x0 = pad, y0 = barH + pad + fs * 0.5;
+  // Lines start at the safe edge in a full-frame window, their block centred on the frame's height.
+  const x0 = full ? inset[0] + fs * 0.31 : pad;
+  const y0 = full ? winH / 2 - (lh * outputs.length) / 2 : barH + pad + fs * 0.5;
   const pNode = ctx.textNode(win, { ...mono, string: prompt, color: pal.accent === pal.panel ? pal.paper : ctx.mix(pal.accent, pal.paper, 0.35), weight: 600 });
   pNode.rest({ x: x0, y: y0 });
   const cmdX = x0 + pNode.w + fs * 0.62;
@@ -56,7 +69,7 @@ export const Terminal = block('terminal', (ctx, o) => {
   const caret = win.add({ name: 'caret', w: cw, h: fs * 1.15, ax: 0, ay: 0.5 });
   caret.el.style.cssText += `;width:${cw}px;height:${fs * 1.15}px;background:${pal.paper};border-radius:${fs * 0.08}px;`;
   caret.rest({ y: y0 });
-  ctx.plate(win, pal.panel);
+  ctx.plate(win, panel);
   ctx.track(win, o.id ? `${o.id}-window` : 'terminal-window');
   ctx.track(caret, 'terminal-caret', { discrete: true });
 
@@ -72,7 +85,7 @@ export const Terminal = block('terminal', (ctx, o) => {
   const hold = ctx.time(o.hold ?? 1.4);
   const len = o.len != null ? ctx.time(o.len) : lastAt + lineTok.d + hold - ctx.t0;
 
-  const bg = () => pal.panel;
+  const bg = () => panel;
   const role = o.role || 'ui';
   ctx.text({ id: o.id || 'ui-command', role, string: `${prompt} ${command}`.trim(), fact: o.fact, nodes: [pNode, cNode], bg, readFrom: typeEnd });
   outputs.forEach((x, i) => ctx.text({ id: x.id || `ui-output-${i + 1}`, role: x.role || role, string: x.text, fact: x.fact, nodes: [oNodes[i]], bg, readFrom: outAt[i] + lineTok.d }));
@@ -88,7 +101,7 @@ export const Terminal = block('terminal', (ctx, o) => {
   // Camera: frames the window, follows the caret while typing, then pushes in on the content.
   const lw = Math.max(pNode.w + fs * 0.62 + cNode.w, ...oNodes.map(n => n.w));
   const contentC = [x0 + lw / 2, (y0 - fs * 0.6 + y0 + lh * outputs.length + fs * 0.6) / 2];
-  const zFit = Math.min(1, (sw * 0.96) / winW, ((ctx.safe[3] - ctx.safe[1]) * 0.96) / winH);
+  const zFit = full ? 1 : Math.min(1, (sw * 0.96) / winW, ((ctx.safe[3] - ctx.safe[1]) * 0.96) / winH);
   const zContent = Math.min((sw * 0.94) / lw, ((ctx.safe[3] - ctx.safe[1]) * 0.9) / (lh * outputs.length + fs * 1.4));
   const zEnd = o.push === false ? zFit : o.push === 'window' ? Math.max(zFit, (ctx.W * 1.02) / winW) : Math.max(zFit * 1.05, zContent);
 
@@ -96,8 +109,9 @@ export const Terminal = block('terminal', (ctx, o) => {
     const lt = ctx.locked(t);
     const p = ctx.progress(t, ctx.t0, ctx.t0 + tok.d);
     win.opacity = o.fadeIn ? ctx.ease.fade(Math.min(1, p * 1.6)) : 1;
-    win.y = (1 - tok.curve(p)) * u * 6;
-    win.s = ctx.lerp(0.965, 1, tok.curve(p));
+    // A window inside the frame rises into place; a full-frame window is already the frame.
+    win.y = full ? 0 : (1 - tok.curve(p)) * u * 6;
+    win.s = full ? 1 : ctx.lerp(0.965, 1, tok.curve(p));
     const ty = ctx.typed(cNode, Math.max(0, (lt - typeAt) * cps + 1e-6));
     cNode.reveal = ty.reveal;
     const caretX = cmdX + ty.caretX;
@@ -129,7 +143,8 @@ export const Terminal = block('terminal', (ctx, o) => {
     const startP = winC;
     // While the command types, the camera follows the caret (a steady pan, never a parked frame).
     const typeP = [ctx.lerp(winC[0], ctx.lerp(winC[0], follow[0], 0.9), a), ctx.lerp(winC[1], follow[1], a * 0.3)];
-    const P = [ctx.lerp(typeP[0], endC[0], b), ctx.lerp(typeP[1], endC[1], b)];
+    // A full-frame window keeps the content block centred (the push never crops a line's start).
+    let P = full ? endC : [ctx.lerp(typeP[0], endC[0], b), ctx.lerp(typeP[1], endC[1], b)];
     // The window arrives already close (about the content framing), so its first frames are never a small
     // window in an empty field.
     const z0 = o.pushFrom != null ? zFit * o.pushFrom : ctx.loglerp(zFit, zEnd, 0.55);
@@ -140,7 +155,15 @@ export const Terminal = block('terminal', (ctx, o) => {
     // In a tall frame the content is short against the safe height: the camera also travels down
     // across it (inside the safe area), so the hold keeps moving.
     let S = [ctx.W / 2, ctx.H / 2];
-    if (ctx.portrait) {
+    if (full) {
+      // The view never leaves the window: the camera centre stays where the window still covers the frame.
+      const lo = toWorld(0, 0), hi = toWorld(winW, winH);
+      const half = [ctx.W / 2 / z2, ctx.H / 2 / z2];
+      P = P.map((v, k) => {
+        const a0 = Math.min(lo[k], hi[k]) + half[k], a1 = Math.max(lo[k], hi[k]) - half[k];
+        return a0 > a1 ? (a0 + a1) / 2 : ctx.clamp(v, a0, a1);
+      });
+    } else if (ctx.portrait) {
       const contentH = (lh * outputs.length + fs * 1.4) * z2;
       const roomY = Math.max(0, ((ctx.safe[3] - ctx.safe[1]) * 0.96 - contentH) / 2);
       S = [S[0], S[1] + roomY * 0.4 * (1 - 2 * ctx.curves.drift(ctx.progress(t, ctx.t0, ctx.t0 + len)))];

@@ -362,7 +362,7 @@ def main():
                 "--size",
                 "180x180",
                 "--res",
-                "720",
+                "120",
                 "--from",
                 "0",
                 "--to",
@@ -379,7 +379,10 @@ def main():
             capture_output=True,
             text=True,
         )
-        record("render --size square: --res scales the film own size", r.returncode == 0 and check.returncode == 0)
+        record(
+            "render --size square: --res 120 sets the output short side (120x120)",
+            r.returncode == 0 and check.returncode == 0,
+        )
         print(f"{sum(results)}/{len(results)} checks passed.")
         return 0 if all(results) else 1
     except Exception as exc:

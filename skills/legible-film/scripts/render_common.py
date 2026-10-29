@@ -152,6 +152,44 @@ def auto_level(w, h, fps):
     raise ValueError('size/rate exceeds supported H.264 levels')
 
 
+def h264_args(w, h, fps, crf=14, level=None, preview=False):
+    """FFmpeg output options for the delivery H.264 encode from RGB input: BT.709 matrix and tags, High
+    profile, an explicit level with its VBV limits, closed two-second GOPs and fast start."""
+    if w % 2 or h % 2:
+        raise ValueError(f'H.264 4:2:0 needs even dimensions, not {w}x{h}')
+    level = str(level or auto_level(w, h, fps))
+    key = level.lower()
+    if key != '1b':
+        number = float(key)
+        key = f'{number / 10 if number >= 10 else number:.1f}'
+    if key not in H264_VBV:
+        raise ValueError('unsupported H.264 level: ' + level)
+    maxrate, bufsize = H264_VBV[key]
+    return ['-vf', COLOUR, '-c:v', 'libx264', '-profile:v', 'high', '-preset',
+            'veryfast' if preview else 'slow', '-crf', str(crf), '-level:v', level,
+            '-maxrate', str(maxrate * 1250), '-bufsize', str(bufsize * 1250),
+            '-g', str(max(1, round(fps * 2))), '-flags', '+cgop', '-x264-params', 'open-gop=0',
+            '-threads', '1', '-movflags', '+faststart', '-f', 'mp4']
+
+
+def output_size(w, h, res=None):
+    """The encoded size for a CSS size: --res is the output's short side (720 gives 1280x720 from
+    1920x1080 and 720x1280 from 1080x1920); without it the size is the one given."""
+    if not res:
+        return w, h
+    scale = res / min(w, h)
+    return round(w * scale), round(h * scale)
+
+
+def even_res_near(w, h, res):
+    """The nearest --res that gives even sides for this size, or None within 64 lines."""
+    for step in range(1, 65):
+        for cand in (res - step, res + step):
+            if cand >= 2 and all(side % 2 == 0 for side in output_size(w, h, cand)):
+                return cand
+    return None
+
+
 class Encoder:
     def __init__(self, ffmpeg, path, w, h, fps, crf=14, level=None, preview=False, lossless=False):
         self.log = tempfile.TemporaryFile()
@@ -162,21 +200,7 @@ class Encoder:
             # FFV1 in Matroska preserves all RGB bytes (no YUV subsampling or matrix round-trip).
             cmd += ['-c:v', 'ffv1', '-level', '3', '-pix_fmt', 'bgr0', '-threads', '1', '-f', 'matroska']
         else:
-            if w % 2 or h % 2:
-                raise ValueError('H.264 4:2:0 needs even dimensions')
-            level = str(level or auto_level(w, h, fps))
-            key = level.lower()
-            if key != '1b':
-                number = float(key)
-                key = f'{number / 10 if number >= 10 else number:.1f}'
-            if key not in H264_VBV:
-                raise ValueError('unsupported H.264 level: ' + level)
-            maxrate, bufsize = H264_VBV[key]
-            cmd += ['-vf', COLOUR, '-c:v', 'libx264', '-profile:v', 'high', '-preset',
-                    'veryfast' if preview else 'slow', '-crf', str(crf), '-level:v', level,
-                    '-maxrate', str(maxrate * 1250), '-bufsize', str(bufsize * 1250),
-                    '-g', str(max(1, round(fps * 2))), '-flags', '+cgop', '-x264-params', 'open-gop=0',
-                    '-threads', '1', '-movflags', '+faststart', '-f', 'mp4']
+            cmd += h264_args(w, h, fps, crf, level, preview)
         self.command = cmd + [str(path)]
         self.proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self.log)
 

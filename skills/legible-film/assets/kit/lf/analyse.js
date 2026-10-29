@@ -39,7 +39,7 @@ export function analyse(film, opts = {}) {
   // Motion tracks: every text node and every element a block registered as moving.
   const elements = [];
   texts.forEach(tx => tx.nodes.forEach((node, j) => elements.push({ id: tx.nodes.length > 1 ? `${tx.id}#${j + 1}` : tx.id, node, group: tx.id, parent: node.parent, family: node.parent?.parent, samples: new Float32Array(n * 9), invalid: [] })));
-  for (const tr of film.tracks) elements.push({ id: tr.id, discrete: tr.discrete, node: tr.node, group: tr.id, parent: tr.node.parent, family: tr.node.parent?.parent, samples: new Float32Array(n * 9), invalid: [] });
+  for (const tr of film.tracks) elements.push({ id: tr.id, discrete: tr.discrete, node: tr.node, group: tr.id, parent: tr.node.parent, family: tr.node.parent?.parent, samples: new Float32Array(n * 9), invalid: [], tracked: tr, opaque: 0, sized: 0, shown: 0, filled: false });
   const readFlags = texts.map(() => new Uint8Array(n));
   const patterns = film.fx.filter(e => e.pattern).concat(film.patterns || []);
   const patternHits = patterns.map(() => ({ frames: 0, first: null, worst: null }));
@@ -141,6 +141,12 @@ export function analyse(film, opts = {}) {
       if (a <= 0.02) { e.samples[o] = 0; continue; }
       const M = inScreen(node) ? node.matrix() : mul(cam.M, node.matrix());
       const b = bbox(M, node), lb = bbox(node.matrix(), node);
+      if (e.tracked) {
+        e.opaque++;
+        if (area(b) >= 1) e.sized++;
+        if (area(clipTo(b, W, H)) >= 1) e.shown++;
+        if (node.fill != null) e.filled = true;
+      }
       e.samples.set([1, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2, b[2] - b[0], b[3] - b[1], (lb[0] + lb[2]) / 2, (lb[1] + lb[3]) / 2, lb[2] - lb[0], lb[3] - lb[1]], o);
       for (let q = node; q; q = q.parent) {
         const what = q.s * q.sx < -1e-9 || q.s * q.sy < -1e-9 ? 'negative scale' : q.opacity > 1 + 1e-6 ? `opacity ${q.opacity.toFixed(3)} above 1` : q.opacity < -1e-6 ? 'negative opacity' : q.blur < 0 ? 'negative blur' : q.w < 0 || q.h < 0 ? 'negative size' : null;
@@ -169,6 +175,39 @@ export function analyse(film, opts = {}) {
         if (!h.worst || rec.diff_cdm2 * rec.area > h.worst.diff_cdm2 * h.worst.area) h.worst = rec;
       }
     });
+  }
+  // ---------- loop seam ----------
+  // A loop plays its last frame and then frame 0 again: at the end (t = duration, the frame after the
+  // last) the camera, the ground and every tracked element must be back where frame 0 has them.
+  let loop = null;
+  if (film.loop) {
+    const snap = t => {
+      film.frameT = t;
+      const cam = evaluate(film, t);
+      const els = elements.map(e => {
+        const node = e.node, a = node.alpha();
+        const b = a > 0.02 ? bbox(inScreen(node) ? node.matrix() : mul(cam.M, node.matrix()), node) : null;
+        return { id: e.id, a, b, fill: node.fill, color: node.color, reveal: node.reveal, words: node.revealWords };
+      });
+      return { M: cam.M, ground: film.groundAt(t), els };
+    };
+    const A = snap(0), B = snap(film.duration);
+    const diffs = [];
+    const fmt = v => (Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2));
+    const dPos = Math.hypot(B.M[4] - A.M[4], B.M[5] - A.M[5]);
+    const dLin = Math.max(...[0, 1, 2, 3].map(i => Math.abs(B.M[i] - A.M[i])));
+    if (dPos > 0.5 || dLin > 1e-3) diffs.push(`camera (moved ${fmt(dPos)} px, scale or roll by ${dLin.toFixed(4)})`);
+    if (A.ground !== B.ground) diffs.push(`ground (${A.ground} at frame 0, ${B.ground} at the end)`);
+    A.els.forEach((x, i) => {
+      const y = B.els[i];
+      if ((x.a > 0.02) !== (y.a > 0.02) || Math.abs(x.a - y.a) > 0.01) { diffs.push(`"${x.id}" opacity ${x.a.toFixed(2)} -> ${y.a.toFixed(2)}`); return; }
+      if (x.a <= 0.02) return;
+      const d = Math.max(...[0, 1, 2, 3].map(k => Math.abs(y.b[k] - x.b[k])));
+      if (d > 0.5) diffs.push(`"${x.id}" box moved ${fmt(d)} px`);
+      if (x.fill !== y.fill || x.color !== y.color) diffs.push(`"${x.id}" colour`);
+      if (x.reveal !== y.reveal || x.words !== y.words) diffs.push(`"${x.id}" reveal`);
+    });
+    loop = { closes: diffs.length === 0, checked: ['camera', 'ground', `${elements.length} tracked elements and texts`], differences: diffs };
   }
   film.frameT = savedFrame;
 
@@ -201,6 +240,7 @@ export function analyse(film, opts = {}) {
   };
   const [maxT, atT] = maxIn1s(trans), [maxR, atR] = maxIn1s(redTrans);
   const errors = [], warnings = [];
+  if (loop && !loop.closes) errors.push(`loop: the seam does not close: ${loop.differences.length} difference(s) between frame 0 and the end (${film.duration.toFixed(3)} s): ${loop.differences.slice(0, 6).join('; ')}${loop.differences.length > 6 ? '; ...' : ''}. Bring every tracked property back to its frame-0 value, and hold the camera (move: {push: 0, roll: 0}, or a block camera returning {drift: false})`);
   // The flashing verdict uses the window method of flash_scan.py on a small raster of each frame
   // (lf/flashmap.js); the whole-frame ground series above stays as the luminance strip.
   const fr = fp ? fp.result() : null;
@@ -258,6 +298,17 @@ export function analyse(film, opts = {}) {
     out.push(rec);
   });
 
+  // Tracked elements that never paint: a node with no size, nothing to draw, or no visible frame
+  // passes every other check while the viewer sees nothing.
+  for (const e of elements) {
+    if (!e.tracked) continue;
+    const where = `tracked node "${e.id}" (${e.tracked.block}${e.tracked.scene ? `, scene ${e.tracked.scene}` : ''})`;
+    if (!e.opaque) errors.push(`blank: ${where} is never visible: it is transparent on every frame (opacity at or under 0.02 through its ancestors)`);
+    else if (!e.sized) errors.push(`blank: ${where} is never visible: it has no size on any frame it is opaque (w and h are 0); size it with group.add({w, h}) or node.size(w, h)`);
+    else if (!e.shown) errors.push(`blank: ${where} is never visible: it lies outside the frame whenever it is opaque`);
+    else if (!e.filled && !paintsInDom(e.node.el)) errors.push(`blank: ${where} paints nothing: neither its element nor any child has both a size and something to draw (a background, border, shadow, image, canvas, SVG or text); size it with group.add({w, h}) or node.size(w, h) and give it a fill`);
+  }
+
   // Motion and patterns.
   const motion = motionReport({
     fps, n, cuts: film.reg.cuts, hits: [...film.bumps.map(b => [b.t, b.t + 0.06]), ...film.shakes.map(x => [x.t, x.t + x.tau * 3])], blurWins: [...film.reg.smears, ...film.reg.fast].map(w => [w[0], w[1]]), elements,
@@ -275,6 +326,7 @@ export function analyse(film, opts = {}) {
 
   return {
     texts: out,
+    loop,
     motion,
     patterns: { thresholds: PATTERN_THRESHOLDS, items: patternOut },
     grounds: { fps, luminance: lum.map(v => +v.toFixed(4)), red },
@@ -286,6 +338,31 @@ export function analyse(film, opts = {}) {
     errors: [...film.reg.errors, ...errors],
     warnings: [...film.reg.warnings, ...warnings],
   };
+}
+
+// Whether an element, or anything inside it, has a size and something visible to draw.
+function paintsInDom(el, depth = 0) {
+  if (!el || depth > 8 || typeof getComputedStyle !== 'function') return true;
+  const cs = getComputedStyle(el);
+  if (cs.display === 'none') return false;
+  const tag = el.tagName;
+  const box = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
+  const w = el.offsetWidth ?? box.width, h = el.offsetHeight ?? box.height;
+  const sized = (w > 0 && h > 0) || (box.width > 0 && box.height > 0);
+  if (sized) {
+    if (/^(IMG|CANVAS|VIDEO|svg|SVG|PICTURE)$/.test(tag)) return true;
+    // Computed colours are rgb(...) or rgba(...); 'transparent' computes to rgba(0, 0, 0, 0).
+    const m = String(cs.backgroundColor || '').match(/rgba?\(([^)]*)\)/);
+    const bgAlpha = m ? (m[1].split(/[,\s/]+/).filter(Boolean)[3] ?? 1) : 0;
+    if (+bgAlpha > 0.004 || (cs.backgroundImage && cs.backgroundImage !== 'none')) return true;
+    if (cs.boxShadow && cs.boxShadow !== 'none') return true;
+    for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+      if (parseFloat(cs[`border${side}Width`]) > 0 && cs[`border${side}Style`] !== 'none') return true;
+    }
+    if ([...el.childNodes].some(c => c.nodeType === 3 && c.textContent.trim())) return true;
+  }
+  for (const c of el.children) if (paintsInDom(c, depth + 1)) return true;
+  return false;
 }
 
 function isUnder(node, group) {

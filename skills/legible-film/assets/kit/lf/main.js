@@ -7,6 +7,7 @@ import { buildFilm, evaluate, draw, findFact } from './engine.js';
 import { analyse } from './analyse.js';
 import { loadFonts } from './text.js';
 import { kit } from '../blocks/index.js';
+import { legacyPace } from './legacy.js';
 
 const q = new URLSearchParams(location.search);
 const renderMode = q.has('render');
@@ -46,7 +47,7 @@ function readingRests(f) {
   return (f._readingRests = out);
 }
 
-// music: where it stops dead (an end card that asks for it) and the planned drop (a Words shot with
+// music: where it stops dead (an end card that asks for it) and the planned drop (a Type shot with
 // `drop: true`, or spec.music.drop), both film times; null when the film names neither.
 function musicInfo(f) {
   const stop = f.music?.stop ?? (f.spec.music?.stop != null ? f.time(f.spec.music.stop) : null);
@@ -62,7 +63,7 @@ function info(f) {
     duration: +f.duration.toFixed(6), frames: f.frames, beat: f.beat,
     cuts: f.reg.cuts, seams: f.reg.seams, blanks: f.reg.blanks, changes: f.reg.changes.map(c => c[0]), change_windows: f.reg.changes, smears: f.reg.smears.slice().sort((a, b) => a[0] - b[0]),
     fast: f.reg.fast.slice().sort((a, b) => a[0] - b[0]), rests, flashes: f.reg.flashes,
-    music: musicInfo(f), pace: f.spec.pace || null, cues, captions: f.reg.captions,
+    music: musicInfo(f), pace: legacyPace(f.spec.pace) || null, loop: f.loop, cues, captions: f.reg.captions,
     texts: f.reg.texts.map(x => ({ id: x.id, role: x.role, string: x.string, fact: x.fact, scene: x.scene + 1 })),
     grounds: f.reg.grounds.map(g => [+g.t.toFixed(6), g.colour, g.fade]),
     warnings: f.reg.warnings.slice(),

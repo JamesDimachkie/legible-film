@@ -40,8 +40,8 @@ evidence and boundary ([story-and-score](story-and-score.md) §2).
 4. **The drop is the turn.** The music's biggest change carries the film's turn ([story-and-score](story-and-score.md)
    §5). Put the biggest visual change on it (the first picture, the first ground in the accent colour, the push into
    the product) and keep one dimension of change unused until then. Measure where the track drops with
-   `beat_grid.py`, then choose the offset into the track that lands it on the planned beat:
-   `offset = drop time in the track − planned beat × 60 / BPM`. `beat_grid.py --drop-at-beat N` computes it and snaps
+   `tempo_map.py`, then choose the offset into the track that lands it on the planned beat:
+   `offset = drop time in the track − planned beat × 60 / BPM`. `tempo_map.py --drop-at-beat N` computes it and snaps
    it to a measured downbeat.
 5. **The beat sheet is the score** ([score.csv](../assets/templates/score.csv)) written in beats: for each block, its
    start and end beat, the words, the device, the ground, the hit on its first beat, the sound and the fact behind
@@ -51,13 +51,13 @@ evidence and boundary ([story-and-score](story-and-score.md) §2).
 
 | Device | It says | How it moves | Truth check |
 |---|---|---|---|
-| Statement | one idea a beat | words slam or cut on the beat, one or two at a time | a factual word needs its facts entry |
+| Statement | one idea a beat | words land or snap on the beat, one or two at a time | a factual word needs its facts entry |
 | Denial ("NO X.") | the old cost is gone | a simple mock of the old way, then it breaks | the product really removes X; the mock is not a real competitor's interface |
-| Number | a measured scale | a large figure lands with its unit and label: cut, slammed, or digit by digit | the value is from the facts file, with its qualifier beside it; no roll or count through values nobody measured ([claims-and-rights](claims-and-rights.md) §2) |
+| Number | a measured scale | a large figure lands with its unit and label: snapped, landed from scale, or digit by digit | the value is from the facts file, with its qualifier beside it; no roll or count through values nobody measured ([claims-and-rights](claims-and-rights.md) §2) |
 | Name | who and what | the name out of depth, a light sweep | exact spelling and casing |
 | Input to output | how it is used | a command typed or a request written, then a push into the key that becomes the drop | a real command and output, or labelled illustrative ([product-demos](product-demos.md) §5) |
 | Proof in pictures | it exists | a capture or screenshot punched in on words | recorded, or a labelled reconstruction |
-| Chain | what feeds what | nodes linked by the thread, the camera riding it | links only what the facts link |
+| Thread | what feeds what | nodes linked by the thread, the camera riding it | links only what the facts link |
 | Recap | everything you saw | the film so far, replayed | replay it slowly or inside a small window (§8) |
 | End card | where to get it | logo, name and one practical line, held | the practical line is current on release day |
 
@@ -121,9 +121,9 @@ with a phone, measure only the screen (`--crop`): handheld movement counts as mo
 
 - **Whips** between shots, alternating horizontal and vertical. Cut at the whip's fastest frame, with a long-shutter
   smear (§10) and a whoosh whose apex lands on the cut; the next shot arrives already moving.
-- **Through a letter:** the camera flies through the counter of an O, D, A, B, P, R or 0, and the inside becomes the
+- **Dive through a letter:** the camera flies through the counter of an O, D, A, B, P, R or 0, and the inside becomes the
   next shot.
-- **Collapse to a point:** everything shrinks into a point, and the next element (a line, a logo) grows out of it.
+- **Shrink to a point:** everything shrinks into a point, and the next element (a line, a logo) grows out of it.
 - **Switch-off:** the frame squashes to a line, then a point, to close a section.
 - Fades are the mark of template motion in this register; keep them for small lines on the end card. Mix object-led
   joins in among the whips, which repeated read as a template ([picture](picture.md) §7).
@@ -166,11 +166,11 @@ In this register the sound does as much work as the picture, and every rule in [
   lands on the drop, a tick or pop for a small element. A silent cut is a decision too, and reading holds stay
   quiet.
 - **Music at an exact tempo.** When a generator has a tempo control, set it, then measure every take with
-  `beat_grid.py` and choose by grid strength and the drop you need. Fit the grid on the stretch the film uses
+  `tempo_map.py` and choose by grid strength and the drop you need. Fit the grid on the stretch the film uses
   (`--window`): a 0.15% tempo error moves a cue 47 s in by about 70 ms, past the 45 ms at which early sound becomes
   noticeable ([timing](timing.md) §4).
-- **A starter palette** for this register, with the sync point each is placed by: impact, big impact and hit
-  (attack), whoosh and big whoosh (apex), tick, pop and key (attack), riser (end), glitch (attack) and logo hit
+- **A starter palette** for this register, with the sync point each is placed by: impact, boom and tap
+  (attack), whoosh and sweep (apex), tick, pop and key (attack), riser (end), glitch (attack) and sting
   (attack). `make_sound_kit.py` synthesises a rights-clean set with exact sync points for timing, animatics and
   drafts; chosen generated or licensed takes replace it role by role in `palette.json`.
 - **Generating one-shots:** describe one isolated event per prompt, with its material and length, as a single pass
@@ -183,7 +183,7 @@ In this register the sound does as much work as the picture, and every rule in [
   needs it.
 - **Typing** at speed turns per-key clicks into a rattle; thin them to word-level accents unless the rattle is the
   texture.
-- **The ending:** stopping the music dead on the logo hit suits this register; keep the hit near the body's level
+- **The ending:** stopping the music dead on the sting suits this register; keep the sting near the body's level
   ([sound](sound.md) §10).
 - **True peak after re-encode:** dense masters overshoot. In the same published film, a master at −0.2 dBTP measured
   +0.7 dBTP after a 128 kbps AAC re-encode (`qc_file.py --lossy-check`).

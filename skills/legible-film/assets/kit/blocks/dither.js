@@ -6,7 +6,7 @@
 // as a photosensitivity risk.
 //
 // Dither({ field: 'gradient' | 'noise' | 'image', src?, ink?, paper?, cell?: 0.9, pattern?: 'bayer' | 'blue',
-//          angle?: 30, speed?: 0.15, len, words?: Words-like single headline { text, role, fact } })
+//          angle?: 30, speed?: 0.15, len, words?: Type-like single headline { text, role, fact } })
 
 import { block, typeColour, layoutLines, linesOf, joinLines } from './common.js';
 

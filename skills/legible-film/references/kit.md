@@ -1,7 +1,7 @@
 # The film kit
 
 A small browser engine for type-led films, bundled in [assets/kit/](../assets/kit/): ten blocks for the common devices
-(words on the beat, a terminal, a number, the name, a picture, a chain, a denial, an end card, a running caption, a
+(type on the beat, a terminal, a number, the name, a still, a thread, a denial, an end card, a running caption, a
 dither field), a camera that never parks, a palette built from one brand colour, and checks that run on the film's own
 timeline before anything renders. Every frame is a pure function of time; the page implements `window.__lf`, so the
 renderer and the checks can drive it. Every option is in [BLOCKS.md](../assets/kit/BLOCKS.md).
@@ -43,7 +43,11 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
    --size 1080x1920 --out qa/stills`, or a quick `make_film.py --preview` and `frame_sheet.py` on its renders.
 7. **Make:** `python scripts/make_film.py my-film --sizes 1920x1080,1080x1920 --samples 4` runs preflight, sound,
    render, mux, the QC battery and the declared-cut check, and writes `deliver/` with a filled delivery report.
-   `--preview` renders one sharp sample a frame for a quick look; `--resume` skips finished steps.
+   `--preview` renders one sharp sample a frame for a quick look; `--resume` skips finished steps. `--res N`
+   sets each output's short side (720 makes 1280x720 and 720x1280; an odd side is refused with a `--res` that
+   works). A loop (`loop: true` in the spec, or `--loop`) gets its seam measured on every delivered file; `--web`
+   adds a VP9 WebM encoded from a lossless render and a poster from frame 0, for a landing page. A template
+   inside the kit (`assets/kit/films/atlasfold`) can be made directly: it is copied with the kit to `OUT/project/`.
 8. **Look, then people:** read the sheets in `qa/`, write the weakest point into the report, and ask a person to watch
    at normal speed, muted at feed size, then with sound ([review](review.md)). Until they have, the film is
    **unwatched** and its sound **unheard**.
@@ -55,12 +59,12 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
 - **Bind every claim:** a text with role `claim` carries its fact id and must match the fact's display exactly; a
   qualifier matches `label_beside_value` and sits beside its claim. Headlines and texture carry no facts.
 - **Time in beats when music is the clock:** `clock({bpm, offset})` gives `T.b(n)`; take the tempo and offset from
-  `beat_grid.py` on the chosen track ([timing](timing.md) §9), and mark the drop shot with `drop: true`.
-- **Declare the contract:** `pace` (for example `{maxStill: 0.6, maxStillShare: 0.4}`) when the register calls for
+  `tempo_map.py` on the chosen track ([timing](timing.md) §9), and mark the drop shot with `drop: true`.
+- **Declare the contract:** `pace` (for example `{max_still: 0.6, max_still_share: 0.4}`) when the register calls for
   one; claims, names and interface lines declare their reading holds as rests by default, so a held claim is never
   scored as a stall.
 - **Ground changes are flash budget:** every full-frame change between light and dark counts ([kinetic-type](kinetic-type.md)
-  §8); the Words block warns when a run of flips crowds the limit.
+  §8); the Type block warns when a run of flips crowds the limit.
 - **Tall frames:** blocks lay out in frame units, take the condensed width and stack; check the tall stills rather
   than assuming. A shot can give its own tall line breaks (`tall`).
 - **Supplied brand wins:** pass the brand's fonts (`fonts`) and colours (`palette`); the bundled fonts (Mona Sans and

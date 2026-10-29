@@ -85,7 +85,7 @@ None of this yields a tempo, a cue density, a silence length, a loudness or a ra
   about 20% more length than the film needs and build the structure in the edit (crossfades at bar lines,
   gain automation, filtering). Per-section audio references made requested structure land where text alone
   did not.
-- When a generator has a tempo control, set it, then measure every take with `beat_grid.py` (tempo, phase, drops,
+- When a generator has a tempo control, set it, then measure every take with `tempo_map.py` (tempo, phase, drops,
   drift) and choose by the grid and the drop the film needs, not by the take heard first ([timing](timing.md) §9).
 - To lengthen or reshape a sustained take (pads, choirs), regenerate rather than splice repeated bars;
   splices mid-chord sound glitchy even on the bar grid.
@@ -112,7 +112,7 @@ None of this yields a tempo, a cue density, a silence length, a loudness or a ra
   their file hashes, provenance, gain and the sync point inside each take. Reuse accepted takes instead of
   regenerating them on every mix, and disclose any unavailable role or substitution before calling a mix final.
 - `make_sound_kit.py` synthesises a rights-clean starter palette (impacts, hits, whooshes, ticks, pops, keys, a
-  riser, a logo hit) with exactly known sync points, and a temp music track at an exact tempo, so a film can be
+  riser, a sting) with exactly known sync points, and a temp music track at an exact tempo, so a film can be
   timed, mixed and checked before anyone buys or generates sound. It is a draft palette: replace roles as better
   takes are chosen, and let a person decide whether any of it ships.
 - `mix_cues.py` builds the effects stem, the music bed and the mix from the cue list and the palette, placing each

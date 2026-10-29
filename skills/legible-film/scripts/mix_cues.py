@@ -391,6 +391,8 @@ def mix(a):
     roles = palette.get("roles", {})
     if not isinstance(roles, dict):
         raise ValueError("palette roles must be an object")
+    roles = palette["roles"] = io.current_roles(roles)
+    io.current_events(events)
     version = palette.get("version", 1)
     if isinstance(version, bool) or version not in (1, 2):
         raise ValueError("palette version must be 1 or 2")

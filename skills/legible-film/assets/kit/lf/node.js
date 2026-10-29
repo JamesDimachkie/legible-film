@@ -37,6 +37,9 @@ export class Node {
     this.parent = parent;
     this.children = [];
     this.w = w; this.h = h; this.ax = ax; this.ay = ay;
+    // A node the kit creates is laid out at its model size, so `group.add({w, h})` with a fill paints
+    // a box of that size. A supplied element (text, an image) keeps its own layout.
+    if (!el && (w || h)) { this.el.style.width = `${w}px`; this.el.style.height = `${h}px`; }
     // Ink box in local layout coordinates (for safe-area and cover tests); defaults to the layout box.
     this.ink = null;
     this.base = {};
@@ -58,6 +61,9 @@ export class Node {
   rest(props) { Object.assign(this.base, props); Object.assign(this, props); return this; }
 
   add(opts = {}) { return new Node({ ...opts, parent: this }); }
+
+  // Resize the model box and the element together (build time).
+  size(w, h) { this.w = w; this.h = h; this.el.style.width = `${w}px`; this.el.style.height = `${h}px`; return this; }
 
   local() {
     let m = translate(this.x, this.y);
