@@ -159,6 +159,22 @@ motion, and the room or tail. Check the stack for phase cancellation, and never 
 interface change. **Reject** clipped attacks, denoising warble, baked-in music, rips from films or games, voices
 hidden in an ambience, and anything NC for advertising.
 
+**A local library for a pipeline.** Keep a small, auditioned set of the sounds a film actually uses (clicks,
+whooshes, impacts, risers, ambiences) with the original files, their licence evidence and a searchable manifest, and
+choose by the cue's job, material, distance, length and intensity; a large download is not a finished palette.
+`sound_library.py index` measures every file and records its licence, `pick` fills a palette for the film's cue list,
+and `search --openverse` finds CC0 or CC BY candidates. Keep what may ship in the finished film apart from what may be
+published as files: a licence can permit the film while forbidding the raw files, edited samples and stems in a public
+repository (Sonniss's bundles allow commercial films and forbid redistributing the sounds as such). A public example
+uses owned recordings, synthesis, or verified CC0 or CC BY files with their credit.
+
+**Search from code** through the provider's documented API with an explicit licence allowlist (CC0 and CC BY; never NC
+or ND in the automatic path), within its rate limits. Openverse helps discovery; verify the source page and the
+upstream permission, since a licence filter narrows a search and does not prove ownership. Freesound's own API is free
+for non-commercial use; commercial use needs a separate agreement. When rights or access are unknown, the answer is "no
+cleared candidate", not a scrape. A research dataset (for example LAION's audio sets, released for research) is not a
+stock library, and processing licensed audio with a model, or training on it, is a separate use the licence must allow.
+
 ## 7. Voice-over
 
 **Cast the performance, not the microphone.** Compare short, project-specific auditions with the hardest product
@@ -297,3 +313,7 @@ A filled row missing any of it is not evidence of clearance.
 - **Credit:** the exact required line and where it appears.
 - **Release check:** final file name and timecodes, licensed final confirmed in place of the comp, transformations
   allowed, Content ID clearance where relevant, and any unresolved restriction marked **hold, do not publish**.
+- **Acquisition:** the file URL and its source page, the route (API or by hand), the date, and the terms that permit
+  that route, with the licence evidence saved and hashed; never a credential.
+- **Distribution:** separate answers for the finished film, the project handover and publishing the raw files; an
+  unknown is **hold, do not publish**.
