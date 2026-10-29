@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.3 (2026-10-29)
+
+Commands: a named way into each kind of video work.
+
+- **16 commands** start the skill on one path: `brief` and `setup` to plan; `film`, `kit`, `teaser`, `short` and
+  `studio` to make; `cut`, `cutdown` and `captions` to edit; `score` and `mix` for sound; `check` and `review`; and
+  `revise` and `deliver`. Type `/legible-film cut interview.mp4` (`$legible-film cut interview.mp4` in Codex), or
+  `/legible-film` alone for the list. They are a column in SKILL.md's path table, so a command and a plain request
+  take the same path; `studio` can lead any other command. Checked by hand in Claude Code 2.1.312 and Codex CLI
+  0.160.0: the command alone lists the commands and starts nothing, and `cutdown` with its input missing reports it
+  as not assessed and finishes the work that does not need it.
+- **README:** rewritten around the commands, with the install in one line at the top, the reasons in three points,
+  every script in a collapsible list, the evidence in one place, and a new limit: edits do not yet round-trip to
+  editing applications.
+- `examples/prompts.md` opens with one example per command.
+- SKILL.md's scripts table now lists `voice_clean.py`, which shipped in 1.2.0 without an entry.
+
 ## 1.2.2 (2026-10-29)
 
 Sound iterations without re-rendering the picture, taste reported as numbers, and library takes that fit their cues.

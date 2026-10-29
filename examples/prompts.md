@@ -2,6 +2,30 @@
 
 Adapt these to your project. Point the agent at your brief, your facts and the assets you have the right to use.
 
+## With a command
+
+Start with `/legible-film` (`$legible-film` in Codex) and a command, then say what it applies to. The longer requests
+below work the same with or without one.
+
+```
+/legible-film brief a 45-second explainer for the new billing page; the facts are in docs/billing.md
+/legible-film setup for a type-led launch film and a captioned interview cut
+/legible-film film a 30-second launch film for 2.0, 16:9 for the post and 9:16 for stories
+/legible-film kit a 20-second teaser for the 2.0 launch, with a draft soundtrack
+/legible-film teaser four words on the beat of track.wav for the conference opener
+/legible-film short a 3-second logo sting that loops cleanly for the site header
+/legible-film studio film our launch, budget $800 for music, voice and stock
+/legible-film cut a 60-second story from interview.mp4 and the b-roll in broll/
+/legible-film cutdown the approved cut to 9:16 and 15 seconds for Reels
+/legible-film captions final.mp4: an SRT and a burned-in version clear of the platform buttons
+/legible-film score the approved picture: sparse, warm, with a hit on the logo at 0:14
+/legible-film mix voiceover.wav over bed.wav for the landing page; keep the voice clear throughout
+/legible-film check final.mp4 before I post it
+/legible-film review the v3 cut with the team; here are their notes
+/legible-film revise: the client says the ending feels rushed; keep everything they approved
+/legible-film deliver the approved master for X, Instagram Reels and YouTube
+```
+
 ## A new film
 
 > Make a 30-second launch film for [product], 1920x1080 at 60 fps for an X post, plus a 1080x1920 version for
