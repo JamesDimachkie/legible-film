@@ -94,6 +94,10 @@ duration.
   prerecorded web video.
 - When captions are also burned in for muted feeds, generate both from one caption source so their timings cannot
   drift apart, and compare them.
+- In a tall crop of a wide talking head the face fills the middle of the frame (about 20-67% of the height in one
+  1080x1920 cut) and the platform's own text covers the bottom. Put burned captions between the chin and the bottom
+  overlay zone, in short lines, over a plate when the ground is busy. When no position clears both the mouth and the
+  overlays, keep the mouth clear, record the conflict as the weakest point, and check it on the platform's preview.
 - A transcript from a speech model is a first draft. Time it to the reading limits in [timing](timing.md), then have a
   named person check every caption against the audio, names and numbers first; a second model's transcript is a
   comparison, not that check.

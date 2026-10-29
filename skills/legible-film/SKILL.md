@@ -60,7 +60,7 @@ stop only processes you started, by their own PID.
 | A logo sting, a loop, or a clip under about 15 s | Steps 1-9, done lightly ([short pieces](#short-pieces)) |
 | A change to an approved cut | [Revisions](#revisions), then steps 6-9 |
 | Check or review an existing file | Steps 7-8 |
-| Choose or set up tools | [engines](references/engines.md) |
+| Choose or set up tools | [engines](references/engines.md); for the film kit, `python scripts/make_film.py --doctor` and [kit](references/kit.md) §2 |
 
 When an input the path needs is missing (the footage, the approved mix, the baseline), name the operations it blocks
 and finish everything that does not depend on it: the plan, the hypotheses, and the comparisons and checks to run when
@@ -244,8 +244,9 @@ Each was hit in real production or measured while building this skill.
 
 - Default RGB-to-YUV conversion uses the BT.601 matrix; tagging the result BT.709 shifted a brand blue from
   (48,128,192) to (39,123,195). Convert with an explicit BT.709 matrix, then tag ([finishing](references/finishing.md) §3).
-- On FFmpeg 9, colour options alone left primaries and transfer untagged, and some filters (`tmix`) drop tags: end
-  every filter chain with `setparams` and check the tags on the output.
+- On FFmpeg 9, encoding RGB frames (a browser capture, PNGs) with colour options alone left primaries and transfer
+  untagged in both libx264 and libvpx-vp9, and some filters (`tmix`) drop tags; re-encoding an already tagged file
+  kept them. End every filter chain with `setparams` and check the tags on the output.
 - `-shortest` with a short soundtrack truncated a 120-frame picture to 94 frames; pad with `apad` and cut with `-t`.
 - Lossy encoders push true peak up on sharp transients; measure after a simulated platform re-encode.
 - An engine's own audio path can render far below its source (11.6 dB in one HTML renderer); mux the mastered mix.
@@ -274,23 +275,35 @@ per project phase), and `python scripts/kit_selftest.py` before using the film k
 
 | Script | Answers |
 |---|---|
+| **Make a kit film** | |
+| `new_film.py` | Start a film project from the kit. |
+| `film_check.py` | Before rendering a kit film: facts, contrast, reading windows, predicted flashing, determinism; writes the cue list, captions and QC declarations. |
+| `make_film.py` | One command from a kit film to delivered, checked files: doctor, preflight, sound chain, render, mux, the QC battery, an A/B listening pair and the delivery report. `--doctor` checks the setup. |
+| `film_render.py` | Render a kit film with cut-aware motion blur and the correct colour path (it drives `film_capture.mjs`). |
+| `motion_blur.py` | Turn a render made at a multiple of the frame rate into true motion blur, never across a cut. |
+| **Sound** | |
+| `beat_grid.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
+| `make_sound_kit.py` | Synthesise a rights-clean draft palette and temp track with exactly known sync points. |
+| `sound_library.py` | Index a folder of licensed effects (sync points, brightness, loudness, licences) and pick a palette for a cue list. |
+| `spot_cues.py` | Turn the picture's cue list into sound gestures: merge collisions, thin dense runs, keep layer limits, apply sound edits. |
+| `mix_cues.py` | Build the effects stem, the bed and the mix from the cue list and the palette, and master them; which hits are missing, smeared or under the music? |
+| `sound_check.py` | Listening candidates in a mix: phone-band loss, brightness, digital silence, crest, layers, the ending. |
+| **Check the delivered file** | |
 | `qc_file.py` | Does the file meet its spec and decode cleanly? Colour tags, loudness, true peak before and after a lossy re-encode, head and tail levels, mono fold-down, brand colour patches. |
 | `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? |
 | `flash_scan.py` | Is there a candidate WCAG 2.3.1 flash sequence? |
 | `blank_scan.py` | Are there near-empty frames outside the designed ones? |
 | `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam; pace (still share, still stretches, cuts per 10 s) against a declared contract. |
+| `region_check.py` | Does a text, logo or patch survive its whole interval in the delivered file, or does it drop out early? |
 | `cue_onsets.py` | Does each sound start, peak or end on its cue, do silent cues stay quiet, and is the hit rate better than chance? |
 | `sync_check.py` | Is the delivered audio offset or drifting against the approved mix, and if it drifts, what resampling repairs it? |
-| `region_check.py` | Does a text, logo or patch survive its whole interval in the delivered file, or does it drop out early? |
 | `compare_versions.py` | Where did the picture change between two renders? |
 | `onion_frames.py` | What path and spacing does a move have across these frames? |
-| `beat_grid.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
-| `mix_cues.py` | Build the effects stem, the bed and the mix from the cue list and the palette; which hits are missing, smeared or under the music? |
-| `make_sound_kit.py` | Synthesise a rights-clean draft palette and temp track with exactly known sync points. |
-| `motion_blur.py` | Turn a render made at a multiple of the frame rate into true motion blur, never across a cut. |
-| `new_film.py` | Start a film project from the kit. |
-| `film_check.py` | Before rendering a kit film: facts, contrast, reading windows, predicted flashing, determinism; writes the cue list, captions and QC declarations. |
-| `film_render.py` | Render a kit film with cut-aware motion blur and the correct colour path (it drives `film_capture.mjs`). |
+| **The environment** | |
+| `selftest.py` | Do the scripts work here? Synthetic media with known answers, every script. |
+| `kit_selftest.py` | Do Node, Playwright and Chromium capture and render the kit correctly here? |
+
+`film_capture.mjs`, `render_common.py` and `sound_io.py` are helpers the scripts above load.
 
 ## References
 
