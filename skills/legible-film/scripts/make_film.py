@@ -5,6 +5,7 @@
   python make_film.py films/atlasfold --sizes 1920x1080,1080x1920 --samples 4 --out atlasfold-make
   python make_film.py films/atlasfold --preview --sound none --sizes 1920x1080
   python make_film.py films/atlasfold --sound audio/palette.json --resume
+  python make_film.py films/atlasfold --sound library:licensed-sounds
   python make_film.py --doctor
 
 Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
@@ -20,6 +21,8 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
      temp track at info.beat.bpm, beat 0 on the film's beat 0 (info.beat.offset), the
      drop on info.music.drop (seconds) or info.music.drop_beat, else --drop-beat N
      (a zero-based film beat), else none, and the music stopping at info.music.stop.
+     library:FOLDER indexes licensed local effects into OUT/library and picks a palette
+     for the exported cues; files without licence evidence are excluded.
      mix_cues.py then builds effects.wav, music.wav and mix.wav in OUT/sound/.
   4. render: film_render.py per size (--size, --res, --samples, --preview) into
      OUT/renders/, never overwriting a file.
@@ -543,8 +546,47 @@ class Make:
         self.C.validate_timeline(info)
         return info
 
+    # --- optional local sound library (the existing mixer remains unchanged) ----------------
+    def library_palette(self, library, cues_path):
+        folder = Path(library).resolve()
+        if not folder.is_dir():
+            raise CouldNotRun('sound library folder missing: ' + str(folder))
+        if folder == self.out.resolve() or folder in self.out.resolve().parents:
+            raise CouldNotRun('sound library must not contain the make output folder')
+        out = self.out / 'library'
+        out.mkdir(parents=True, exist_ok=True)
+        index = out / 'library.json'
+        # Hash audio and licence evidence, not mtimes, so --resume notices edits.
+        suffixes = {'.wav', '.flac', '.aiff', '.aif', '.mp3', '.ogg'}
+        inputs = {str(p.relative_to(folder)): sha256(p) for p in sorted(folder.rglob('*'))
+                  if p.is_file() and not p.is_symlink() and
+                  (p.suffix.lower() in suffixes or p.name in ('LICENCE.txt', 'licence.json') or
+                   p.name.endswith('.licence.json'))}
+        inputs.update(tools=self.tool_hashes('sound_library.py', 'sound_io.py', 'cue_onsets.py'))
+
+        def do_index():
+            code, message = self.py('library-index', 'sound_library.py', 'index', folder, '--out', index)
+            if code == 2:
+                raise CouldNotRun('sound library index: ' + message.strip()[-600:])
+            return {'exit': code}, [index]
+        indexed = self.step('sound library index', inputs, do_index)
+        if indexed.get('exit') == 1:
+            self.finding('sound', 'sound_library.py', 'some library files could not be indexed; see library/library.json')
+        palette = out / 'palette.json'
+        code, message = self.py('library-pick', 'sound_library.py', 'pick', cues_path, index, '--out', palette)
+        if code == 2:
+            raise CouldNotRun('sound library pick: ' + message.strip()[-600:])
+        report = load_json(palette, {}) or {}
+        for missing in report.get('missing_roles', []):
+            self.finding('sound', 'sound_library.py', str(missing))
+        for line in report.get('attributions', []):
+            print('  sound attribution: ' + line, flush=True)
+        return str(palette)
+
     def sound(self, info, cues_path):
         mode = self.sound_mode
+        if mode.startswith('library:'):
+            mode = self.library_palette(mode[len('library:'):], cues_path)
         if mode == 'none':
             self.state['steps']['sound'] = {'result': {'mode': 'none'}, 'resumed': False}
             return {'mode': 'none'}
@@ -1197,7 +1239,7 @@ def main():
     p.add_argument('--res', choices=('720', '1080', '2160'), default='1080')
     p.add_argument('--preview', action='store_true', help='sharp one-sample render, not a delivery master')
     p.add_argument('--samples', type=int, default=4)
-    p.add_argument('--sound', help='draft, none or a palette.json path; default the film\'s palette, else draft')
+    p.add_argument('--sound', help='draft, none, library:FOLDER or a palette.json path; default the film\'s palette, else draft')
     p.add_argument('--drop-beat', type=float, help='zero-based film beat for the draft drop, if the film declares none')
     p.add_argument('--out', help='output folder; default FILM-make beside the film folder')
     p.add_argument('--name', help='deliverable base name; default the film folder name')
@@ -1257,6 +1299,12 @@ def main():
     if a.sound in (None, 'draft', 'none'):
         own = next((x for x in (film / 'palette.json', film / 'audio' / 'palette.json') if x.is_file()), None)
         sound_mode = a.sound or (str(own) if own else 'draft')
+    elif a.sound.startswith('library:'):
+        library = Path(a.sound[len('library:'):]).resolve()
+        if not library.is_dir():
+            print(f'make_film.py: could not run: library {library} not found', file=sys.stderr)
+            return finish(2, {'error': 'sound library missing'})
+        sound_mode = 'library:' + str(library)
     else:
         sound_mode = str(Path(a.sound).resolve())
         if not Path(sound_mode).is_file():
