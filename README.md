@@ -11,10 +11,12 @@ It works the way a careful director, editor and finisher would: one story, pictu
 every claim traced to a source, approved work kept approved, and nothing reported as watched or heard until a person
 has watched and listened.
 
-![Six frames from Atlasfold, a 24-second launch film for a fictional product, made with the bundled film kit](.github/media/atlasfold-stills.jpg)
+[![Six frames from Atlasfold, a 24-second launch film for a fictional product, made with the bundled film kit](.github/media/atlasfold-stills.jpg)](https://github.com/JamesDimachkie/legible-film/raw/main/.github/media/atlasfold-showcase.mp4)
 
 *Atlasfold, a launch film for a fictional product, built with the bundled film kit and rendered with one command at
-16:9 and 9:16. It passes the skill's flash screen in both shapes.*
+16:9 and 9:16. [Watch it with sound](https://github.com/JamesDimachkie/legible-film/raw/main/.github/media/atlasfold-showcase.mp4)
+(24 s): every sound in it was synthesised by the skill's own sound kit. In a blind A/B listen, its author preferred it
+to the same film mixed with downloaded CC0 library sounds. It passes the skill's flash screen in both shapes.*
 
 In a small blind-graded test (five requests, one run each on one model), agents with the skill met 35 of 35
 expectations and agents without it met 10 of 35. Every prompt, output and grade is
@@ -223,7 +225,7 @@ evals/                behaviour and trigger evaluations for the skill itself
 |---|---|
 | Make a kit film | `new_film.py`, `film_check.py` (preflight), `make_film.py` (one command to delivered files), `film_render.py`, `motion_blur.py` |
 | Edit recordings | `transcript_cut.py`, `assemble.py`, `reframe.py`, `captions.py` |
-| Sound | `beat_grid.py`, `make_sound_kit.py`, `sound_library.py`, `spot_cues.py`, `mix_cues.py`, `sound_check.py`, `voice_clean.py` |
+| Sound | `tempo_map.py`, `make_sound_kit.py`, `sound_library.py`, `spot_cues.py`, `mix_cues.py`, `sound_check.py`, `voice_clean.py` |
 | Check the delivered file | `qc_file.py`, `frame_sheet.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py`, `region_check.py`, `cue_onsets.py`, `sync_check.py`, `compare_versions.py`, `onion_frames.py` |
 | The environment | `selftest.py`, `kit_selftest.py` |
 

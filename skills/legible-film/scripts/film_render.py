@@ -9,9 +9,9 @@
 Ranges are inclusive output frame indices; sample times stay on the whole-film clock.
 --size WxH passes w/h URL parameters and sets the CSS viewport, so the page recomposes.
 With no --out, writes FOLDER_OUTPUTWIDTHxOUTPUTHEIGHT.mp4 (or .mkv) beside the film folder.
---res scales a 1920x1080 (or portrait) page by 720/1080, 1, or 2. Other page sizes use
-the same relative scale. --lossless writes RGB FFV1/Matroska (use .mkv): no subsampling
-or matrix round-trip. Default H.264 High, slow, CRF 14, explicit level, closed GOP,
+--res N sets the output's short side in pixels (720 renders 1280x720 from a 1920x1080 page and
+720x1280 from 1080x1920); without it the output is the page size. --lossless writes RGB
+FFV1/Matroska (use .mkv): no subsampling or matrix round-trip. Default H.264 High, slow, CRF 14, explicit level, closed GOP,
 BT.709 RGB-to-YUV conversion and filter-graph tags, fast start. No audio.
 
 Copies the folder, serves only that copy on localhost, streams bounded PNG/JPEG samples,
@@ -94,6 +94,16 @@ def worker_command(a, command, url):
     if a.size:
         cmd += ['--size', a.size]
     return cmd
+
+
+def odd_sides(width, height, res):
+    """A clear refusal for an output with an odd side, with the nearest --res that works."""
+    w, h = C.output_size(width, height, res)
+    text = f'{width}x{height}' + (f' at --res {res}' if res else '') + f' gives {w}x{h}: H.264 4:2:0 needs even sides'
+    near = C.even_res_near(width, height, res or min(width, height))
+    if near:
+        text += f"; --res {near} gives {'x'.join(map(str, C.output_size(width, height, near)))}"
+    return text
 
 
 def render_part(a, url, info, start, end, path, scale):
@@ -180,7 +190,8 @@ def main():
     p.add_argument('--page', default='index.html', help='relative local entry page, may include query parameters')
     p.add_argument('--workers', type=int, default=1)
     p.add_argument('--force', action='store_true', help='override memory estimate guard')
-    p.add_argument('--res', choices=('720', '1080', '2160'), default='1080')
+    p.add_argument('--res', type=int, help="output short side in pixels (720: 1280x720 for a 16:9 page); "
+                   'default the page size')
     p.add_argument('--from', dest='start', type=int, default=0)
     p.add_argument('--to', dest='end', type=int)
     p.add_argument('--shutter', type=float, default=180)
@@ -211,7 +222,7 @@ def main():
             p.error('--size must be WxH, at least 2 pixels per side')
     if (a.workers < 1 or a.samples < 1 or a.max_samples < 1 or a.start < 0 or not 0 <= a.quality <= 100 or
             not all(math.isfinite(x) and x >= 0 for x in [a.shutter, a.bloom, a.bloom_threshold, a.grain, *a.bloom_radii])
-            or not math.isfinite(a.crf) or not 0 <= a.crf <= 51):
+            or not math.isfinite(a.crf) or not 0 <= a.crf <= 51 or (a.res is not None and a.res < 2)):
         p.error('invalid workers, sample count, range, quality or finish settings')
     a.node = a.node or C.find_tool('node')
     a.ffmpeg, a.ffprobe = C.find_tool('ffmpeg', a.ffmpeg), C.find_tool('ffprobe', a.ffprobe)
@@ -260,14 +271,14 @@ def main():
             end = info['frames'] - 1 if a.end is None else a.end
             if not a.start <= end < info['frames']:
                 raise ValueError('frame range outside the film')
-            scale = int(a.res) / 1080
-            w, h = round(info['width'] * scale), round(info['height'] * scale)
+            w, h = C.output_size(info['width'], info['height'], a.res)
+            scale = a.res / min(info['width'], info['height']) if a.res else 1
             if not a.out:
                 output = source.parent / (f'{source.name}_{w}x{h}' + ('.mkv' if a.lossless else '.mp4'))
                 if output.exists() or Path(str(output) + '.manifest.json').exists():
                     raise ValueError('default output or manifest already exists; choose a new --out path')
             if not a.lossless and (w % 2 or h % 2):
-                raise ValueError('scaled dimensions must be even for H.264 4:2:0')
+                raise ValueError(odd_sides(info['width'], info['height'], a.res))
             avail = C.free_memory() if not a.force else None
             estimate = (560 * 1024 ** 2 + w * h * 100) * a.workers + 192 * 1024 ** 2
             print(f'memory estimate: {estimate / 1024**2:.0f} MiB for {a.workers} worker(s); '

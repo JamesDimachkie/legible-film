@@ -45,9 +45,10 @@ export const curves = {
   camera: bezier(0.62, 0, 0.32, 1),       // camera moves ease at both ends
   drift: p => clamp(p),                   // constant-rate drift
   open: bezier(0.22, 0.78, 0.22, 1),      // a panel or menu opening from its trigger
-  slam: pow(2.2),                         // a word accelerating into its contact frame
+  land: pow(2.2),                         // a word accelerating into its contact frame
   fade: ease.fade,
 };
+Object.defineProperty(curves, 'slam', { get: () => curves.land, enumerable: false });   // the 1.2.0 name
 
 // Motion tokens for interface-like devices (terminal, panels, chips, menus).
 // Arrivals are longer than exits, small elements faster than large ones, and duration grows with

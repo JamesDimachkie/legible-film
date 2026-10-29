@@ -1,5 +1,7 @@
 // Shared helpers for blocks: line layout in frame units, hits, colour choice and block definition.
 
+import { legacyHit } from '../lf/legacy.js';
+
 // Define a block: a factory whose result the engine builds once and updates purely from t.
 export function block(kind, build, extra = {}) {
   return (opts = {}) => ({ kind, opts, build: ctx => build(ctx, opts), ...(extra.assets ? { assets: () => extra.assets(opts) } : {}), ...(extra.inlineSvg ? { inlineSvg: extra.inlineSvg(opts) } : {}) });
@@ -58,25 +60,26 @@ function contrastOK(ctx, a, g) {
   return (Math.max(la, lg) + 0.05) / (Math.min(la, lg) + 0.05) >= 3;
 }
 
-// Hits on a landing: none, beat (a camera bump), hit (bump + small shake), punch (speed lines charging
+// Hits on a landing: none, bump (a camera bump), shake (bump + small shake), burst (speed lines converging
 // in, then a ring, rays and sparks, a bigger bump and shake; for the biggest moments only).
 export function hitAt(ctx, t, kind, o = {}) {
+  kind = legacyHit(kind);
   if (!kind || kind === 'none') return;
   const colour = o.colour || ctx.pal.paper;
-  if (kind === 'beat') ctx.bump(t, { amt: 0.03 });
-  else if (kind === 'hit') { ctx.bump(t, { amt: 0.035 }); ctx.shake(t, { amp: 0.8, tau: 0.07 }); }
-  else if (kind === 'punch') {
-    // The biggest moments. Kept inside the flash limit by design: the charge is short, sparse, thin
+  if (kind === 'bump') ctx.bump(t, { amt: 0.03 });
+  else if (kind === 'shake') { ctx.bump(t, { amt: 0.035 }); ctx.shake(t, { amp: 0.8, tau: 0.07 }); }
+  else if (kind === 'burst') {
+    // The biggest moments. Kept inside the flash limit by design: the convergence is short, sparse, thin
     // accent lines (white lines converging over a dark ground swung third-of-frame windows many times
     // a second on a delivered file); one kick, no rattle.
     const at = o.at || (() => [ctx.W / 2, ctx.H / 2]);
-    const charge = o.charge ?? 0.24;
-    ctx.fx.speed({ t0: t - charge, t1: t, at, color: o.lines || ctx.pal.accent, count: 22, alpha: 0.6, seed: Math.round(t * 1000) });
+    const converge = o.converge ?? 0.24;
+    ctx.fx.speed({ t0: t - converge, t1: t, at, color: o.lines || ctx.pal.accent, count: 22, alpha: 0.6, seed: Math.round(t * 1000) });
     ctx.fx.burst({ t, at, color: o.burst || ctx.pal.accent, spark: o.spark || ctx.mix(colour, ctx.pal.accent, 0.5), rays: 6, alpha: 0.65, seed: Math.round(t * 977) });
     ctx.bump(t, { amt: 0.05, tau: 0.04 });
     ctx.shake(t, { amp: 1.1, tau: 0.08 });
-    ctx.change(t - charge, t + 0.2, 'punch');
+    ctx.change(t - converge, t + 0.2, 'burst');
   }
 }
 
-export const cueRoleFor = { slam: 'impact', stack: 'impact', pair: 'impact', cut: 'hit', extrude: 'impact_big', outline: 'impact' };
+export const cueRoleFor = { land: 'impact', kicker: 'impact', meet: 'impact', snap: 'tap', extrude: 'boom', outline: 'impact' };

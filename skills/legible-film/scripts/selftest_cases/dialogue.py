@@ -123,11 +123,11 @@ def run_dialogue_cases(tool, record, j, scripts_dir):
     wav("d_hit.wav", hit)
     sparse_cues = {
         "duration": 4,
-        "events": [{"id": str(i), "t": at, "role": "hit"} for i, at in enumerate((0.5, 1.5, 2.5))],
+        "events": [{"id": str(i), "t": at, "role": "tap"} for i, at in enumerate((0.5, 1.5, 2.5))],
     }
     sparse_palette = {
         "version": 2,
-        "roles": {"hit": {"takes": ["d_hit.wav"], "sync": "attack", "points_s": [0]}},
+        "roles": {"tap": {"takes": ["d_hit.wav"], "sync": "attack", "points_s": [0]}},
         "master": {"preset": "social"},
     }
     dump("d_sparse_cues.json", sparse_cues)

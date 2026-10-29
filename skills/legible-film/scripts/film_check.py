@@ -299,13 +299,13 @@ def main():
     save(os.path.join(qa, 'declared.json'), {
         'note': ('Designed events from the film itself, for the QC scripts. Pass "ignore" to --ignore (rests, flashes and '
                  'designed near-empty frames at seams). cuts are every hard cut (motion blur never samples across one); '
-                 'seams are the cuts that are invisible by design (fly-throughs, collapses), so a render shows no large '
-                 'change there; changes are designed large changes that are not cuts (slam landings, fills, punches, '
-                 'ground flips), with their spans in change_windows.'),
+                 'seams are the cuts that are invisible by design (dives, shrinks), so a render shows no large '
+                 'change there; changes are designed large changes that are not cuts (landings, fills, bursts, '
+                 'ground flips), with their spans in change_windows. loop is true when the film is a loop.'),
         'ignore': ','.join(f'{r[0]:.3f}-{r[1]:.3f}' for r in sorted([*rests, *flashes, *blanks])),
         'cuts': cuts, 'seams': info.get('seams', []), 'changes': info.get('changes', []), 'change_windows': info.get('change_windows', []),
         'blanks': blanks, 'rests': rests, 'flashes': flashes, 'smears': info.get('smears', []), 'fast': info.get('fast', []),
-        'music': info.get('music'), 'pace': info.get('pace'),
+        'music': info.get('music'), 'pace': info.get('pace'), 'loop': bool(info.get('loop')),
     })
     analysis = dict(an)
     report = {
@@ -333,6 +333,10 @@ def main():
     pt = (an.get('patterns') or {}).get('items', [])
     if pt:
         print('  patterns: ' + ', '.join(f"{p['id']} {p['risk_frames']} risk frame(s)" for p in pt))
+    lp = an.get('loop')
+    if lp:
+        print(f"  loop: the seam {'closes' if lp.get('closes') else 'does not close'} (frame 0 against the end: "
+              f"{', '.join(lp.get('checked', []))}; {len(lp.get('differences', []))} difference(s))")
     print(f"  lint: {len(hits)} hit(s); requests after ready: {len(late)}")
     for e in errors[:20]:
         print(f'  ERROR {e}')

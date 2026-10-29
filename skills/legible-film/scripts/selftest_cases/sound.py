@@ -49,38 +49,38 @@ def run_sound_cases(tool, record, j, scripts_dir):
         x, drop, expected_phase = synthetic(bpm, phase)
         path, report = j(f'known-{bpm:g}.wav'), j(f'known-{bpm:g}.json')
         io.write_wav(ffmpeg, path, x, rate)
-        code, text = tool('beat_grid.py', path, '--bpm', bpm, '--drop-at-beat', 32, '--json', report)
+        code, text = tool('tempo_map.py', path, '--bpm', bpm, '--drop-at-beat', 32, '--json', report)
         r = json.loads(Path(report).read_text())
-        record(f'beat_grid: {bpm:g} BPM within .05', abs(r['bpm'] - bpm) < .05, f"{r['bpm']:.6f}; exit {code}")
-        record(f'beat_grid: {bpm:g} phase/downbeat within 3 ms', abs(r['offset_s'] - expected_phase) <= .003,
+        record(f'tempo_map: {bpm:g} BPM within .05', abs(r['bpm'] - bpm) < .05, f"{r['bpm']:.6f}; exit {code}")
+        record(f'tempo_map: {bpm:g} phase/downbeat within 3 ms', abs(r['offset_s'] - expected_phase) <= .003,
                f"{r['offset_s']:.6f} vs {expected_phase}")
-        record(f'beat_grid: {bpm:g} right drop bar', bool(r['drops']) and abs(r['drops'][0]['music_s'] - drop) < .003
+        record(f'tempo_map: {bpm:g} right drop bar', bool(r['drops']) and abs(r['drops'][0]['music_s'] - drop) < .003
                and r['drops'][0]['film_beat'] == 32, str(r['drops'][:1]))
-        record(f'beat_grid: {bpm:g} consistent grid exit 0', code == 0, str(r['flags']))
+        record(f'tempo_map: {bpm:g} consistent grid exit 0', code == 0, str(r['flags']))
     # No prior: demonstrates the global AC/search path, not just prior recovery.
-    code, _ = tool('beat_grid.py', j('known-172.wav'), '--json', j('no-prior.json'))
+    code, _ = tool('tempo_map.py', j('known-172.wav'), '--json', j('no-prior.json'))
     r = json.loads(Path(j('no-prior.json')).read_text())
-    record('beat_grid: unknown tempo recovered without prior', abs(r['bpm'] - 172) < .05 and code == 0, str(r['bpm']))
-    code, _ = tool('beat_grid.py', j('known-172.wav'), '--bpm', 172, '--drop-at-beat', 64, '--json', j('negative-offset.json'))
+    record('tempo_map: unknown tempo recovered without prior', abs(r['bpm'] - 172) < .05 and code == 0, str(r['bpm']))
+    code, _ = tool('tempo_map.py', j('known-172.wav'), '--bpm', 172, '--drop-at-beat', 64, '--json', j('negative-offset.json'))
     r = json.loads(Path(j('negative-offset.json')).read_text())
-    record('beat_grid: negative suggested trim disclosed', r['suggested_offset_negative'] and r['suggested_offset_s'] < 0
+    record('tempo_map: negative suggested trim disclosed', r['suggested_offset_negative'] and r['suggested_offset_s'] < 0
            and abs(r['drop_alignment_error_ms']) < 1, str(r['suggested_offset_s']))
     x, _, _ = synthetic(150, .137, beats=320, drift=.0015)
     io.write_wav(ffmpeg, j('drift.wav'), x, rate)
-    code, _ = tool('beat_grid.py', j('drift.wav'), '--bpm', 150, '--json', j('drift.json'))
+    code, _ = tool('tempo_map.py', j('drift.wav'), '--bpm', 150, '--json', j('drift.json'))
     r = json.loads(Path(j('drift.json')).read_text())
-    record('beat_grid: .15% period change flagged', code == 1 and r['drift_ms'] is not None and abs(r['drift_ms']) > 150,
+    record('tempo_map: .15% period change flagged', code == 1 and r['drift_ms'] is not None and abs(r['drift_ms']) > 150,
            f"{r['drift_ms']} ms; {r['bpm']} BPM")
-    record('beat_grid: drift global mean tempo within .05 BPM', abs(r['bpm'] - 150) < .05, str(r['bpm']))
-    record('beat_grid: drifting track first downbeat within 3 ms', abs(r['offset_s'] - .137) <= .003, str(r['offset_s']))
+    record('tempo_map: drift global mean tempo within .05 BPM', abs(r['bpm'] - 150) < .05, str(r['bpm']))
+    record('tempo_map: drifting track first downbeat within 3 ms', abs(r['offset_s'] - .137) <= .003, str(r['offset_s']))
     drift_drop = .137 + 32 * .4 * (1 - .0015 / 2)
-    record('beat_grid: drifting track right measured drop/downbeat', bool(r['drops']) and
+    record('tempo_map: drifting track right measured drop/downbeat', bool(r['drops']) and
            abs(r['drops'][0]['music_s'] - drift_drop) <= .003 and r['drops'][0]['film_beat'] == 32,
            str(r['drops'][:1]))
     # A window with one tempo must recover that local tempo, not whole-track mean.
-    code, _ = tool('beat_grid.py', j('drift.wav'), '--bpm', 150, '--start', 70, '--window', 45, '--json', j('window.json'))
+    code, _ = tool('tempo_map.py', j('drift.wav'), '--bpm', 150, '--start', 70, '--window', 45, '--json', j('window.json'))
     r = json.loads(Path(j('window.json')).read_text())
-    record('beat_grid: fits requested window independently', abs(r['bpm'] - 150 / 1.00075) < .05 and code == 0,
+    record('tempo_map: fits requested window independently', abs(r['bpm'] - 150 / 1.00075) < .05 and code == 0,
            f"{r['bpm']}; {r['flags']}")
     code, text = tool('make_sound_kit.py', '--out', j('kit'), '--seed', 91, '--temp-bpm', 150)
     record('make_sound_kit: generates 15 roles and temp track', code == 0, text.strip())
@@ -121,7 +121,7 @@ def run_sound_cases(tool, record, j, scripts_dir):
     record('make_sound_kit: v2 composites have non-recursive aligned layer roles', palette['version'] == 2 and
            all(r in palette['roles'] for r in ('sub', 'air', 'bed', 'boom')) and
            all({v['role'] for v in palette['roles'][role]['layers']} == {'sub', 'air'}
-               for role in ('impact', 'impact_big', 'boom', 'whoosh_big')) and
+               for role in ('impact', 'boom', 'sweep')) and
            not palette['roles']['sub'].get('layers') and not palette['roles']['air'].get('layers'))
     # Construct the contract's equal-power 400 ms loop overlap, then compare
     # its actual sample steps and short-window RMS with the original noise.
@@ -175,11 +175,11 @@ def run_sound_cases(tool, record, j, scripts_dir):
     record('make_sound_kit: no digital-silence gaps over 50 ms', longest_zero <= .05, f'{longest_zero:.6f} s')
     record('make_sound_kit: temp narrow-resonance screen', ms['upper_mid_max_20hz_in_400hz_share'] < .45,
            str(ms['upper_mid_max_20hz_in_400hz_share']))
-    code, _ = tool('beat_grid.py', music, '--bpm', 150, '--window', beatmap['stop_s'], '--json', j('temp-grid.json'))
+    code, _ = tool('tempo_map.py', music, '--bpm', 150, '--window', beatmap['stop_s'], '--json', j('temp-grid.json'))
     r = json.loads(Path(j('temp-grid.json')).read_text())
-    record('beat_grid: generated temp tempo within .02 BPM', abs(r['bpm'] - 150) < .02, str(r['bpm']))
-    record('beat_grid: generated temp phase within 2 ms', abs(r['offset_s']) <= .002, str(r['offset_s']))
-    record('beat_grid: generated temp drop bar 9', bool(r['drops']) and abs(r['drops'][0]['music_s'] - beatmap['drop_s']) < .003,
+    record('tempo_map: generated temp tempo within .02 BPM', abs(r['bpm'] - 150) < .02, str(r['bpm']))
+    record('tempo_map: generated temp phase within 2 ms', abs(r['offset_s']) <= .002, str(r['offset_s']))
+    record('tempo_map: generated temp drop bar 9', bool(r['drops']) and abs(r['drops'][0]['music_s'] - beatmap['drop_s']) < .003,
            str(r['drops'][:1]))
     kit_events = []
     for i, (role, rs) in enumerate(palette['roles'].items()):
@@ -227,8 +227,8 @@ def run_sound_cases(tool, record, j, scripts_dir):
            last['status'] == 'on cue' and abs(last.get('offset_ms', 999)) <= 2,
            f"mix exit {mix_code}; {last['status']}, offset {last.get('offset_ms')} ms")
     io.write_wav(ffmpeg, j('silence.wav'), np.zeros((rate * 4, 2), np.float32), rate)
-    code, _ = tool('beat_grid.py', j('silence.wav'), '--json', j('silence-grid.json'))
-    record('beat_grid: silence is weak/inconclusive, exit 1', code == 1)
+    code, _ = tool('tempo_map.py', j('silence.wav'), '--json', j('silence-grid.json'))
+    record('tempo_map: silence is weak/inconclusive, exit 1', code == 1)
     # Sync fixtures with exact attack, apex and end. Independent waveforms make
     # placement checks independent of the generator's own manifest calculations.
     rate = 48000
@@ -302,7 +302,7 @@ def run_sound_cases(tool, record, j, scripts_dir):
     code, _ = tool('mix_cues.py', j('cues.json'), j('palette.json'), '--out-dir', j('gained'), '--gain-to-lufs', -35)
     r = json.loads(Path(j('gained', 'mix-report.json')).read_text())
     record('mix_cues: safe plain gain reaches requested loudness', code == 0 and abs(r['mix']['integrated_lufs'] + 35) <= .2)
-    for script, args in (('beat_grid.py', [j('gone.wav')]), ('make_sound_kit.py', ['--out', j('bad-kit'), '--stop-bar', 2, '--temp-bpm', 150]),
+    for script, args in (('tempo_map.py', [j('gone.wav')]), ('make_sound_kit.py', ['--out', j('bad-kit'), '--stop-bar', 2, '--temp-bpm', 150]),
                          ('mix_cues.py', [j('gone.json'), j('palette.json'), '--out-dir', j('gone-mix')])):
         code, _ = tool(script, *args)
         record(script + ': cannot run returns 2', code == 2)

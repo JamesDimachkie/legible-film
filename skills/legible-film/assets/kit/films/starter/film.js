@@ -6,7 +6,7 @@
 // Look: open index.html on a local server (python -m http.server), keys: space, , . arrows 0-9 S R L.
 
 export default function film(kit) {
-  const { Words, Number, EndCard, Caption, clock } = kit;
+  const { Type, Number, EndCard, Caption, clock } = kit;
   const T = clock({ bpm: 120, offset: 0 });          // 120 BPM at 60 fps: 30 frames per beat
 
   return {
@@ -17,25 +17,25 @@ export default function film(kit) {
     brand: '#2F9E6B',                                 // one brand colour: the palette is built from it
     facts: 'facts.json',                              // every claim must match a fact's display exactly
     texture: { kind: 'dots' },                        // a sparse world texture, so camera moves read
-    pace: { maxStill: 0.6, maxStillShare: 0.4 },      // your film's own pace contract (QC reads it)
+    pace: { max_still: 0.6, max_still_share: 0.4 },      // your film's own pace contract (QC reads it)
 
     scenes: [
-      // Kinetic words: one idea per beat. A shot lands on its time; hits: none, beat, hit, punch.
-      Words({
-        exit: 'collapse',                             // shrink into a point; the next scene grows from it
+      // Kinetic words: one idea per beat. A shot lands on its time; hits: none, bump, shake, burst.
+      Type({
+        exit: 'shrink',                             // shrink into a point; the next scene grows from it
         shots: [
-          { text: 'NOTES.', kicker: 'ALL YOUR', style: 'stack', open: true, dur: '3b', ground: 'ink', fact: 'what' },   // open: frame 0 reads as a cover
-          { text: 'EVERY/DEVICE.', style: 'cut', dur: '3b', ground: 'paper', fact: 'what' },
+          { text: 'NOTES.', kicker: 'ALL YOUR', style: 'kicker', open: true, dur: '3b', ground: 'ink', fact: 'what' },   // open: frame 0 reads as a cover
+          { text: 'EVERY/DEVICE.', style: 'snap', dur: '3b', ground: 'paper', fact: 'what' },
         ],
       }),
       // A number lands from a fact (never typed here, never rolled through unmeasured values).
       Number({ fact: 'platforms', label: 'PLATFORMS', qualifier: true, ground: 'ink', land: 'digits', hold: '4b' }),
       // A claim. role 'claim' + fact id: the preflight checks the words against facts.json.
-      Words({
-        enter: 'whipX', exit: 'through', through: { letter: 'O' },
-        shots: [{ text: 'WORKS/OFFLINE.', dur: '5b', ground: 'accent', role: 'claim', fact: 'offline', id: 'claim-offline', hit: 'punch', drop: true }],
+      Type({
+        enter: 'whip-h', exit: 'dive', dive: { letter: 'O' },
+        shots: [{ text: 'WORKS/OFFLINE.', dur: '5b', ground: 'accent', role: 'claim', fact: 'offline', id: 'claim-offline', hit: 'burst', drop: true }],
       }),
-      // The end card: held readable, declared as a rest; the music stops on the logo hit.
+      // The end card: held readable, declared as a rest; the music stops on the sting.
       EndCard({ wordmark: 'northwind', typed: false, wordmarkFact: 'product', tagline: 'AVAILABLE NOW', taglineFact: 'release', line: 'northwind.example', lineFact: 'url', ground: 'paper', len: '7b' }),
     ],
 

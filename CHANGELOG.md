@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.2.1 (2026-10-29)
+
+The film kit's own vocabulary, loops, and web deliverables. Films written for 1.2.0 still run unchanged: the old
+names are read as the new ones, and the Atlasfold showcase renders the same pixels.
+
+- **Names:** blocks `Type`, `Still` and `Thread` (were `Words`, `Picture`, `Chain`); shot styles `land`, `kicker`,
+  `meet`, `snap`; hits `bump`, `shake`, `burst`; entrances `whip-h` and `whip-v`; exits `dive` and `shrink`; the
+  `tracer` effect and its `converge` option; sound roles `boom`, `sweep`, `sting` (EndCard `stingGain`) and `tap`;
+  `beat_grid.py` is now `tempo_map.py`. Palettes and cue lists with the 1.2.0 role names still mix.
+- **Blank nodes:** `group.add({w, h})` lays the element out at that size (`node.size(w, h)` resizes one), and the
+  preflight errors on a tracked node that never paints (transparent throughout, no size, always outside the frame,
+  or nothing to draw), naming the node and its block.
+- **Loops:** `loop: true` holds the camera and the preflight checks that the camera, the ground and every tracked
+  element return to their frame-0 values at the end; BLOCKS.md documents the camera hold (`drift: false`) with a
+  loop example.
+- **make_film.py:** `--loop` (on by itself for a loop film) measures the seam on every delivered file with
+  `motion_scan.py --loop`; `--web` adds a VP9 WebM encoded from a lossless render and a poster from frame 0, both
+  checked; `--res N` is now the output's short side (it scaled from 1080 lines before, so `1280x720 --res 720`
+  failed), an odd side is refused before anything runs with a `--res` that works, and manifests record the real
+  output size; the film's `pace` contract is read in either spelling, so its gates now run; a template inside the
+  kit (`assets/kit/films/atlasfold`) can be made directly.
+- **Terminal:** `fullFrame: true` makes the window the whole frame, for a tall frame.
+- `references/ffmpeg-cookbook.md`: an opaque VP9 WebM recipe from a lossless master with the BT.709 matrix, and its
+  poster, tested on a flat brand colour.
+
 ## 1.2.0 (2026-10-29)
 
 Legible Film now makes video end to end: films built in code, edits cut from recordings, a sound chain designed for
