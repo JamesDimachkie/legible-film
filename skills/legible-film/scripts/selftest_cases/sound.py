@@ -83,13 +83,14 @@ def run_sound_cases(tool, record, j, scripts_dir):
     record('beat_grid: fits requested window independently', abs(r['bpm'] - 150 / 1.00075) < .05 and code == 0,
            f"{r['bpm']}; {r['flags']}")
     code, text = tool('make_sound_kit.py', '--out', j('kit'), '--seed', 91, '--temp-bpm', 150)
-    record('make_sound_kit: generates all 11 roles and temp track', code == 0, text.strip())
+    record('make_sound_kit: generates 15 roles and temp track', code == 0, text.strip())
     palette_path = Path(j('kit', 'palette.json'))
     palette = json.loads(palette_path.read_text())
     import hashlib
     import wave
     hashes_ok, peaks_ok, edges_ok, dc_ok, spectra_ok, format_ok = True, True, True, True, True, True
-    for role in palette['roles'].values():
+    broadband_ok, sub_ok, bed_audio = True, True, None
+    for name, role in palette['roles'].items():
         for index, relative in enumerate(role['takes']):
             path = palette_path.parent / relative
             with wave.open(str(path), 'rb') as wav:
@@ -97,14 +98,45 @@ def run_sound_cases(tool, record, j, scripts_dir):
             hashes_ok &= hashlib.sha256(path.read_bytes()).hexdigest() == role['sha256'][index]
             x = io.decode(ffmpeg, path)
             peaks_ok &= -4.3 <= io.db(np.max(np.abs(x))) <= -2.99
-            edges_ok &= np.max(np.abs(x[[0, -1]])) < 2e-6
+            if not role.get('loop'):
+                edges_ok &= np.max(np.abs(x[[0, -1]])) < 2e-6
+            elif index == 0:
+                bed_audio = x
             dc_ok &= np.max(np.abs(x.mean(axis=0))) < 1e-6
             spectra_ok &= role['measurements'][index]['upper_mid_max_20hz_in_400hz_share'] < .45
-    record('make_sound_kit: 33 take hashes match', hashes_ok)
-    record('make_sound_kit: all 33 takes stereo 48 kHz 24-bit PCM', format_ok)
+            power = np.sum(np.abs(np.fft.rfft(x.astype(np.float64), axis=0)) ** 2, axis=1)
+            freq = np.fft.rfftfreq(len(x), 1 / 48000)
+            if name != 'sub':
+                broadband_ok &= power[freq >= 2000].sum() / power.sum() >= .05
+                broadband_ok &= role['measurements'][index]['phone_loss_lu'] <= 6
+            else:
+                sub_ok &= power[freq < 250].sum() / power.sum() > .98
+    record('make_sound_kit: 45 take hashes match', hashes_ok)
+    record('make_sound_kit: all 45 takes stereo 48 kHz 24-bit PCM', format_ok)
     record('make_sound_kit: peak levels as stated', peaks_ok)
     record('make_sound_kit: zero-valued edges and no DC', edges_ok and dc_ok)
     record('make_sound_kit: upper-mid narrow-band screen', spectra_ok)
+    record('make_sound_kit: broadband roles >=5% above 2kHz and <=6 LU phone loss', broadband_ok)
+    record('make_sound_kit: sub is a clean low sweetener (>98% below 250 Hz)', sub_ok)
+    record('make_sound_kit: v2 composites have non-recursive aligned layer roles', palette['version'] == 2 and
+           all(r in palette['roles'] for r in ('sub', 'air', 'bed', 'boom')) and
+           all({v['role'] for v in palette['roles'][role]['layers']} == {'sub', 'air'}
+               for role in ('impact', 'impact_big', 'boom', 'whoosh_big')) and
+           not palette['roles']['sub'].get('layers') and not palette['roles']['air'].get('layers'))
+    # Construct the contract's equal-power 400 ms loop overlap, then compare
+    # its actual sample steps and short-window RMS with the original noise.
+    overlap = 19200
+    u = np.linspace(0, np.pi / 2, overlap)
+    seam = bed_audio[-overlap:] * np.cos(u)[:, None] + bed_audio[:overlap] * np.sin(u)[:, None]
+    looped = np.concatenate((bed_audio[:-overlap], seam, bed_audio[overlap:]))
+    steps = np.max(np.abs(np.diff(looped, axis=0)))
+    original_steps = np.max(np.abs(np.diff(bed_audio, axis=0)))
+    seam_level = io.level(seam) - io.level(bed_audio)
+    record('make_sound_kit: bed equal-power loop has no gap or oversized boundary step',
+           palette['roles']['bed'].get('loop') is True and palette['roles']['bed']['crossfade_ms'] == 400 and
+           palette['bed']['to_s'] is None and abs(seam_level) < 1.0 and steps < original_steps * 1.2 and
+           all(io.level(seam[k:k + 960]) > -40 for k in range(0, len(seam), 960)),
+           f'overlap level change {seam_level:.3f} dB; largest step ratio {steps / original_steps:.3f}')
     key = palette['roles']['key']
     record('make_sound_kit: key variants differ in samples and levels', len(set(key['sha256'])) == 3 and
            len(set(round(v['peak_dbfs'], 1) for v in key['measurements'])) == 3)
@@ -117,7 +149,32 @@ def run_sound_cases(tool, record, j, scripts_dir):
     record('make_sound_kit: temp true peak <= -1 dBTP', beatmap['measurements']['true_peak_dbtp'] <= -1,
            str(beatmap['measurements']))
     audio = io.decode(ffmpeg, music)
-    record('make_sound_kit: sample-exact stop with silence after', np.max(np.abs(audio[round(beatmap['stop_s'] * 48000):])) == 0)
+    stop = round(beatmap['stop_s'] * 48000)
+    record('make_sound_kit: exact rhythmic stop leaves a finite ring-out', beatmap['stop_s'] == 22.4 and
+           beatmap['tail_end_s'] == len(audio) / 48000 and io.level(audio[stop:stop + 12000]) > -35 and
+           np.max(np.abs(audio[-1])) == 0)
+    powers = np.sum(np.abs(np.fft.rfft(audio.astype(np.float64), axis=0)) ** 2, axis=1)
+    freqs = np.fft.rfftfreq(len(audio), 1 / 48000)
+    record('make_sound_kit: temp spans spectrum (>=5% above 2kHz, >=1% above 6kHz)',
+           powers[freqs >= 2000].sum() / powers.sum() >= .05 and powers[freqs >= 6000].sum() / powers.sum() >= .01)
+    phone_raw = io.run([ffmpeg, '-v', 'error', '-i', str(music), '-af', 'highpass=f=300,lowpass=f=8000',
+                       '-ac', '2', '-ar', '48000', '-f', 'f32le', '-']).stdout
+    phone_audio = np.frombuffer(phone_raw, '<f4').reshape(-1, 2)
+    phone_loss = io.meter(ffmpeg, music)['integrated_lufs'] - io.meter(ffmpeg, phone_audio)['integrated_lufs']
+    record('make_sound_kit: temp loses <=6 LU through phone band', phone_loss <= 6, f'{phone_loss:.2f} LU')
+    ms = beatmap['measurements']
+    record('make_sound_kit: intro above -30 LUFS and 3-12 LU below drop', -12 <= ms['intro_minus_drop_lu'] <= -3 and
+           ms['intro_lufs'] > -30, str({k: ms[k] for k in ('intro_lufs', 'drop_lufs', 'intro_minus_drop_lu')}))
+    record('make_sound_kit: ring-out below drop; ending within 6 LU of drop',
+           ms['ringout_first_second_lufs'] <= ms['drop_lufs'] and
+           ms['ending_last_tenth_lufs'] >= ms['drop_lufs'] - 6,
+           str({k: ms[k] for k in ('drop_lufs', 'ringout_first_second_lufs', 'ending_last_tenth_lufs')}))
+    zero = np.max(np.abs(audio), axis=1) == 0
+    edges = np.flatnonzero(np.diff(np.r_[False, zero, False]))
+    longest_zero = max((int(b - a) for a, b in zip(edges[::2], edges[1::2])), default=0) / 48000
+    record('make_sound_kit: no digital-silence gaps over 50 ms', longest_zero <= .05, f'{longest_zero:.6f} s')
+    record('make_sound_kit: temp narrow-resonance screen', ms['upper_mid_max_20hz_in_400hz_share'] < .45,
+           str(ms['upper_mid_max_20hz_in_400hz_share']))
     code, _ = tool('beat_grid.py', music, '--bpm', 150, '--window', beatmap['stop_s'], '--json', j('temp-grid.json'))
     r = json.loads(Path(j('temp-grid.json')).read_text())
     record('beat_grid: generated temp tempo within .02 BPM', abs(r['bpm'] - 150) < .02, str(r['bpm']))
@@ -126,9 +183,18 @@ def run_sound_cases(tool, record, j, scripts_dir):
            str(r['drops'][:1]))
     kit_events = []
     for i, (role, rs) in enumerate(palette['roles'].items()):
+        if rs.get('loop'):
+            continue  # continuous bed is not a picture-event one-shot
         kit_events.append({'id': role, 't': (i + 1) * 3., 'role': role, 'sync': rs['sync'],
                            'variant': 0, 'sound': 'required', 'tolerance_ms': 2})
-    io.save_json(j('kit-cues.json'), {'duration': 36, 'events': kit_events})
+    # Keep the existing isolated sync checks: no layers, continuous bed or
+    # mastering in these effects-stem fixtures. Composite metadata is checked above.
+    palette_path = palette_path.with_name('palette-sync.json')
+    isolated = dict(palette, roles={k: {a: b for a, b in v.items() if a != 'layers'}
+                                   for k, v in palette['roles'].items()}, master={'preset': 'none'})
+    isolated.pop('bed', None)
+    io.save_json(palette_path, isolated)
+    io.save_json(j('kit-cues.json'), {'duration': 48, 'events': kit_events})
     code, _ = tool('mix_cues.py', j('kit-cues.json'), palette_path, '--out-dir', j('kit-mix'), '--no-music')
     record('mix_cues: generated palette integrates without missing roles', code == 0)
     code, _ = tool('cue_onsets.py', j('kit-mix', 'effects.wav'), j('kit-cues.json'), '--json', j('kit-onsets.json'))

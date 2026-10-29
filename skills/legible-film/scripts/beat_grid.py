@@ -181,7 +181,9 @@ def analyse(x, start=0, bpm=None, beats_per_bar=4, drop_at_beat=None, tolerance_
             result.update(suggested_offset_s=None, suggested_offset_negative=False)
         return result, 1
     period, phase, strength = fit(times, weights, duration, bpm)
-    grid = np.arange(phase, duration, period)
+    # A fitted phase just before zero wraps near period. Include that preceding
+    # grid point when its quarter-beat search can still find an attack at zero.
+    grid = np.arange(phase - period if phase > .75 * period else phase, duration, period)
     kick_scores = []
     for slot in range(beats_per_bar):
         vals = []
