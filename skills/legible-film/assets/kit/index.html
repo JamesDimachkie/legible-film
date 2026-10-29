@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Legible Film kit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* No CSS transitions, animations or keyframes anywhere in a captured page: every frame is set by seek(t). */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #0b0c0f; overflow: hidden; }
+  #lf-stage { position: absolute; left: 0; top: 0; overflow: hidden; contain: strict; transform-origin: 0 0; }
+  .lf-ground, .lf-canvas, .lf-fx, .lf-overlay { position: absolute; left: 0; top: 0; width: var(--lf-w); height: var(--lf-h); }
+  .lf-fx, .lf-cam { transform-origin: 0 0; }
+  .lf-cam { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+  .lf-screen { position: absolute; left: 0; top: 0; width: var(--lf-w); height: var(--lf-h); }
+  .lf-canvas, .lf-overlay, .lf-screen { pointer-events: none; }
+  .lf-node { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  .lf-w, .lf-l { white-space: pre; }
+  .lf-error { position: fixed; left: 16px; top: 16px; right: 16px; color: #ffb4a8; background: #1a0f0e; padding: 16px; font: 13px/1.4 ui-monospace, monospace; white-space: pre-wrap; z-index: 99; }
+  body:not(.lf-render) #lf-stage { box-shadow: 0 0 0 1px #2a2d35; }
+  body.lf-render #lf-ui { display: none; }
+</style>
+</head>
+<body>
+<div id="lf-stage"></div>
+<script type="module" src="./lf/main.js"></script>
+</body>
+</html>
