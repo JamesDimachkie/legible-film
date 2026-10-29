@@ -210,7 +210,8 @@ In this register the sound does as much work as the picture, and every rule in [
   seconds ([qc](qc.md) §3).
 - At every whip, look at the frames either side of the cut: the last outgoing frame is the most blurred.
 - `flash_scan.py` on every rendition; `motion_scan.py` with the declared pace contract; `cue_onsets.py` on the
-  effects stem; `qc_file.py --lossy-check --max-level`.
+  effects stem; `qc_file.py FILM --lossy-check --max-level LEVEL`, with the level for the delivery size and frame
+  rate ([qc](qc.md) §2).
 - A person watches at normal speed, muted at feed size first, then with sound. This register is the easiest to
   misjudge from stills.
 

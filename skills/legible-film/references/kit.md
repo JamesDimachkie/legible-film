@@ -25,14 +25,17 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
   in the project, or point `--playwright` or `LF_PLAYWRIGHT_MODULE` at an installed package; the tools reuse any
   Chromium Playwright has already installed and never download one).
 - `python scripts/make_film.py --doctor` checks all of it and prints the one command that fixes each missing piece.
-  `python scripts/kit_selftest.py` proves capture, blur, colour and sizes on this machine.
+  `python scripts/kit_selftest.py --require` runs synthetic capture and render contract checks on this machine (without
+  `--require`, a missing dependency is a skip, not a failure). A pass does not establish a particular film's
+  playback, colour or every delivery size.
 
 ## 3. The loop
 
 1. **Start a project:** `python scripts/new_film.py my-film --brand '#3D7BFF'` (or `--from atlasfold` for the
    showcase). It never overwrites a file.
-2. **Facts first:** replace `facts.json` with the product's facts ([claims-and-rights](claims-and-rights.md)); every
-   claim on screen will be checked against it.
+2. **Facts first:** replace `facts.json` with the product's facts ([claims-and-rights](claims-and-rights.md)) and
+   bind each claim the film registers to its fact. Preflight checks registered text, not every picture or implied
+   claim; review the whole film against the evidence.
 3. **Write `film.js`:** one block per scene, in beats when music is the clock (§4).
 4. **Preview:** serve the folder (`python -m http.server --directory my-film 8000`) and open it. Space plays; `,` and
    `.` step a frame; the arrow keys step a beat; S shows the safe area, R the reading states, L the ground luminance.

@@ -61,6 +61,8 @@ stop only processes you started, by their own PID.
 | A logo sting, a loop, or a clip under about 15 s | Steps 1-9, done lightly ([short pieces](#short-pieces)) |
 | A change to an approved cut | [Revisions](#revisions), then steps 6-9 |
 | Check or review an existing file | Steps 7-8 |
+| Captions for an existing video: build, check or burn them | [footage](references/footage.md#11-captions) §11 and [formats](references/formats.md#7-captions) §7, with `captions.py` |
+| Clean or mix existing dialogue | [footage](references/footage.md#10-dialogue) §10 and [sound](references/sound.md); keep the stems and get a person to listen |
 | Choose or set up tools | [engines](references/engines.md); for the film kit, `python scripts/make_film.py --doctor` and [kit](references/kit.md) §2 |
 
 When an input the path needs is missing (the footage, the approved mix, the baseline), name the operations it blocks
@@ -215,8 +217,10 @@ sending wait for the person.
   **baseline**.
 - Fix the cause where it lives, then check every use of anything shared you changed. When resolving an ambiguous
   note would change the approved design, show a still or a short motion proposal first.
-- Prove it: `compare_versions.py` shows changes only where intended; after a picture-only change, the re-exported cue
-  list is byte-identical before the mix is reused; decoded audio hashes match when the sound should be unchanged.
+- Check preservation: `compare_versions.py` locates candidate picture changes (with `--lossless-proof` on lossless
+  re-renders, the exact frames); inspect the changed moment and every essential text at full size, since a lossy
+  PSNR pass cannot prove every pixel unchanged. After a picture-only change, the re-exported cue list is
+  byte-identical before the mix is reused; decoded audio hashes match when the sound should be unchanged.
 - Before rebuilding a mix, record each event's picture time, each sound's sync point and the brief's tolerance, and
   check the delivered mix against that record. When a sound moves or goes, check both windows on the delivered mix:
   the old one quiet, the new one on cue. Keep the effects stem and the mix recipe; without them, a removal is
@@ -284,7 +288,7 @@ after an update or with `--force`), and `python scripts/kit_selftest.py` before 
 | `film_render.py` | Render a kit film with cut-aware motion blur and the correct colour path (it drives `film_capture.mjs`). |
 | `motion_blur.py` | Turn a render made at a multiple of the frame rate into true motion blur, never across a cut. |
 | **Edit recordings** | |
-| `transcript_cut.py` | Turn selects from a word-timed transcript into edit items, each cut in the pause between words; which joins are jump cuts? |
+| `transcript_cut.py` | Turn selects from a word-timed transcript into edit items, with cuts proposed in the gaps between words; which joins lack measured silence, and which are same-shot jump cuts? |
 | `assemble.py` | Render an `edit.json` frame-accurately: cuts, J and L cuts, dissolves, retimes, crop paths, overlays, colour conversion; stems, cue list and declarations. |
 | `reframe.py` | Propose or check a crop path that keeps the subject in a tall or square frame; flag frames where it leaves. |
 | `captions.py` | Build SRT and WebVTT under reading rules, check a caption file (or a burned-in one) against them, and burn captions clear of faces and platform overlays. |

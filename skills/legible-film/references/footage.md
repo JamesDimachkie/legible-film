@@ -21,9 +21,13 @@ say, or moving an answer onto another question, is a claim the facts do not supp
 
 ## 2. Ingest
 
-- Copy the originals into `media/` and never write to them. Record each file's SHA-256, container, codec, size, frame
-  rate (constant or variable), rotation, scan type, colour tags and range, audio channels and rate, duration and any
-  timecode, with `qc_file.py FILE --json qa/sources/NAME.json` per file. Probe one file per command.
+- Copy the originals into `media/` and never write to them. Record each file's SHA-256 (`certutil -hashfile FILE
+  SHA256` on Windows, `shasum -a 256 FILE` elsewhere), then probe it with `qc_file.py FILE --json
+  qa/sources/NAME.json` for its container, codec, size, frame rate, rotation, colour tags and range, audio and
+  duration, one file per command. Its variable-frame-rate flag is a suspicion from average against nominal rate, not
+  a classification: read the frame timestamps when it matters. Record timecode (`ffprobe -show_entries
+  format_tags=timecode:stream_tags=timecode`) and scan type (`idet`, below) separately, and report unknown values as
+  unknown.
 - Record rights and consent per source and per person on camera in `assets.csv`. Private, client and unreleased
   footage stays local: transcription, enhancement and frame description run on this machine unless the person
   approves an upload ([engines](engines.md) §9 lists local speech models).
@@ -39,8 +43,11 @@ say, or moving an answer onto another question, is a claim the facts do not supp
 - Transcribe locally into word-timed JSON (WhisperX-style). A speech model's transcript is a draft: names, numbers
   and anything a select depends on are checked against the audio by a person.
 - Write selects as quoted phrases or word ranges, each with its purpose in the story. `transcript_cut.py` finds them,
-  places each cut in the silence between words with handles, and writes the picture and audio items of `edit.json`.
-  It reports phrases it could not find, each join's gap, and joins that are jump cuts on the same shot.
+  proposes each cut in the gap between words with handles, and writes the picture and audio items of `edit.json`.
+  Give it the source audio (`--audio`) so it measures silence instead of trusting word timings, and shot boundaries
+  (`--shots`) so it can tell a same-shot jump cut. It reports phrases it could not find, each join's gap, and any
+  join with no measured silence; listen to every join, and check that the assembler's frame snaps do not land inside
+  a word.
 - Show the person the selects as a paper edit (the text in order, with durations) before cutting picture. Agreeing
   the words is cheaper than agreeing a cut.
 
@@ -61,8 +68,9 @@ say, or moving an answer onto another question, is a claim the facts do not supp
   a dip to a colour is for a change of time or place.
 - Graphics, lower thirds and callouts are overlays in `edit.json` or a kit film composited over the picture; their
   entrances become cues, so the sound chain spots them like any other event.
-- Check each cut with the [qc](qc.md) battery, passing `declared.json` to `--ignore`, and run `motion_scan.py` with
-  `--footage`: a speaker holding still for two frames is camera footage behaving normally, and only exact duplicate
+- Check each cut with the [qc](qc.md) battery. Pass the `ignore` string from `declared.json` (designed holds and dips,
+  as `START-END` seconds) to `blank_scan.py` and `motion_scan.py --ignore`, never to `flash_scan.py`, and run
+  `motion_scan.py` with `--footage`: a speaker holding still for two frames is camera footage behaving normally, and only exact duplicate
   frames are defects there. A cut-down has no approved mix to sync against until its own mix exists; check it
   against the source window instead.
 
@@ -110,7 +118,8 @@ order of `picture`.
   `font_size` fields.
 - **Cues:** `edit-cues.json` lists every join and image overlay as a candidate sound moment, withheld unless the item
   sets `"sound": true` (with a `role`), plus the edit's own `cues`; captions never become cues. `declared.json`
-  lists the cuts, dissolves and `holds` for the QC scripts' `--ignore`.
+  lists the cuts, dissolves and `holds`, and an `ignore` string of the designed holds and dips ready for
+  `blank_scan.py` and `motion_scan.py --ignore` (never `flash_scan.py`).
 
 ## 6. Other ratios
 
@@ -189,7 +198,8 @@ order of `picture`.
 
 - Every piece with speech ships a sidecar caption file; a muted feed also gets them burned in. `captions.py build`
   makes SRT and WebVTT from the word timings under the reading rules, `check` tests an existing file, and `burn`
-  renders them inside the safe area, all from one source so the two cannot drift.
+  renders them inside the safe area, from one conformed timed source. Rebuild both after any edit and check them
+  against the delivered audio.
 - After an edit changes, rebuild captions from the conformed word timings; never shift an old caption file by hand.
 - A person checks every caption against the audio, names and numbers first ([formats](formats.md) §7).
 
