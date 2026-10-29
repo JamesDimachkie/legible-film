@@ -128,8 +128,9 @@ Read [picture](references/picture.md), and [engines](references/engines.md) for 
 
 - Decide a world with reasons: a type scale, one accent with one meaning, a few named motion curves, and the thread
   the viewer follows if the concept has one.
-- Build every frame as a pure function of time: no wall clock, no unseeded randomness, no CSS transitions in a
-  captured page, fonts loaded before anything is measured.
+- Build every code-rendered frame as a pure function of time: no wall clock, no unseeded randomness, no CSS
+  transitions in a captured page, fonts loaded before anything is measured. Footage keeps its captured motion,
+  performances and frame rate.
 - Work in a lab loop before any full render: stills at each cue's frames, short motion windows, seeks out of order
   and back, and sheets at viewing size (`frame_sheet.py`).
 - With the [film kit](references/kit.md), run `film_check.py` before every render: it reports facts mismatches,
@@ -160,7 +161,8 @@ after a lossy re-encode, and the person's listening decision is recorded or the 
 Read [finishing](references/finishing.md) and the [ffmpeg-cookbook](references/ffmpeg-cookbook.md).
 
 - Render a frozen copy of the source, recording tool versions and input hashes; render a short window first. Give
-  fast motion real motion blur (`film_render.py` for the kit, `motion_blur.py` for other engines).
+  fast code-rendered motion real motion blur (`film_render.py` for the kit, `motion_blur.py` for other engines);
+  photographed footage keeps its own shutter.
 - Convert and tag colour explicitly (BT.709 for HD SDR) and verify it; deliver H.264 as `yuv420p` unless the spec
   says otherwise.
 - Mux the mastered mix onto the finished picture with the audio length matched to the picture.

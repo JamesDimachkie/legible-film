@@ -47,6 +47,8 @@ idea per bar, and every scene then had room to land.
   unchanged. A centre slice of a wide master shrinks the product and wastes most of a tall frame, and a wide film
   letterboxed inside a tall one wastes even more. The film kit lays its blocks out in frame units, so one timeline
   renders 16:9, 9:16 and 1:1 ([kit](kit.md)).
+- A rendition with its own length or story (a 15 s cut-down of a 60 s film) gets its own timeline, cue list and mix;
+  one timeline serves only renditions that share the story and the length.
 - In a tall frame, stack the composition and bring the camera closer to the region that matters.
 - Decide line breaks for each rendition in the copy itself, not by wherever a box happens to wrap.
 - Keep text and essential interface clear of the platform's own overlays (names, captions, buttons). For Instagram
@@ -92,8 +94,9 @@ duration.
   prerecorded web video.
 - When captions are also burned in for muted feeds, generate both from one caption source so their timings cannot
   drift apart, and compare them.
-- A transcript from a speech model is a first draft: check every caption against the audio, and time it to the reading
-  limits in [timing](timing.md).
+- A transcript from a speech model is a first draft. Time it to the reading limits in [timing](timing.md), then have a
+  named person check every caption against the audio, names and numbers first; a second model's transcript is a
+  comparison, not that check.
 
 ## 8. The first frame and the cover
 
