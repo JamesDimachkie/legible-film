@@ -6,13 +6,19 @@
   python make_film.py films/atlasfold --preview --sound none --sizes 1920x1080
   python make_film.py films/atlasfold --sound audio/palette.json --resume
   python make_film.py films/atlasfold --sound library:licensed-sounds
+  python make_film.py films/orbit --sizes 1080x1080 --res 720 --loop --web --sound none
   python make_film.py --doctor
+
+FILM is a kit project (index.html beside film.js, as new_film.py makes it). A template film
+inside the kit (assets/kit/films/NAME, a film.js with no index.html) is first copied with the
+kit into OUT/project/NAME, refreshed on every run; edit the template, not the copy.
 
 Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
   1. doctor: numpy, Pillow, FFmpeg/ffprobe (libx264, AAC), Node 18+, Playwright and
      Chromium found the way film_capture.mjs finds them, free memory and disk. Missing
      pieces print the one command that fixes them. Also runs before every make.
-  2. preflight: film_check.py per size into OUT/qa/WxH/; stops on errors unless --force.
+  2. preflight: film_check.py per size into OUT/qa/WxH/ (with --res, output-pixel criteria
+     such as type size are judged at the delivered size); stops on errors unless --force.
      The sizes must export one cue list and one set of cuts (one timeline), or the run
      stops. Rests, smears, flashes, seams and changes follow each size's layout: they
      are reported per size and each size is checked against its own.
@@ -35,12 +41,17 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
      and B.mp4 (same picture, the two mixes, loudness-matched within 0.5 LU, randomised;
      the key in qa/listen-key.json) with questions.md for the listener.
   4. render: film_render.py per size (--size, --res, --samples, --preview) into
-     OUT/renders/, never overwriting a file.
+     OUT/renders/, never overwriting a file. --res N is the output's short side (720 makes
+     1280x720 from 1920x1080 and 720x1280 from 1080x1920); without it each output is the
+     size given. A size whose output would have an odd side is refused before anything
+     runs, with the nearest --res that works. With --web the render is lossless (RGB
+     FFV1) and the H.264 picture is encoded from it with film_render.py's settings.
   5. mux: video copied, AAC-LC 48 kHz 256 kbps, apad and -t at the picture's exact
      duration, fast start; never -shortest. A silent deliverable is the render itself.
   6. QC per size into OUT/qa/WxH/: qc_file.py, flash_scan.py, blank_scan.py and
      motion_scan.py with the declared ranges (and info.pace as gates when declared:
-     max_still_share, max_still, start, end), cue_onsets.py on the effects stem,
+     max_still_share, max_still, start, end; with --loop or info.loop, --loop, so the
+     last-to-first seam is measured on every deliverable, each WebM included), cue_onsets.py on the effects stem,
      sync_check.py against mix.wav, sound_check.py with the spotted cue list (each warning
      is a listening candidate to inspect), frame_sheet.py (an overview; one sheet per declared
      cut, 480 px tiles, so memory stays bounded; essential texts at 384 px at their
@@ -48,16 +59,24 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
      change (motion_scan's change-area or step-cut measure) within one frame of the first
      frame of its arriving shot, except cuts listed in info.seams (seamless joins, already
      the next shot); large changes outside declared cuts, seams, smears, flashes and
-     info.changes (designed flips, fills and punches: a time, or [t0, t1, label]) are
+     info.changes (designed flips, fills and bursts: a time, or [t0, t1, label]) are
      listed too.
   7. deliver: OUT/deliver/ holds only the deliverables, a manifest each, caption
      sidecars and delivery-report.md (filled from assets/templates/delivery-report.md).
+     With --web each size also gets NAME_WxH.webm (VP9 CRF 32, BT.709 matrix and tags,
+     Opus 128 kbps when there is sound) encoded from the lossless render, never from the
+     H.264 file, and NAME_WxH-poster.png (frame 0 of the lossless render). Each WebM is
+     checked: VP9, its frame count, BT.709 tags, and its decoded frame 0 against the poster.
 
-OUT defaults to FILM's sibling folder FILM-make. Without --resume a previous run's
+OUT defaults to FILM's sibling folder FILM-make (for a template, NAME-make in the current
+folder). Without --resume a previous run's
 deliver/, sound/ and qa/ move to OUT/previous/<stamp>/ (nothing is deleted). --resume
 skips any step whose outputs exist with their recorded hashes and whose inputs are
 unchanged: the picture source (the film folder except qa/, audio/, palette.json and the
 preflight exports), the cue list, the mix, the settings and the tools' own hashes.
+make-state.json is bound to the output folder it was written in: resuming in a copied or
+moved folder runs every step again, a cached step whose outputs or results point outside
+the output folder (or the film folder) runs again, and nothing is written outside OUT.
 
 It measures and reports; it does not watch or listen. Every film it makes is reported
 unwatched and its sound unheard (a draft soundtrack says so); the weakest point is left
@@ -86,7 +105,7 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
-VERSION = '1.2.0'
+VERSION = '1.2.1'
 EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
 SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
 SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
@@ -229,6 +248,50 @@ def fix_for(what):
     }[what]
 
 
+_COMMON = []
+
+
+def render_common():
+    """film_render.py's shared module (output sizes, the H.264 settings), loaded once."""
+    if not _COMMON:
+        spec = importlib.util.spec_from_file_location('lf_render_common', HERE / 'render_common.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _COMMON.append(module)
+    return _COMMON[0]
+
+
+def template_kit(film):
+    """The kit folder when FILM is a template inside it (kit/films/NAME with film.js), else None."""
+    kit = film.parent.parent
+    if film.parent.name != 'films' or not (film / 'film.js').is_file():
+        return None
+    if not (kit / 'index.html').is_file() or not (kit / 'lf').is_dir():
+        return None
+    return kit
+
+
+def stage_template(film, kit, out):
+    """Copy the kit and a template film into OUT/project/NAME (overwriting the copy each run)."""
+    project = out / 'project' / film.name
+    project.mkdir(parents=True, exist_ok=True)
+    ignore = shutil.ignore_patterns('__pycache__', '.*')
+    for part in ('index.html', 'lf', 'blocks', 'fonts'):
+        src = kit / part
+        if src.is_dir():
+            shutil.copytree(src, project / part, dirs_exist_ok=True, ignore=ignore)
+        else:
+            shutil.copy2(src, project / part)
+    for src in film.iterdir():
+        if src.name in SKIP_TOP or src.name.startswith('.'):
+            continue
+        if src.is_dir():
+            shutil.copytree(src, project / src.name, dirs_exist_ok=True, ignore=ignore)
+        else:
+            shutil.copy2(src, project / src.name)
+    return project
+
+
 def doctor(a, sizes, need_aac=True):
     """Return rows of {name, ok, detail, fix}; never raises for a missing piece."""
     rows = []
@@ -298,8 +361,8 @@ def doctor(a, sizes, need_aac=True):
             'reinstall the skill so its scripts/ folder is complete')
     try:
         free = free_memory()
-        scale = int(a.res) / 1080
-        need = max((560 * 1024 ** 2 + round(w * scale) * round(h * scale) * 100) + 192 * 1024 ** 2 for w, h in sizes)
+        dims = [render_common().output_size(w, h, a.res) for w, h in sizes]
+        need = max((560 * 1024 ** 2 + w * h * 100) + 192 * 1024 ** 2 for w, h in dims)
         big = max(sizes, key=lambda s: s[0] * s[1])
         add('free memory', free >= need, f'{free / 1024 ** 2:.0f} MiB free; one render worker at {big[0]}x{big[1]} '
             f'needs about {need / 1024 ** 2:.0f} MiB (film_render.py estimate)',
@@ -457,22 +520,26 @@ class Make:
     def __init__(self, a, film, out, sizes):
         self.a, self.film, self.out, self.sizes = a, film, out, sizes
         self.name = a.name or film.name
-        self.scale = int(a.res) / 1080
+        self.root = Path(out).resolve()
         self.state_path = out / 'make-state.json'
         old = load_json(self.state_path, {}) if a.resume else {}
-        self.old_steps = old.get('steps', {}) if isinstance(old, dict) else {}
-        self.state = {'version': 1, 'film': str(film), 'steps': {}}
+        old = old if isinstance(old, dict) else {}
+        # The state belongs to the folder it was written in: its paths name that folder's files. A copied or
+        # moved output folder (or a state from before roots were recorded) resumes nothing.
+        same = old.get('root') == str(self.root)
+        self.old_steps = old.get('steps', {}) if same else {}
+        self.rebound = None if same or not old.get('steps') else (old.get('root') or 'an unrecorded folder')
+        self.state = {'version': 2, 'film': str(film), 'root': str(self.root), 'steps': {}}
         self.findings, self.not_checked, self.notes, self.log = [], [], [], []
         self.size_notes = {}
+        self.loop, self.webs = bool(a.loop), {}
         self.stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
         self.env = dict(os.environ)
         for key, value in (('FFMPEG', a.ffmpeg), ('FFPROBE', a.ffprobe), ('NODE', a.node),
                            ('LF_PLAYWRIGHT_MODULE', a.playwright), ('LF_CHROMIUM', a.browser)):
             if value:
                 self.env[key] = str(Path(value).resolve()) if Path(value).exists() else value
-        spec = importlib.util.spec_from_file_location('lf_render_common', HERE / 'render_common.py')
-        self.C = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(self.C)
+        self.C = render_common()
         spec = importlib.util.spec_from_file_location('lf_sound_io', HERE / 'sound_io.py')
         self.io = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.io)
@@ -500,17 +567,58 @@ class Make:
         """Run a step unless --resume finds its outputs intact and its inputs unchanged."""
         key = digest(inputs)
         prev = self.old_steps.get(name)
-        if (self.a.resume and prev and prev.get('key') == key and prev.get('outputs') and
-                all(Path(p).is_file() and sha256(p) == h for p, h in prev['outputs'].items())):
+        if self.a.resume and prev and prev.get('key') == key and self.cached(prev):
             self.state['steps'][name] = dict(prev, resumed=True)
             print(f'  {name}: skipped (outputs intact, inputs unchanged)', flush=True)
             self.save_state()
             return prev['result']
         result, outputs = run()
         self.state['steps'][name] = {'key': key, 'inputs': inputs, 'result': result, 'resumed': False,
-                                     'outputs': {str(p): sha256(p) for p in outputs if Path(p).is_file()}}
+                                     'outputs': {self.rel(p): sha256(p) for p in outputs if Path(p).is_file()}}
         self.save_state()
         return result
+
+    def rel(self, path):
+        """A path as the state records it: relative to the output folder when inside it."""
+        path = Path(path).resolve()
+        return path.relative_to(self.root).as_posix() if self.inside(path, self.root) else str(path)
+
+    @staticmethod
+    def inside(path, base):
+        path, base = Path(path).resolve(), Path(base).resolve()
+        return path == base or base in path.parents
+
+    def allowed(self, path):
+        """Cached outputs and results may name the output folder and the film folder, nothing else."""
+        return self.inside(path, self.root) or self.inside(path, self.film)
+
+    def cached(self, prev):
+        """Whether a recorded step still describes this folder: every output resolves inside it with its
+        recorded hash, and every absolute path in its result lies inside it (or the film folder)."""
+        outputs = prev.get('outputs')
+        if not outputs or not isinstance(outputs, dict):
+            return False
+        for name, h in outputs.items():
+            path = Path(name) if Path(name).is_absolute() else self.root / name
+            if not self.allowed(path) or not path.is_file() or sha256(path) != h:
+                return False
+
+        def paths(value):
+            if isinstance(value, dict):
+                return [x for v in value.values() for x in paths(v)]
+            if isinstance(value, list):
+                return [x for v in value for x in paths(v)]
+            if isinstance(value, str) and '\n' not in value and len(value) < 1024 and Path(value).is_absolute():
+                return [Path(value)]
+            return []
+        return all(self.allowed(x) for x in paths(prev.get('result')))
+
+    def own(self, path):
+        """A file this run writes beside a deliverable: it must be inside the output folder."""
+        path = Path(path).resolve()
+        if not self.inside(path, self.root):
+            raise CouldNotRun(f'refusing to write beside {path}: it is outside the output folder {self.root}')
+        return path
 
     def save_state(self):
         save_json(self.state_path, self.state)
@@ -548,7 +656,8 @@ class Make:
         return {'sha256': digest(files), 'files': len(files)}
 
     def out_dims(self, size):
-        return round(size[0] * self.scale), round(size[1] * self.scale)
+        """The encoded size for a CSS size (film_render.py's rule: --res is the short side)."""
+        return self.C.output_size(size[0], size[1], self.a.res)
 
     @staticmethod
     def label(size):
@@ -563,7 +672,8 @@ class Make:
             qa.mkdir(parents=True, exist_ok=True)
             self.need_memory('preflight')
             started = time.time() - 2
-            code, text = self.py(f'preflight-{label}', 'film_check.py', self.film, '--size', label,
+            res = ['--res', self.a.res] if self.a.res else []
+            code, text = self.py(f'preflight-{label}', 'film_check.py', self.film, '--size', label, *res,
                                  '--json', qa / 'preflight.json')
             if code == 2:
                 raise CouldNotRun(f'film_check.py could not run at {label}: ' + text.strip()[-600:])
@@ -587,7 +697,7 @@ class Make:
             warnings = report.get('warnings', []) if isinstance(report, dict) else []
             return {'exit': code, 'errors': [str(e) for e in errors][:50], 'warnings': [str(w) for w in warnings][:50],
                     'summary': (text.strip().splitlines() or [''])[-1][:300]}, outputs
-        return self.step(f'preflight {label}', {'source': source['sha256'], 'size': label,
+        return self.step(f'preflight {label}', {'source': source['sha256'], 'size': label, 'res': self.a.res,
                                                 'tool': self.tool_hashes('film_check.py', 'film_capture.mjs')}, go)
 
     def capture_info(self, size, source):
@@ -941,23 +1051,32 @@ class Make:
             renders.mkdir(parents=True, exist_ok=True)
             base = f'{self.name}_{w}x{h}' + ('-preview' if self.a.preview else '')
             target, n = renders / (base + '.mp4'), 1
-            while target.exists() or Path(str(target) + '.manifest.json').exists():
+            while any(Path(str(x) + tail).exists() for x in (target, target.with_suffix('.mkv'))
+                      for tail in ('', '.manifest.json')):
                 n += 1
                 target = renders / f'{base}-{n}.mp4'
-            args = [self.film, '--out', target, '--size', label, '--res', self.a.res, '--samples', self.a.samples]
-            if self.a.preview:
-                args.append('--preview')
+            master = target.with_suffix('.mkv') if self.a.web else None
+            args = [self.film, '--out', master or target, '--size', label, '--samples', self.a.samples]
+            args += ['--res', self.a.res] if self.a.res else []
+            args += ['--preview'] if self.a.preview else []
+            args += ['--lossless'] if master else []
             code, text = self.py(f'render-{label}', 'film_render.py', *args)
             if code == 2:
                 raise CouldNotRun(f'film_render.py could not run at {label}: ' + text.strip()[-600:])
             if code:
                 return {'exit': code, 'error': text.strip()[-600:]}, []
+            outputs = [target, Path(str(target) + '.manifest.json')]
+            if master:
+                self.encode_h264(label, master, target, w, h)
+                outputs += [master, Path(str(master) + '.manifest.json')]
             manifest = load_json(str(target) + '.manifest.json', {})
             return {'exit': 0, 'path': str(target), 'manifest': str(target) + '.manifest.json',
+                    'master': str(master) if master else None,
                     'frames': manifest.get('decoded_frames'), 'versions': manifest.get('versions', {}),
                     'frozen_sha256': manifest.get('frozen_sha256', {}), 'info': manifest.get('info', {}),
-                    'summary': (text.strip().splitlines() or [''])[-1][:300]}, [target, Path(str(target) + '.manifest.json')]
+                    'summary': (text.strip().splitlines() or [''])[-1][:300]}, outputs
         result = self.step(f'render {label}', {'source': source['sha256'], 'size': label, 'res': self.a.res,
+                                               'output': f'{w}x{h}', 'web': self.a.web,
                                                'samples': self.a.samples, 'preview': self.a.preview,
                                                'tools': self.tool_hashes('film_render.py', 'film_capture.mjs',
                                                                          'render_common.py')}, go)
@@ -975,6 +1094,107 @@ class Make:
             self.size_notes[label] = (', '.join(own) + f' differ from {self.label(self.sizes[0])} (they follow this '
                                       'size\'s layout; reported, not failed)')
         return result
+
+    def encode_h264(self, label, master, target, w, h):
+        """The delivery H.264 picture from the lossless render, with film_render.py's own settings."""
+        ffmpeg = find_tool('ffmpeg', self.a.ffmpeg)
+        fps = load_json(str(master) + '.manifest.json', {}).get('info', {}).get('fps', 60)
+        options = self.C.h264_args(w, h, fps, preview=self.a.preview)
+        code, text = self.run(f'h264-{label}', [ffmpeg, '-hide_banner', '-v', 'error', '-nostdin', '-n',
+                                                '-i', master, '-an', *options, target])
+        if code:
+            raise CouldNotRun(f'H.264 encode from the lossless render failed ({label}): ' + text.strip()[-600:])
+        manifest = load_json(str(master) + '.manifest.json', {})
+        manifest.update(output=str(target), output_sha256=sha256(target),
+                        decoded_frames=self.C.decoded_count(find_tool('ffprobe', self.a.ffprobe), target),
+                        derived_from={'path': str(master), 'sha256': sha256(master),
+                                      'encode': 'ffmpeg ' + ' '.join(map(str, options))})
+        save_json(str(target) + '.manifest.json', manifest)
+
+    def probe_dims(self, path):
+        """The encoded size of a file as WxH, read back with ffprobe (what was made, not what was asked)."""
+        r = subprocess.run([find_tool('ffprobe', self.a.ffprobe), '-v', 'error', '-select_streams', 'v:0',
+                            '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x', str(path)],
+                           capture_output=True, text=True)
+        return r.stdout.strip() or None
+
+    def web(self, size, render, sound, info):
+        """A VP9 WebM from the lossless render (never from the H.264 file) and a poster from its frame 0."""
+        label = self.label(size)
+        w, h = self.out_dims(size)
+        deliver = self.out / 'deliver'
+        webm = deliver / f'{self.name}_{w}x{h}.webm'
+        poster = deliver / f'{self.name}_{w}x{h}-poster.png'
+        frames = render.get('frames') or info['frames']
+        duration = frames / info['fps']
+        mix = self.out / 'sound' / 'mix.wav'
+        silent = sound['mode'] == 'none'
+        inputs = {'master': sha256(render['master']), 'mix': None if silent else sound.get('mix_sha256'),
+                  'duration': duration, 'tool': self.tool_hashes('make_film.py', 'render_common.py')}
+
+        def go():
+            ffmpeg = find_tool('ffmpeg', self.a.ffmpeg)
+            deliver.mkdir(parents=True, exist_ok=True)
+            for x in (webm, poster):
+                self.set_aside(x)
+            audio = ['-an'] if silent else ['-i', mix, '-map', '0:v:0', '-map', '1:a:0', '-af', 'apad',
+                                           '-c:a', 'libopus', '-b:a', '128k', '-ar', '48000']
+            code, text = self.run(f'webm-{label}', [
+                ffmpeg, '-hide_banner', '-v', 'error', '-nostdin', '-n', '-i', render['master'], *audio,
+                '-vf', self.C.COLOUR, '-c:v', 'libvpx-vp9', '-crf', '32', '-b:v', '0', '-row-mt', '1',
+                '-deadline', 'good', '-cpu-used', '2', '-threads', '2', '-g', str(max(1, round(info['fps'] * 2))),
+                '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709', '-color_range', 'tv',
+                '-t', f'{duration:.6f}', webm])
+            if code:
+                raise CouldNotRun(f'WebM encode failed ({label}): ' + text.strip()[-600:])
+            code, text = self.run(f'poster-{label}', [
+                ffmpeg, '-hide_banner', '-v', 'error', '-nostdin', '-n', '-i', render['master'],
+                '-frames:v', '1', '-pix_fmt', 'rgb24', poster])
+            if code:
+                raise CouldNotRun(f'poster failed ({label}): ' + text.strip()[-600:])
+            return self.web_check(label, webm, poster, frames, (w, h), silent), [webm, poster]
+        result = self.step(f'web {label}', inputs, go)
+        for detail in result.get('problems', []):
+            self.finding(label, 'web', detail)
+        return result
+
+    def web_check(self, label, webm, poster, frames, dims, silent):
+        """VP9, the frame count, BT.709 tags, the audio stream, and the WebM's frame 0 against the poster."""
+        import numpy as np
+        from PIL import Image
+        ffprobe, ffmpeg = find_tool('ffprobe', self.a.ffprobe), find_tool('ffmpeg', self.a.ffmpeg)
+        r = subprocess.run([ffprobe, '-v', 'error', '-show_streams', '-of', 'json', str(webm)],
+                           capture_output=True, text=True)
+        streams = json.loads(r.stdout or '{}').get('streams', []) if not r.returncode else []
+        video = next((s for s in streams if s.get('codec_type') == 'video'), {})
+        audio = [s.get('codec_name') for s in streams if s.get('codec_type') == 'audio']
+        decoded = self.C.decoded_count(ffprobe, webm)
+        tags = [video.get(k) for k in ('color_primaries', 'color_transfer', 'color_space')]
+        w, h = dims
+        raw = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-i', str(webm), '-frames:v', '1', '-vf',
+                              'scale=in_color_matrix=bt709:in_range=tv,format=rgb24', '-f', 'rawvideo', '-'],
+                             capture_output=True).stdout
+        with Image.open(poster) as im:
+            still = np.asarray(im.convert('RGB'), dtype=np.float32)
+        first = np.frombuffer(raw, np.uint8).astype(np.float32)
+        diff = float(np.abs(first.reshape(h, w, 3) - still).mean()) if first.size == w * h * 3 else None
+        problems = []
+        if video.get('codec_name') != 'vp9':
+            problems.append(f"{webm.name}: video codec {video.get('codec_name')}, not vp9")
+        if decoded != frames:
+            problems.append(f'{webm.name}: {decoded} frames decoded, the picture has {frames}')
+        if tags != ['bt709', 'bt709', 'bt709']:
+            problems.append(f'{webm.name}: colour tags {"/".join(map(str, tags))}, not bt709')
+        if (audio == []) != silent or (audio and audio != ['opus']):
+            problems.append(f'{webm.name}: audio streams {audio or "none"}')
+        if still.shape[:2] != (h, w):
+            problems.append(f'{poster.name}: {still.shape[1]}x{still.shape[0]}, not {w}x{h}')
+        if diff is None or diff > 3.0:
+            problems.append(f'{webm.name}: frame 0 differs from the poster by {diff} levels on average (more than 3)')
+        return {'webm': str(webm), 'poster': str(poster), 'frames': decoded, 'codec': video.get('codec_name'),
+                'tags': tags, 'audio': audio or 'none', 'bytes': webm.stat().st_size,
+                'frame0_vs_poster_mean_abs': None if diff is None else round(diff, 3), 'problems': problems,
+                'status': 'inspect' if problems else 'pass'}
 
     def mux(self, size, render, sound, info):
         label = self.label(size)
@@ -1058,8 +1278,8 @@ class Make:
     def listen_questions(self, key, sound):
         events = [e for e in (load_json(sound['spotted'], {}) or {}).get('events', [])
                   if e.get('enabled', True) and e.get('sound') != 'silent']
-        hits = ', '.join(f"{e['t']:.2f} s" for e in events if 'impact' in str(e.get('role')) or 'hit' in str(e.get('role')))
-        moves = ', '.join(f"{e['t']:.2f} s" for e in events if 'whoosh' in str(e.get('role')))
+        hits = ', '.join(f"{e['t']:.2f} s" for e in events if e.get('role') in ('impact', 'boom', 'tap', 'sting'))
+        moves = ', '.join(f"{e['t']:.2f} s" for e in events if e.get('role') in ('whoosh', 'sweep'))
         return '\n'.join([
             '# Listening pair: A and B', '',
             f"`A.mp4` and `B.mp4` are the same picture ({key['size']}) with two different soundtracks, matched in "
@@ -1111,7 +1331,7 @@ class Make:
                 merged.append([lo, hi])
         return merged
 
-    def qc(self, size, deliverable, sound, info, cues_path):
+    def qc(self, size, deliverable, sound, info, cues_path, web=None):
         label = self.label(size)
         w, h = self.out_dims(size)
         qa = self.out / 'qa' / label
@@ -1125,7 +1345,8 @@ class Make:
                   'declared': sha256(qa / 'declared.json') if (qa / 'declared.json').is_file() else None,
                   'reading': sha256(qa / 'reading.json') if (qa / 'reading.json').is_file() else None,
                   'info': {k: info.get(k) for k in ('fps', 'frames', 'cuts', 'smears', 'rests', 'flashes', 'pace', 'beat',
-                                                    'seams', 'changes')},
+                                                    'seams', 'changes')}, 'loop': self.loop,
+                  'webm': sha256(web['webm']) if web and self.loop else None,
                   'tools': self.tool_hashes(*QC_TOOLS, 'make_film.py')}
 
         def go():
@@ -1158,9 +1379,20 @@ class Make:
                  '--json', qa / 'blank.json', json_path=qa / 'blank.json')
             beat = info.get('beat') or {}
             beat_args = ['--bpm', beat['bpm'], '--beat-offset', beat.get('offset') or 0] if beat.get('bpm') else []
+            loop = ['--loop'] if self.loop else []
             tool('motion_scan', 'motion_scan.py', path, *(['--ignore', ignore_arg] if ignore else []), *beat_args,
-                 '--json', qa / 'motion.json', '--csv', qa / 'motion.csv', json_path=qa / 'motion.json')
+                 *loop, '--json', qa / 'motion.json', '--csv', qa / 'motion.csv', json_path=qa / 'motion.json')
             outputs.append(qa / 'motion.csv')
+            if self.loop:
+                checks['loop_seam'] = self.loop_seam(qa / 'motion.json')
+            if self.loop and web:
+                # The WebM is a deliverable of its own (a different encode): its seam is measured, not assumed.
+                (qa / 'motion-webm.json').unlink(missing_ok=True)
+                self.py(f'motion_scan_webm-{label}', 'motion_scan.py', web['webm'],
+                        *(['--ignore', ignore_arg] if ignore else []), *beat_args, '--loop',
+                        '--json', qa / 'motion-webm.json', '--csv', qa / 'motion-webm.csv')
+                checks['loop_seam_webm'] = self.loop_seam(qa / 'motion-webm.json', Path(web['webm']).name)
+                outputs += [x for x in (qa / 'motion-webm.json', qa / 'motion-webm.csv') if x.is_file()]
             pace = info.get('pace') or info.get('pace_contract')
             if isinstance(pace, dict) and any(pace.get(k) is not None for k in ('max_still_share', 'max_still')):
                 args = []
@@ -1228,6 +1460,20 @@ class Make:
                 self.not_checked.append(f'{label}: {name} (the tool could not run; see logs/)')
         return result
 
+    @staticmethod
+    def loop_seam(path, name=None):
+        """The last-to-first seam that motion_scan.py --loop measured, as a check of its own."""
+        s = (load_json(path, {}) or {}).get('loop_seam')
+        if not isinstance(s, dict):
+            return {'tool': 'motion_scan.py --loop', 'status': 'could not run',
+                    'summary': [f'no loop_seam in {Path(path).name}' + (f' for {name}' if name else '')]}
+        ok = bool(s.get('pass'))
+        line = (f'{name}: ' if name else '') + (
+                f"loop seam: step {s.get('step')} vs typical end step {s.get('typical_end_step')} "
+                f"(limit {s.get('limit')}): {'pass' if ok else 'FAIL'}")
+        return {'tool': 'motion_scan.py --loop', 'status': 'pass' if ok else 'inspect', 'summary': [line],
+                'flags': [] if ok else [line], 'seam': s}
+
     def essential_texts(self, qa):
         reading = load_json(qa / 'reading.json')
         rows = reading.get('texts', []) if isinstance(reading, dict) else reading if isinstance(reading, list) else []
@@ -1272,7 +1518,7 @@ class Make:
                               'offset_frames': round((best[1] - arrive) * fps, 3), 'change_area': best[3],
                               'step': best[2]})
             elif is_seam(c):
-                # A seamless join (a dive through, a collapse) is already the next shot: no change is expected.
+                # A seamless join (a dive, a shrink) is already the next shot: no change is expected.
                 skipped.append(c)
             else:
                 near = [r for r in rows[1:] if abs(r[1] - arrive) <= frame + 1e-4]
@@ -1343,6 +1589,8 @@ class Make:
         deliver = self.out / 'deliver'
         deliver.mkdir(parents=True, exist_ok=True)
         keep = {Path(d['path']).name for d in delivered.values()}
+        for web in self.webs.values():
+            keep |= {Path(web['webm']).name, Path(web['poster']).name}
         captions = []
         first = self.out / 'qa' / self.label(self.sizes[0])
         for ext in ('srt', 'vtt'):
@@ -1363,11 +1611,15 @@ class Make:
         manifests = {}
         draft = sound['mode'] == 'draft'
         for label, d in delivered.items():
-            path = Path(d['path'])
+            path = self.own(d['path'])
+            if not path.is_file():
+                raise CouldNotRun(f'the deliverable {path} is missing')
             r = renders[label]
             m = {'file': path.name, 'bytes': path.stat().st_size, 'sha256': sha256(path),
                  'made_by': f'make_film.py (Legible Film {VERSION})',
-                 'settings': {'size': label, 'res': self.a.res, 'samples': 1 if self.a.preview else self.a.samples,
+                 'settings': {'size': label, 'output_size': self.probe_dims(path),
+                              'res': self.a.res or 'none (the size given)',
+                              'samples': 1 if self.a.preview else self.a.samples,
                               'preview': self.a.preview, 'shutter': 180, 'encode': 'film_render.py defaults '
                               '(H.264 High, CRF 14, BT.709 matrix and tags, closed GOP, fast start)',
                               'audio': d['audio'], 'mux': None if sound['mode'] == 'none' else
@@ -1382,6 +1634,20 @@ class Make:
                             'published': 'nothing posted, uploaded or sent'}}
             save_json(str(path) + '.manifest.json', m)
             manifests[label] = m
+            web = self.webs.get(label)
+            if web:
+                for kind in ('webm', 'poster'):
+                    f = self.own(web[kind])
+                    save_json(str(f) + '.manifest.json', {
+                        'file': f.name, 'bytes': f.stat().st_size, 'sha256': sha256(f),
+                        'made_by': f'make_film.py (Legible Film {VERSION})',
+                        'from': {'lossless_render': r.get('master'), 'sha256': sha256(r['master'])},
+                        'settings': {'size': label, 'output_size': m['settings']['output_size'],
+                                     'encode': 'VP9 CRF 32, BT.709 matrix and tags, Opus 128 kbps when there is sound'
+                                     if kind == 'webm' else 'frame 0 of the lossless render, RGB PNG'},
+                        'checks': {k: web.get(k) for k in ('frames', 'codec', 'tags', 'audio',
+                                                           'frame0_vs_poster_mean_abs', 'loop_seam', 'status')},
+                        'status': m['status']})
         report = self.report(info, source, sound, renders, delivered, qcs, onsets, manifests, captions)
         (deliver / 'delivery-report.md').write_text(report, encoding='utf-8')
         return manifests
@@ -1390,6 +1656,9 @@ class Make:
         draft, silent = sound['mode'] in ('draft', 'hybrid'), sound['mode'] == 'none'
         sound_status = sound_state(sound)
         files = [f'{m["file"]}: {m["bytes"] / 1e6:.6f} MB, SHA-256 `{m["sha256"]}`' for m in manifests.values()]
+        for web in self.webs.values():
+            files += [f'{Path(web[k]).name}: {Path(web[k]).stat().st_size / 1e6:.6f} MB, SHA-256 '
+                      f'`{sha256(web[k])}`' for k in ('webm', 'poster')]
         files += [f'{c.name}: caption sidecar, SHA-256 `{sha256(c)}`' for c in captions]
 
         def check(label, name):
@@ -1432,6 +1701,18 @@ class Make:
                          + f"; declared cuts in the render: {cut['status']} ({'; '.join(cut.get('summary', []))})")
             for d in cut.get('details', []):
                 scans.append(f'{label}: {d}')
+            seam = check(label, 'loop_seam')
+            if self.loop:
+                scans.append(f"{label}: {'; '.join(seam['summary']) or 'loop seam not measured'}")
+            web = self.webs.get(label)
+            if web and self.loop:
+                webm_seam = '; '.join(check(label, 'loop_seam_webm')['summary']) or 'WebM loop seam not measured'
+                scans.append(f'{label}: {webm_seam}')
+            if web:
+                scans.append(f"{label}: WebM {web['status']}: {Path(web['webm']).name}, {web['codec']}, "
+                             f"{web['frames']} frames, tags {'/'.join(map(str, web['tags']))}, audio {web['audio']}, frame 0 against "
+                             f"the poster {web['frame0_vs_poster_mean_abs']} levels"
+                             + (f", loop seam {web.get('loop_seam')}" if self.loop else ''))
             if label in self.size_notes:
                 scans.append(f'{label}: {self.size_notes[label]}')
             sheets = [Path(s).name for s in (qcs.get(label) or {}).get('sheets', [])]
@@ -1448,7 +1729,9 @@ class Make:
         for size in self.sizes:
             p = self.state['steps'].get(f'preflight {self.label(size)}', {}).get('result', {})
             pre.append(f"{self.label(size)}: exit {p.get('exit')}, {len(p.get('errors', []))} error(s), "
-                       f"{len(p.get('warnings', []))} warning(s)")
+                       f"{len(p.get('warnings', []))} warning(s)" + (
+                           f' (type size judged at the delivered {self.label(self.out_dims(size))})'
+                           if self.a.res else ''))
         if silent:
             onset_line = 'not run: silent deliverable'
         elif onsets:
@@ -1472,7 +1755,8 @@ class Make:
                 "manifest",
                 f"cue list SHA-256 `{sha256(self.out / 'cues.json')}`" + (
                     f"; mix SHA-256 `{sound.get('mix_sha256')}`" if not silent else '; no mix (silent)'),
-                f"render: res {self.a.res}, " + ('preview (one sample per frame, no motion blur; not a delivery '
+                'render: output ' + ', '.join(f'{self.label(s)} as {self.label(self.out_dims(s))}' for s in self.sizes)
+                + f" (--res {self.a.res or 'not given'}), " + ('preview (one sample per frame, no motion blur; not a delivery '
                                                   'master)' if self.a.preview else f'{self.a.samples} samples per '
                                                   'frame, 180-degree shutter, cut-aware motion blur'),
                 f'tools: {tools}'],
@@ -1608,9 +1892,14 @@ class Make:
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('film', nargs='?', help='film folder (a kit project with index.html)')
+    p.add_argument('film', nargs='?', help='film folder (a kit project with index.html, or a template in the kit)')
     p.add_argument('--sizes', default='1920x1080,1080x1920', help='comma-separated CSS sizes WxH, one timeline')
-    p.add_argument('--res', choices=('720', '1080', '2160'), default='1080')
+    p.add_argument('--res', type=int, help="output short side in pixels: 720 makes 1280x720 from 1920x1080 and "
+                   '720x1280 from 1080x1920; default each output is the size given')
+    p.add_argument('--loop', action='store_true', help="the film loops: measure the last-to-first seam on every "
+                   "deliverable (motion_scan.py --loop); on by itself when the film's info.loop is true")
+    p.add_argument('--web', action='store_true', help='also a VP9 WebM per size, encoded from a lossless render, '
+                   'and a poster PNG from frame 0')
     p.add_argument('--preview', action='store_true', help='sharp one-sample render, not a delivery master')
     p.add_argument('--samples', type=int, default=4)
     p.add_argument('--sound', help='draft, none, library:FOLDER or a palette.json path; default the film\'s palette, else draft')
@@ -1637,6 +1926,15 @@ def main():
         p.error(str(exc))
     if a.samples < 1 or (a.drop_beat is not None and (not math.isfinite(a.drop_beat) or a.drop_beat < 0)):
         p.error('--samples must be at least 1 and --drop-beat a non-negative beat')
+    if a.res is not None and a.res < 2:
+        p.error('--res is the output short side in pixels, at least 2')
+    for w, h in sizes:
+        out_w, out_h = render_common().output_size(w, h, a.res)
+        if out_w % 2 or out_h % 2:
+            near = render_common().even_res_near(w, h, a.res or min(w, h))
+            hint = f"; --res {near} gives {'x'.join(map(str, render_common().output_size(w, h, near)))}" if near else ''
+            p.error(f"{w}x{h}" + (f' at --res {a.res}' if a.res else '') +
+                    f' gives {out_w}x{out_h}: H.264 4:2:0 needs even sides{hint}')
     if a.name and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', a.name):
         p.error('--name may use letters, digits, dot, dash and underscore')
     summary = {'tool': 'make_film.py', 'version': VERSION, 'exit_code': 2}
@@ -1664,9 +1962,15 @@ def main():
             print(f"  {r['name']}: {r['detail']}\n    fix: {r['fix']}", file=sys.stderr)
         return finish(2, {'error': 'environment incomplete'})
     film = Path(a.film).resolve()
-    out = Path(a.out).resolve() if a.out else film.parent / (film.name + '-make')
+    kit = None if (film / 'index.html').is_file() else template_kit(film)
+    default_out = (Path.cwd() if kit else film.parent) / (film.name + '-make')
+    out = Path(a.out).resolve() if a.out else default_out
+    if kit:
+        film = stage_template(film, kit, out)
+        print(f'make_film.py: {Path(a.film).name} is a template in the kit; made the project {film}', flush=True)
     if not (film / 'index.html').is_file():
-        print(f'make_film.py: could not run: {film} has no index.html (a kit film folder)', file=sys.stderr)
+        print(f'make_film.py: could not run: {film} has no index.html (a kit film folder; start one with '
+              'new_film.py)', file=sys.stderr)
         return finish(2, {'error': 'not a film folder'})
     if out == film or film in out.parents:
         print('make_film.py: could not run: --out must be outside the film folder (renders copy that folder)',
@@ -1693,11 +1997,10 @@ def main():
         if not a.resume:
             for name in ('deliver', 'sound', 'qa', 'cues.json'):
                 m.set_aside(out / name)
-        for size in sizes:
-            w, h = m.out_dims(size)
-            if w % 2 or h % 2:
-                raise CouldNotRun(f'{m.label(size)} at --res {a.res} gives {w}x{h}; H.264 4:2:0 needs even sides')
         print(f'make_film.py: {film.name} -> {out}', flush=True)
+        if m.rebound:
+            print(f'  resume: make-state.json was written for {m.rebound}, not this folder; every step runs again',
+                  flush=True)
         source = m.picture_source()
         cue_lists, declared_cuts, stopped = {}, {}, []
         for size in sizes:
@@ -1727,6 +2030,9 @@ def main():
         if not cues_path.is_file() or sha256(cues_path) != sha256(first):
             shutil.copyfile(first, cues_path)
         info = m.capture_info(sizes[0], source)
+        m.loop = bool(a.loop or info.get('loop'))
+        if m.loop:
+            print('  loop: the seam is measured on every deliverable (motion_scan.py --loop)', flush=True)
         sound = m.sound(info, cues_path)
         print(f"  sound: {sound['mode']}" + (f" ({'; '.join(sound.get('notes', []))})" if sound.get('notes') else ''),
               flush=True)
@@ -1740,6 +2046,10 @@ def main():
             print(f'  render {label}: {Path(r["path"]).name}' +
                   (f'; {m.size_notes[label]}' if label in m.size_notes else ''), flush=True)
             delivered[label] = m.mux(size, r, sound, info)
+            if a.web:
+                m.webs[label] = m.web(size, r, sound, info)
+                print(f"  web {label}: {Path(m.webs[label]['webm']).name}, {Path(m.webs[label]['poster']).name}: "
+                      f"{m.webs[label]['status']}", flush=True)
             if sound['mode'] == 'hybrid' and 'listen' not in sound:
                 sound['listen'] = m.listen_pair(size, r, sound, info)
         onsets = m.cue_onsets(sound, cues_path)
@@ -1747,7 +2057,12 @@ def main():
             label = m.label(size)
             if label in delivered:
                 own = dict(info, **{k: renders[label].get('info', {}).get(k) for k in PER_SIZE})
-                qcs[label] = m.qc(size, delivered[label], sound, own, cues_path)
+                qcs[label] = m.qc(size, delivered[label], sound, own, cues_path, m.webs.get(label))
+                web = m.webs.get(label)
+                if web and m.loop:
+                    seam = qcs[label]['checks'].get('loop_seam_webm') or {'status': 'not run'}
+                    m.webs[label] = dict(web, loop_seam=seam['status'],
+                                         status=web['status'] if seam['status'] == 'pass' else 'inspect')
                 states = ', '.join(f"{k} {c.get('status')}" for k, c in qcs[label]['checks'].items())
                 print(f'  qc {label}: {states}', flush=True)
         if not delivered:

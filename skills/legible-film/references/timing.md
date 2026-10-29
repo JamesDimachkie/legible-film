@@ -177,7 +177,7 @@ Motion and reading compete for the same eyes. Patterns that let the picture carr
 - Find the track's beat phase from its kick attacks, not from bass energy: in one film a bass-energy estimate put
   the conform 68 ms early, and the listener heard it ("off on some beats just by a hair"). Measure swing when the
   groove has one, and place off-beat events with the same swing.
-- Measure a track before building on it: `beat_grid.py` reports its tempo, its phase from attacks, its downbeats and
+- Measure a track before building on it: `tempo_map.py` reports its tempo, its phase from attacks, its downbeats and
   drops, how far beats sit from the grid (residual) and how far the tempo wanders (drift). Fit only the stretch the
   film uses (`--window`), give the tempo you asked for (`--bpm`) so it cannot lock to half or double, and let
   `--drop-at-beat N` compute the offset into the track that lands the drop on film beat N.

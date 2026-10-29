@@ -28,16 +28,15 @@ _spec = importlib.util.spec_from_file_location('sound_io', Path(__file__).with_n
 io = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(io)
 RATE = 48000
-ROLES = ('impact', 'impact_big', 'hit', 'whoosh', 'whoosh_big', 'tick', 'pop', 'key', 'riser', 'logo_hit', 'glitch',
-         'sub', 'air', 'bed', 'boom')
+ROLES = ('impact', 'boom', 'tap', 'whoosh', 'sweep', 'tick', 'pop', 'key', 'riser', 'sting', 'glitch',
+         'sub', 'air', 'bed')
 MEANINGS = ('a word lands', 'a large reveal lands', 'a contact', 'a transition', 'a large transition',
             'a small selection', 'a rounded confirmation', 'a mechanical key accent', 'anticipation into a cut',
             'the identity settles', 'a brief designed interruption', 'low-end weight under a hit',
-            'a bright transient on top', 'continuous room tone or air under the film', 'a large reveal lands')
+            'a bright transient on top', 'continuous room tone or air under the film')
 LAYERS = {'impact': [{'role': 'sub', 'gain_db': -6}, {'role': 'air', 'gain_db': -14}],
-          'impact_big': [{'role': 'sub', 'gain_db': -3}, {'role': 'air', 'gain_db': -12}],
           'boom': [{'role': 'sub', 'gain_db': -3}, {'role': 'air', 'gain_db': -12}],
-          'whoosh_big': [{'role': 'sub', 'gain_db': -16}, {'role': 'air', 'gain_db': -16}]}
+          'sweep': [{'role': 'sub', 'gain_db': -16}, {'role': 'air', 'gain_db': -16}]}
 
 
 def noise(rng, n, low, high):
@@ -66,10 +65,10 @@ def finish(x, fade_in=.001, fade_out=.015, peak_db=-3):
 
 
 def one_shot(role, rng, variant=0):
-    durations = {'impact': .6, 'impact_big': 1.1, 'hit': .18, 'whoosh': .64,
-                 'whoosh_big': 1.1, 'tick': .07, 'pop': .16, 'key': .11,
-                 'riser': 2.2, 'logo_hit': 2.4, 'glitch': .24,
-                 'sub': .48, 'air': .08, 'bed': 6., 'boom': 1.1}
+    durations = {'impact': .6, 'boom': 1.1, 'tap': .18, 'whoosh': .64,
+                 'sweep': 1.1, 'tick': .07, 'pop': .16, 'key': .11,
+                 'riser': 2.2, 'sting': 2.4, 'glitch': .24,
+                 'sub': .48, 'air': .08, 'bed': 6.}
     duration = durations[role] * (1 + (variant - 1) * .025)
     t = np.arange(round(duration * RATE)) / RATE
     pitch = 1 + (variant - 1) * .025
@@ -85,7 +84,7 @@ def one_shot(role, rng, variant=0):
     if role == 'sub':
         f = (46 + 70 * np.exp(-t / .018)) * pitch
         x = np.sin(np.cumsum(2 * np.pi * f / RATE)) * np.exp(-t / .095)
-    elif role in ('impact', 'impact_big', 'logo_hit', 'boom'):
+    elif role in ('impact', 'boom', 'sting'):
         big = role != 'impact'
         freq = (65 if big else 115) + 100 * np.exp(-t / .025)
         phase = np.cumsum(2 * np.pi * freq * pitch / RATE)
@@ -94,11 +93,11 @@ def one_shot(role, rng, variant=0):
                 .16 * np.sin(8 * phase)) * np.exp(-t / (.22 if big else .12))
         transient = noise(rng, n, 1700, 10500) * np.exp(-t / .015) * .85
         tail = noise(rng, n, 500, 8500) * (1 - np.exp(-t / .008)) * np.exp(-t / .22) * .10
-        if role == 'logo_hit':
+        if role == 'sting':
             tail += (.18 * np.sin(2 * np.pi * 660 * pitch * t) + .12 * np.sin(2 * np.pi * 990 * pitch * t)) * np.exp(-t / .65)
             tail += .09 * noise(rng, n, 1800, 10000) * np.exp(-t / .6)
         x = body + transient + tail
-    elif role.startswith('whoosh') or role == 'riser':
+    elif role in ('whoosh', 'sweep', 'riser'):
         u = t / duration
         if role == 'riser':
             amp = (.06 + .94 * u ** 1.5)
@@ -131,7 +130,7 @@ def one_shot(role, rng, variant=0):
     elif role == 'air':
         x = noise(rng, n, 2500, 12000) * np.exp(-t / .012)
     else:
-        x = noise(rng, n, 1200 if role == 'hit' else 2800, 11000) * np.exp(-t / (.012 if role == 'hit' else .005))
+        x = noise(rng, n, 1200 if role == 'tap' else 2800, 11000) * np.exp(-t / (.012 if role == 'tap' else .005))
         x += .18 * np.sin(2 * np.pi * 1500 * pitch * t) * np.exp(-t / .012)
     x = finish(x, fade_out=fade_out, peak_db=-3 - (.6 * variant if role == 'key' else 0))
     if sync == 'apex':

@@ -74,7 +74,8 @@ find_tool = io.find_tool
 RATE = 48000
 EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.mp3', '.ogg'}
 ALIASES = {'whsh': 'whoosh', 'swsh': 'whoosh', 'swoosh': 'whoosh', 'swish': 'whoosh',
-           'impct': 'impact', 'imp': 'impact', 'hit': 'impact', 'boom': 'impact',
+           'impct': 'impact', 'imp': 'impact', 'hit': 'impact', 'boom': 'impact', 'tap': 'impact',
+           'sting': 'impact', 'sweep': 'whoosh',
            'rise': 'riser', 'swell': 'riser', 'build': 'riser', 'click': 'tick',
            'keys': 'key', 'keyboard': 'key', 'typing': 'key', 'glch': 'glitch'}
 FAMILIES = {'impact', 'whoosh', 'riser', 'tick', 'pop', 'key', 'glitch'}

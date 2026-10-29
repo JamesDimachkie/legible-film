@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.2.1 (2026-10-29)
+
+The film kit's own vocabulary, loops, and web deliverables. Films written for 1.2.0 still run unchanged: the old
+names are read as the new ones, and the Atlasfold showcase renders the same pixels.
+
+- **Names:** blocks `Type`, `Still` and `Thread` (were `Words`, `Picture`, `Chain`); shot styles `land`, `kicker`,
+  `meet`, `snap`; hits `bump`, `shake`, `burst`; entrances `whip-h` and `whip-v`; exits `dive` and `shrink`; the
+  `tracer` effect and its `converge` option; sound roles `boom`, `sweep`, `sting` (EndCard `stingGain`) and `tap`;
+  `beat_grid.py` is now `tempo_map.py`. Palettes and cue lists with the 1.2.0 role names still mix.
+- **Blank nodes:** `group.add({w, h})` lays the element out at that size (`node.size(w, h)` resizes one), and the
+  preflight errors on a tracked node that never paints (transparent throughout, no size, always outside the frame,
+  or nothing to draw), naming the node and its block.
+- **Loops:** `loop: true` holds the camera and the preflight checks that the camera, the ground and every tracked
+  element return to their frame-0 values at the end; BLOCKS.md documents the camera hold (`drift: false`) with a
+  loop example.
+- **make_film.py:** `--loop` (on by itself for a loop film) measures the seam on every delivered file with
+  `motion_scan.py --loop`; `--web` adds a VP9 WebM encoded from a lossless render and a poster from frame 0, both
+  checked; `--res N` is now the output's short side (it scaled from 1080 lines before, so `1280x720 --res 720`
+  failed), an odd side is refused before anything runs with a `--res` that works, and manifests record the real
+  output size; the film's `pace` contract is read in either spelling, so its gates now run; a template inside the
+  kit (`assets/kit/films/atlasfold`) can be made directly.
+- **Terminal:** `fullFrame: true` makes the window the whole frame, for a tall frame.
+- `references/ffmpeg-cookbook.md`: an opaque VP9 WebM recipe from a lossless master with the BT.709 matrix, and its
+  poster, tested on a flat brand colour.
+
+- **Fixes from an independent review** of the kit and make pipeline (Atlasfold renders the same pixels):
+  - **make_film.py --resume** binds `make-state.json` to the resolved output folder and records outputs relative to it:
+    resuming in a copied or moved folder runs every step again (it reported a missing deliverable as delivered and
+    wrote manifests into the original folder), a cached step whose outputs or results point outside the output or film
+    folder runs again, and manifests are never written outside the output folder.
+  - **Flash prediction** draws every tracked node as its element paints (fill, background, borders, box shadows,
+    images and canvases, through its children, with their opacity, blur and blend mode). A white tracked panel flipping
+    eight times a second predicted 0 transitions; it now predicts 9, as `flash_scan.py` measures on the render. A
+    tracked node it cannot draw (an SVG, a video) marks the prediction incomplete in film_check.py's output.
+  - **Loop seam:** the preflight compares each tracked element's corners, so a square turned 90 degrees no longer
+    passes because it fills the same box; blur and 3-D turns are compared too.
+  - **make_film.py --web --loop** measures each WebM's own seam with `motion_scan.py --loop` and carries it into the
+    WebM's manifest, the delivery report and the exit status.
+  - **Blank nodes:** a `transparent` or alpha-zero fill no longer counts as paint; borders, shadows and text count only
+    in a colour that is not transparent, and a child only on frames it is visible.
+  - **--res:** film_check.py takes `--res N` (make_film.py passes its own) and judges type size, the large-text
+    contrast rule, dither cells and still resolution at the delivered size, keeping the layout at the CSS size.
+
 ## 1.2.0 (2026-10-29)
 
 Legible Film now makes video end to end: films built in code, edits cut from recordings, a sound chain designed for

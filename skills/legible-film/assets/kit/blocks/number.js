@@ -1,8 +1,8 @@
 // Number: a large number lands with its label; the value comes from a fact, never typed here.
-// It lands by a cut, a slam, or digit by digit (each digit arriving already final). It never rolls or
+// It lands by a hard cut (snap), from scale (land), or digit by digit (each digit arriving already final). It never rolls or
 // counts through values that were not measured. Unit, label and any qualifier sit beside it.
 //
-// Number({ fact, land?: 'slam' | 'cut' | 'digits', label?, qualifier?: true, at?, hold?, ground?, hit? })
+// Number({ fact, land?: 'land' | 'snap' | 'digits', label?, qualifier?: true, at?, hold?, ground?, hit? })
 // The displayed value is the fact's `display`; the qualifier is its `label_beside_value`.
 
 import { block, typeColour, hitAt } from './common.js';
@@ -34,7 +34,7 @@ export const Number_ = block('number', (ctx, o) => {
   for (const n of [valueNode, labelNode, qualNode]) if (n) n.rest({ y: n.y - (blockH - capV) / 2 });
 
   const land = ctx.t0 + ctx.time(o.at ?? 0.12);
-  const style = o.land || 'slam';
+  const style = o.land || 'land';
   const digits = valueNode.letters.length;
   const step = ctx.time(o.step ?? 0.07);
   const done = style === 'digits' ? land + (digits - 1) * step : land;
@@ -42,23 +42,23 @@ export const Number_ = block('number', (ctx, o) => {
   ctx.change(style === 'digits' ? land - 1 / ctx.fps : land - 0.1, done + 0.05, `${value} lands`);
   if (labelNode) ctx.text({ id: `${o.id || o.fact}-label`, role: o.labelRole || 'headline', string: o.label, fact: o.fact, nodes: [labelNode] });
   if (qualNode) ctx.text({ id: `${o.id || o.fact}-qualifier`, role: 'qualifier', string: f.label_beside_value, fact: o.fact, nodes: [qualNode], readFrom: done + ctx.time(o.labelDelay ?? 0.18) + 0.2 });
-  hitAt(ctx, done, o.hit ?? 'hit', { colour, at: () => ctx.screenOf(valueNode) });
+  hitAt(ctx, done, o.hit ?? 'shake', { colour, at: () => ctx.screenOf(valueNode) });
   ctx.cue({ t: done, role: 'impact', sync: 'attack', picture: `${value} lands` });
   if (style === 'digits') for (let i = 0; i < digits - 1; i++) ctx.cue({ t: land + i * step, role: 'tick', sync: 'attack', gain_db: -8, picture: `digit ${i + 1} arrives` });
   const labelAt = done + ctx.time(o.labelDelay ?? 0.18);
   const len = o.len != null ? ctx.time(o.len) : labelAt - ctx.t0 + ctx.time(o.hold ?? 1.8);
 
   function update(t) {
-    if (style === 'slam') {
+    if (style === 'land') {
       const t0 = land - 0.1;
       if (t < land) {
         const p = ctx.progress(t, t0, land);
-        const e = ctx.curves.slam(p);
+        const e = ctx.curves.land(p);
         valueNode.s = ctx.loglerp(2.2, 1, e);
         valueNode.blur = (1 - e) * ctx.u * 1.6;
         valueNode.opacity = t < t0 ? 0 : ctx.ease.fade(Math.min(1, p * 2.5));
       }
-    } else if (style === 'cut') {
+    } else if (style === 'snap') {
       valueNode.opacity = t >= land ? 1 : 0;
     } else {
       const lt = ctx.locked(t);

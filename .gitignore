@@ -24,3 +24,6 @@ Thumbs.db
 .env.*
 *.pem
 *.key
+
+# The README showcase is a deliberate exception
+!.github/media/atlasfold-showcase.mp4

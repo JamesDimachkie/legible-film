@@ -60,11 +60,11 @@ export const Without = block('without', (ctx, o) => {
   ctx.text({ id: o.id || `claim-${o.fact || 'without'}`, role: 'claim', string: o.text, fact: o.fact, nodes: [word] });
   ctx.cue({ t: breakAt, role: 'glitch', sync: 'attack', picture: 'the old way breaks apart' });
   ctx.cue({ t: land, role: 'impact', sync: 'attack', picture: `"${o.text}" lands` });
-  hitAt(ctx, breakAt, 'hit');
+  hitAt(ctx, breakAt, 'shake');
   // The pieces fly fast: give the render motion blur over the break so they never strobe.
   ctx.fast(breakAt, breakAt + 0.45, 12);
   ctx.smear(breakAt, breakAt + 0.4, 2);
-  hitAt(ctx, land, 'beat');
+  hitAt(ctx, land, 'bump');
   const tok = ctx.token('arrive', 'large', 0.1);
 
   function update(t) {
@@ -83,7 +83,7 @@ export const Without = block('without', (ctx, o) => {
     }
     const p = ctx.progress(t, land - 0.1, land);
     if (t < land) {
-      const e = ctx.curves.slam(p);
+      const e = ctx.curves.land(p);
       word.s = ctx.loglerp(2, 1, e);
       word.blur = (1 - e) * u * 1.6;
       word.opacity = t < land - 0.1 ? 0 : ctx.ease.fade(Math.min(1, p * 2.5));

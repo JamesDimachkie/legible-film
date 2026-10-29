@@ -9,7 +9,7 @@
     {
       "name": "legible-film",
       "description": "Plan, build, score, render, revise and quality-check short videos with a coding agent.",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "source": "./",
       "category": "media",
       "author": {

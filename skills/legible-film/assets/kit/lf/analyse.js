@@ -18,6 +18,28 @@ function bbox(M, node) {
   const pts = [[ink[0], ink[1]], [ink[2], ink[1]], [ink[0], ink[3]], [ink[2], ink[3]]].map(p => apply(M, p[0], p[1]));
   return [Math.min(...pts.map(p => p[0])), Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[0])), Math.max(...pts.map(p => p[1]))];
 }
+// The four corners of a node's ink box on screen, in order: they carry its position, size and orientation.
+const corners = (M, node) => {
+  const ink = node.ink || [0, 0, node.w, node.h];
+  return [[ink[0], ink[1]], [ink[2], ink[1]], [ink[2], ink[3]], [ink[0], ink[3]]].map(p => apply(M, p[0], p[1]));
+};
+// A CSS colour's alpha as the browser paints it (0 for transparent, an alpha-zero or an invalid colour).
+const alphas = new Map();
+let probe = null;
+export function colourAlpha(c) {
+  if (c == null || c === '') return 0;
+  if (alphas.has(c)) return alphas.get(c);
+  let a = 1;
+  if (typeof document !== 'undefined') {
+    if (!probe) { const cv = document.createElement('canvas'); cv.width = cv.height = 1; probe = cv.getContext('2d', { willReadFrequently: true }); }
+    probe.clearRect(0, 0, 1, 1);
+    probe.fillStyle = 'transparent'; probe.fillStyle = c;
+    probe.fillRect(0, 0, 1, 1);
+    a = probe.getImageData(0, 0, 1, 1).data[3] / 255;
+  }
+  alphas.set(c, a);
+  return a;
+}
 const overlaps = (a, b) => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];
 const area = b => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
 const clipTo = (b, W, H) => [Math.max(0, b[0]), Math.max(0, b[1]), Math.min(W, b[2]), Math.min(H, b[3])];
@@ -32,6 +54,8 @@ export function analyse(film, opts = {}) {
   const fps = opts.fps || film.fps;
   const n = Math.round(film.duration * fps);
   const W = film.W, H = film.H, S = film.safe, tol = 1.0;
+  // Delivered pixels per CSS pixel: type size and the large-text contrast rule are judged on the delivered raster.
+  const outK = opts.outScale ?? film.outScale ?? 1;
   const texts = film.reg.texts;
   const st = texts.map(() => ({ first: null, last: null, runs: [], cur: null, minPx: Infinity, at: null }));
   const lum = new Array(n), red = new Array(n);
@@ -39,7 +63,7 @@ export function analyse(film, opts = {}) {
   // Motion tracks: every text node and every element a block registered as moving.
   const elements = [];
   texts.forEach(tx => tx.nodes.forEach((node, j) => elements.push({ id: tx.nodes.length > 1 ? `${tx.id}#${j + 1}` : tx.id, node, group: tx.id, parent: node.parent, family: node.parent?.parent, samples: new Float32Array(n * 9), invalid: [] })));
-  for (const tr of film.tracks) elements.push({ id: tr.id, discrete: tr.discrete, node: tr.node, group: tr.id, parent: tr.node.parent, family: tr.node.parent?.parent, samples: new Float32Array(n * 9), invalid: [] });
+  for (const tr of film.tracks) elements.push({ id: tr.id, discrete: tr.discrete, node: tr.node, group: tr.id, parent: tr.node.parent, family: tr.node.parent?.parent, samples: new Float32Array(n * 9), invalid: [], tracked: tr, opaque: 0, sized: 0, shown: 0, filled: false, seen: new Set(), subtree: descendants(tr.node) });
   const readFlags = texts.map(() => new Uint8Array(n));
   const patterns = film.fx.filter(e => e.pattern).concat(film.patterns || []);
   const patternHits = patterns.map(() => ({ frames: 0, first: null, worst: null }));
@@ -141,6 +165,21 @@ export function analyse(film, opts = {}) {
       if (a <= 0.02) { e.samples[o] = 0; continue; }
       const M = inScreen(node) ? node.matrix() : mul(cam.M, node.matrix());
       const b = bbox(M, node), lb = bbox(node.matrix(), node);
+      if (e.tracked) {
+        e.opaque++;
+        if (area(b) >= 1) e.sized++;
+        if (area(clipTo(b, W, H)) >= 1) e.shown++;
+        // Paint is a fill the browser draws (not transparent or alpha zero) on a node visible this frame;
+        // child nodes count on the frames they are visible. Other paint is read from the DOM at the end.
+        if (!e.filled && node.fill != null && colourAlpha(node.fill) > 0.004) e.filled = true;
+        if (!e.filled) {
+          for (const d of e.subtree) {
+            if (d.alpha() <= 0.02) continue;
+            e.seen.add(d);
+            if (d.fill != null && colourAlpha(d.fill) > 0.004) { e.filled = true; break; }
+          }
+        }
+      }
       e.samples.set([1, (b[0] + b[2]) / 2, (b[1] + b[3]) / 2, b[2] - b[0], b[3] - b[1], (lb[0] + lb[2]) / 2, (lb[1] + lb[3]) / 2, lb[2] - lb[0], lb[3] - lb[1]], o);
       for (let q = node; q; q = q.parent) {
         const what = q.s * q.sx < -1e-9 || q.s * q.sy < -1e-9 ? 'negative scale' : q.opacity > 1 + 1e-6 ? `opacity ${q.opacity.toFixed(3)} above 1` : q.opacity < -1e-6 ? 'negative opacity' : q.blur < 0 ? 'negative blur' : q.w < 0 || q.h < 0 ? 'negative size' : null;
@@ -169,6 +208,48 @@ export function analyse(film, opts = {}) {
         if (!h.worst || rec.diff_cdm2 * rec.area > h.worst.diff_cdm2 * h.worst.area) h.worst = rec;
       }
     });
+  }
+  // ---------- loop seam ----------
+  // A loop plays its last frame and then frame 0 again: at the end (t = duration, the frame after the
+  // last) the camera, the ground and every tracked element must be back where frame 0 has them.
+  let loop = null;
+  if (film.loop) {
+    const snap = t => {
+      film.frameT = t;
+      const cam = evaluate(film, t);
+      const els = elements.map(e => {
+        const node = e.node, a = node.alpha();
+        const M = inScreen(node) ? node.matrix() : mul(cam.M, node.matrix());
+        const b = a > 0.02 ? bbox(M, node) : null, q = a > 0.02 ? corners(M, node) : null;
+        return { id: e.id, a, b, q, turn: (Math.atan2(M[1], M[0]) * 180) / Math.PI, flip: Math.sign(M[0] * M[3] - M[1] * M[2]),
+          fill: node.fill, color: node.color, reveal: node.reveal, words: node.revealWords, blur: node.blurChain(), rx: node.rx, ry: node.ry };
+      });
+      return { M: cam.M, ground: film.groundAt(t), els };
+    };
+    const A = snap(0), B = snap(film.duration);
+    const diffs = [];
+    const fmt = v => (Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(2));
+    const dPos = Math.hypot(B.M[4] - A.M[4], B.M[5] - A.M[5]);
+    const dLin = Math.max(...[0, 1, 2, 3].map(i => Math.abs(B.M[i] - A.M[i])));
+    if (dPos > 0.5 || dLin > 1e-3) diffs.push(`camera (moved ${fmt(dPos)} px, scale or roll by ${dLin.toFixed(4)})`);
+    if (A.ground !== B.ground) diffs.push(`ground (${A.ground} at frame 0, ${B.ground} at the end)`);
+    A.els.forEach((x, i) => {
+      const y = B.els[i];
+      if ((x.a > 0.02) !== (y.a > 0.02) || Math.abs(x.a - y.a) > 0.01) { diffs.push(`"${x.id}" opacity ${x.a.toFixed(2)} -> ${y.a.toFixed(2)}`); return; }
+      if (x.a <= 0.02) return;
+      const d = Math.max(...[0, 1, 2, 3].map(k => Math.abs(y.b[k] - x.b[k])));
+      if (d > 0.5) diffs.push(`"${x.id}" box moved ${fmt(d)} px`);
+      // The box alone misses a turn: a square turned 90 degrees fills the same box with its sides swapped.
+      const dq = Math.max(...x.q.map((p, k) => Math.hypot(y.q[k][0] - p[0], y.q[k][1] - p[1])));
+      const turn = ((((y.turn - x.turn) % 360) + 540) % 360) - 180;
+      if (x.flip !== y.flip) diffs.push(`"${x.id}" mirrored`);
+      else if (dq > 0.5 && (d <= 0.5 || Math.abs(turn) > 0.05)) diffs.push(`"${x.id}" orientation: turned ${turn.toFixed(1)} deg (a corner is ${fmt(dq)} px from its frame-0 place)`);
+      if (Math.abs(y.blur - x.blur) > 0.05) diffs.push(`"${x.id}" blur ${x.blur.toFixed(2)} -> ${y.blur.toFixed(2)} px`);
+      if (Math.abs(y.rx - x.rx) > 0.05 || Math.abs(y.ry - x.ry) > 0.05) diffs.push(`"${x.id}" 3-D turn`);
+      if (x.fill !== y.fill || x.color !== y.color) diffs.push(`"${x.id}" colour`);
+      if (x.reveal !== y.reveal || x.words !== y.words) diffs.push(`"${x.id}" reveal`);
+    });
+    loop = { closes: diffs.length === 0, checked: ['camera', 'ground', `${elements.length} tracked elements and texts (corners, opacity, colour, reveal, blur)`], differences: diffs };
   }
   film.frameT = savedFrame;
 
@@ -201,6 +282,7 @@ export function analyse(film, opts = {}) {
   };
   const [maxT, atT] = maxIn1s(trans), [maxR, atR] = maxIn1s(redTrans);
   const errors = [], warnings = [];
+  if (loop && !loop.closes) errors.push(`loop: the seam does not close: ${loop.differences.length} difference(s) between frame 0 and the end (${film.duration.toFixed(3)} s): ${loop.differences.slice(0, 6).join('; ')}${loop.differences.length > 6 ? '; ...' : ''}. Bring every tracked property back to its frame-0 value, and hold the camera (move: {push: 0, roll: 0}, or a block camera returning {drift: false})`);
   // The flashing verdict uses the window method of flash_scan.py on a small raster of each frame
   // (lf/flashmap.js); the whole-frame ground series above stays as the luminance strip.
   const fr = fp ? fp.result() : null;
@@ -209,6 +291,8 @@ export function analyse(film, opts = {}) {
   if (gT > 6) errors.push(`flash: ${gT} opposing luminance transitions within 1 s from ${gAt} s in window ${fr ? JSON.stringify(fr.gb.window) : 'frame'} (more than 3 flashes)` + (fr && fr.flagged.length > 1 ? `; ${fr.flagged.length} windows over the limit` : ''));
   if (rT > 6) errors.push(`red flash: ${rT} saturated-red transitions within 1 s from ${rAt} s`);
   if (gT > 4 && gT <= 6) warnings.push(`flash: ${gT} predicted transitions within 1 s from ${gAt} s (limit 6); check the render with flash_scan.py`);
+  const inc = fr ? fr.incomplete : [];
+  if (inc.length) warnings.push(`flash: the prediction is incomplete: ${inc.length} tracked node(s) paint what it cannot model (${inc.slice(0, 4).map(x => `"${x.id}": ${x.unmodelled.join(', ')}`).join('; ')}${inc.length > 4 ? '; ...' : ''}); it may count too few transitions, so check the render with flash_scan.py`);
 
   // ---------- texts ----------
   const out = [];
@@ -223,6 +307,7 @@ export function analyse(film, opts = {}) {
       in: r3(s.first), readStart: best ? r3(best.start) : null, readEnd: best ? r3(best.end + 1 / fps) : null,
       out: s.last != null ? r3(s.last + 1 / fps) : null, need_s: r3(need),
       min_font_px: best ? Math.round(best.minPx) : null,
+      ...(outK !== 1 ? { min_output_px: best ? Math.round(best.minPx * outK) : null } : {}),
       colour: best ? hex(parse(best.colour)) : null, ground: best ? hex(parse(best.bg)) : null, contrast: null,
     };
     if (best) rec.contrast = +contrast(best.colour, best.bg).toFixed(2);
@@ -234,11 +319,12 @@ export function analyse(film, opts = {}) {
         const usable = best.end + 1 / fps - best.start;
         if (usable + 1e-6 < need) errors.push(`reading: ${tx.id} "${tx.string}" is readable for ${usable.toFixed(2)} s; it needs ${need.toFixed(2)} s`);
         const weight = tx.nodes[0]?.style?.weight ?? 400;
-        const large = best.minPx >= 24 || (best.minPx >= 18.66 && weight >= 700);
+        const px = best.minPx * outK, at = outK !== 1 ? ` in the ${Math.round(W * outK)}x${Math.round(H * outK)} delivered raster` : '';
+        const large = px >= 24 || (px >= 18.66 && weight >= 700);
         const minC = large ? 3 : 4.5;
-        if (rec.contrast < minC) errors.push(`contrast: ${tx.id} "${tx.string}" is ${rec.contrast}:1 (needs ${minC}:1 at ${Math.round(best.minPx)} px)`);
-        const phone = best.minPx * (384 / W);
-        if (phone < 8) warnings.push(`${tx.id}: ${Math.round(best.minPx)} px renders about ${phone.toFixed(1)} px at a 384 px phone feed`);
+        if (rec.contrast < minC) errors.push(`contrast: ${tx.id} "${tx.string}" is ${rec.contrast}:1 (needs ${minC}:1 at ${Math.round(px)} px${at})`);
+        const phone = px * (384 / (W * outK));
+        if (phone < 8) warnings.push(`${tx.id}: ${Math.round(px)} px${at} renders about ${phone.toFixed(1)} px at a 384 px phone feed`);
       }
     }
     // Truth.
@@ -258,6 +344,17 @@ export function analyse(film, opts = {}) {
     out.push(rec);
   });
 
+  // Tracked elements that never paint: a node with no size, nothing to draw, or no visible frame
+  // passes every other check while the viewer sees nothing.
+  for (const e of elements) {
+    if (!e.tracked) continue;
+    const where = `tracked node "${e.id}" (${e.tracked.block}${e.tracked.scene ? `, scene ${e.tracked.scene}` : ''})`;
+    if (!e.opaque) errors.push(`blank: ${where} is never visible: it is transparent on every frame (opacity at or under 0.02 through its ancestors)`);
+    else if (!e.sized) errors.push(`blank: ${where} is never visible: it has no size on any frame it is opaque (w and h are 0); size it with group.add({w, h}) or node.size(w, h)`);
+    else if (!e.shown) errors.push(`blank: ${where} is never visible: it lies outside the frame whenever it is opaque`);
+    else if (!e.filled && !paintsInDom(e.node.el, new Map(e.subtree.map(d => [d.el, d])), e.seen)) errors.push(`blank: ${where} paints nothing: neither its element nor any visible child has both a size and something to draw (a background, border, shadow or text in a colour that is not transparent, an image, a canvas or an SVG); size it with group.add({w, h}) or node.size(w, h) and give it a fill`);
+  }
+
   // Motion and patterns.
   const motion = motionReport({
     fps, n, cuts: film.reg.cuts, hits: [...film.bumps.map(b => [b.t, b.t + 0.06]), ...film.shakes.map(x => [x.t, x.t + x.tau * 3])], blurWins: [...film.reg.smears, ...film.reg.fast].map(w => [w[0], w[1]]), elements,
@@ -275,17 +372,54 @@ export function analyse(film, opts = {}) {
 
   return {
     texts: out,
+    loop,
     motion,
     patterns: { thresholds: PATTERN_THRESHOLDS, items: patternOut },
     grounds: { fps, luminance: lum.map(v => +v.toFixed(4)), red },
     flash: {
       max_transitions_in_1s: gT, at_s: gAt, window: fr ? fr.gb.window : null, red_max_transitions_in_1s: rT, red_at_s: rAt,
-      method: fr ? `flash_scan.py's window method on a ${fr.scan_size[0]}x${fr.scan_size[1]} raster of grounds, plates, windows, type and effect canvases` : 'whole-frame ground series',
-      flagged: fr ? fr.flagged : [], debug: opts.flashDebug && fr ? fr.debug : undefined, frame_mean: { max_transitions_in_1s: maxT, at_s: atT != null ? r3(atT) : null, red_max_transitions_in_1s: maxR },
+      method: fr ? `flash_scan.py's window method on a ${fr.scan_size[0]}x${fr.scan_size[1]} raster of grounds, plates, tracked nodes, windows, type and effect canvases` : 'whole-frame ground series',
+      flagged: fr ? fr.flagged : [], complete: fr ? !inc.length : false, incomplete: inc, tracked_drawn: fr ? fr.tracked : 0, debug: opts.flashDebug && fr ? fr.debug : undefined, frame_mean: { max_transitions_in_1s: maxT, at_s: atT != null ? r3(atT) : null, red_max_transitions_in_1s: maxR },
     },
     errors: [...film.reg.errors, ...errors],
     warnings: [...film.reg.warnings, ...warnings],
   };
+}
+
+// Whether an element, or anything inside it, has a size and something visible to draw: a colour the
+// browser paints (alpha above zero) as a background, border, shadow or text, or an image, canvas or SVG.
+// A child node counts only if it was visible on some frame (`seen`); the opacity and visibility of node
+// elements change per frame, so they are judged from the nodes, not from the last frame drawn.
+function paintsInDom(el, nodes = new Map(), seen = new Set(), depth = 0) {
+  if (!el || depth > 8 || typeof getComputedStyle !== 'function') return true;
+  const node = nodes.get(el);
+  if (node && depth > 0 && !seen.has(node)) return false;
+  const cs = getComputedStyle(el);
+  if (cs.display === 'none' || (!node && depth > 0 && +cs.opacity <= 0.002)) return false;
+  const tag = el.tagName;
+  const box = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: 0, height: 0 };
+  const w = el.offsetWidth ?? box.width, h = el.offsetHeight ?? box.height;
+  const sized = (w > 0 && h > 0) || (box.width > 0 && box.height > 0);
+  if (sized && (node || depth === 0 || cs.visibility !== 'hidden')) {
+    if (/^(IMG|CANVAS|VIDEO|svg|SVG|PICTURE)$/.test(tag)) return true;
+    if (colourAlpha(cs.backgroundColor) > 0.004 || (cs.backgroundImage && cs.backgroundImage !== 'none')) return true;
+    const shadow = cs.boxShadow && cs.boxShadow !== 'none' ? cs.boxShadow.match(/rgba?\([^)]*\)|#[0-9a-f]{3,8}\b/gi) || ['black'] : [];
+    if (shadow.some(c => colourAlpha(c) > 0.004)) return true;
+    for (const side of ['Top', 'Right', 'Bottom', 'Left']) {
+      if (parseFloat(cs[`border${side}Width`]) > 0 && !/^(none|hidden)$/.test(cs[`border${side}Style`]) && colourAlpha(cs[`border${side}Color`]) > 0.004) return true;
+    }
+    const ink = colourAlpha(cs.color) > 0.004 || (parseFloat(cs.webkitTextStrokeWidth) > 0 && colourAlpha(cs.webkitTextStrokeColor) > 0.004);
+    if (ink && [...el.childNodes].some(c => c.nodeType === 3 && c.textContent.trim())) return true;
+  }
+  for (const c of el.children) if (paintsInDom(c, nodes, seen, depth + 1)) return true;
+  return false;
+}
+
+// Every node below this one (not the node itself).
+function descendants(node) {
+  const out = [];
+  for (const c of node.children) out.push(c, ...descendants(c));
+  return out;
 }
 
 function isUnder(node, group) {

@@ -1,30 +1,31 @@
-// Picture: an image that pushes and pans (zoom in log space), words punched in on beats over a tint
+// Still: an image that pushes and pans (zoom in log space), words landing on beats over a tint
 // plate, and cut-ins to details (scale, focus point, cue). Warns when the source has fewer pixels
 // than the frame width times the largest zoom.
 //
-// Picture({ src, from?: { focus: [0.5, 0.5], zoom: 1 }, to?: { focus, zoom: 1.15 }, len,
+// Still({ src, from?: { focus: [0.5, 0.5], zoom: 1 }, to?: { focus, zoom: 1.15 }, len,
 //           words?: [{ text, at, dur, role?, fact?, id? }], tint?: 'ink', tintAlpha?: 0.55,
 //           details?: [{ at, focus, zoom, cue? }], label?: 'ILLUSTRATION' })
 
 import { block, typeColour, hitAt, linesOf, joinLines, layoutLines } from './common.js';
 
-export const Picture = block('picture', (ctx, o) => {
+export const Still = block('still', (ctx, o) => {
   const asset = ctx.env.images.get(o.src);
-  if (!asset?.img) throw new Error(`Picture: ${o.src} was not loaded`);
+  if (!asset?.img) throw new Error(`Still: ${o.src} was not loaded`);
   const iw = asset.width, ih = asset.height;
   const cover = Math.max(ctx.W / iw, ctx.H / ih);
   const w = iw * cover, h = ih * cover;
-  const img = ctx.group.add({ name: 'picture', w, h });
+  const img = ctx.group.add({ name: 'still', w, h });
   const el = asset.img;
   el.style.cssText = `display:block;width:${w}px;height:${h}px;`;
   img.el.appendChild(el);
-  ctx.track(img, 'picture');
+  ctx.track(img, 'still');
   const len = ctx.time(o.len ?? 3);
   const from = { focus: [0.5, 0.5], zoom: 1, ...(o.from || {}) };
   const to = { focus: from.focus, zoom: 1.12, ...(o.to || {}) };
   const details = (o.details || []).map(d => ({ ...d, t: ctx.t0 + ctx.time(d.at) })).sort((a, b) => a.t - b.t);
   const zmax = Math.max(from.zoom, to.zoom, ...details.map(d => d.zoom || 1));
-  if (iw < ctx.W * zmax) ctx.warn(`Picture: ${o.src} is ${iw} px wide; at ${zmax.toFixed(2)}x it needs ${Math.ceil(ctx.W * zmax)} px to stay sharp at ${ctx.W} px`);
+  const outW = Math.round(ctx.W * ctx.film.outScale);   // the delivered width
+  if (iw < outW * zmax) ctx.warn(`Still: ${o.src} is ${iw} px wide; at ${zmax.toFixed(2)}x it needs ${Math.ceil(outW * zmax)} px to stay sharp at ${outW} px`);
   const ground = ctx.colour(o.ground || 'ink');
   ctx.ground(ctx.t0, ground);
 
@@ -44,20 +45,20 @@ export const Picture = block('picture', (ctx, o) => {
     const string = joinLines(lines);
     // Contrast is checked against the plate over the brightest the picture could be (white).
     ctx.text({ id: x.id, role: x.role || 'headline', string, fact: x.fact, nodes: lay.nodes, bg: () => ctx.mix(tintCol, '#FFFFFF', 1 - tintA), readFrom: ctx.t0 + ctx.time(x.at) });
-    ctx.change(ctx.t0 + ctx.time(x.at) - 0.06, ctx.t0 + ctx.time(x.at) + 0.05, `"${string}" punches in`);
-    hitAt(ctx, at, x.hit ?? 'beat');
-    ctx.cue({ t: at, role: x.cue || 'impact', sync: 'attack', picture: `"${string}" punches in over the picture` });
+    ctx.change(ctx.t0 + ctx.time(x.at) - 0.06, ctx.t0 + ctx.time(x.at) + 0.05, `"${string}" lands`);
+    hitAt(ctx, at, x.hit ?? 'bump');
+    ctx.cue({ t: at, role: x.cue || 'impact', sync: 'attack', picture: `"${string}" lands over the picture` });
     return { g, lay, at, end: at + dur };
   });
   for (const d of details) {
     ctx.cut(d.t);
-    if (d.cue !== false) ctx.cue({ t: d.t, role: d.cue || 'hit', sync: 'attack', picture: 'cut-in to a detail' });
+    if (d.cue !== false) ctx.cue({ t: d.t, role: d.cue || 'tap', sync: 'attack', picture: 'cut-in to a detail' });
   }
   let label = null;
   if (o.label) {
     label = ctx.textNode(ctx.screenGroup, { string: o.label, font: 'mono', size: ctx.u * 2.4, weight: 600, tracking: 0.12, color: ctx.pal.paper, anchor: [0, 1] });
     label.rest({ x: ctx.safe[0] - ctx.W / 2, y: ctx.safe[3] - ctx.H / 2 });
-    ctx.text({ id: 'picture-label', role: 'qualifier', string: o.label, fact: o.labelFact, nodes: [label], bg: () => tintCol, readFrom: ctx.t0 });
+    ctx.text({ id: 'still-label', role: 'qualifier', string: o.label, fact: o.labelFact, nodes: [label], bg: () => tintCol, readFrom: ctx.t0 });
   }
 
   function framing(t) {

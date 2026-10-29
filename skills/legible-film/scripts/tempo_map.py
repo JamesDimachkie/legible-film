@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Measure attack timing, tempo, downbeats, loudness rises and within-window drift.
 
-  python beat_grid.py music.wav --bpm 174 --start 0 --window 48 --json grid.json
-  python beat_grid.py music.wav --drop-at-beat 32
+  python tempo_map.py music.wav --bpm 174 --start 0 --window 48 --json grid.json
+  python tempo_map.py music.wav --drop-at-beat 32
 
 --bpm is a narrow tempo prior, not a forced result. Times are seconds in the input
 track; film beats are zero-based from offset_s. A suggested offset is a track trim:
@@ -321,7 +321,7 @@ def main():
             print('  inspect: ' + flag)
         return code
     except (OSError, ValueError, IndexError) as exc:
-        print('beat_grid.py: ' + str(exc), file=sys.stderr)
+        print('tempo_map.py: ' + str(exc), file=sys.stderr)
         return 2
 
 

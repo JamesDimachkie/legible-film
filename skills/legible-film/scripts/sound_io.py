@@ -15,6 +15,28 @@ from pathlib import Path
 import numpy as np
 
 
+# Sound-role names from Legible Film 1.2.0, accepted in palettes and cue lists as the current names.
+LEGACY_ROLES = {'impact_big': 'boom', 'whoosh_big': 'sweep', 'logo_hit': 'sting', 'hit': 'tap'}
+
+
+def current_roles(roles):
+    """A palette's roles with any 1.2.0 role name renamed (a current name already present wins)."""
+    out = dict(roles)
+    for old, new in LEGACY_ROLES.items():
+        if old in out:
+            value = out.pop(old)
+            out.setdefault(new, value)
+    return out
+
+
+def current_events(events):
+    """Cue events with any 1.2.0 role name replaced by the current one (in place; returns the list)."""
+    for ev in events:
+        if isinstance(ev, dict) and ev.get('role') in LEGACY_ROLES:
+            ev['role'] = LEGACY_ROLES[ev['role']]
+    return events
+
+
 def find_tool(name, explicit=None):
     candidate = explicit or os.environ.get(name.upper())
     if candidate:

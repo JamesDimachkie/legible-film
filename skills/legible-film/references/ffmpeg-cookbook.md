@@ -76,8 +76,12 @@ ffmpeg -i loop.mp4 -vf "fps=25,scale=960:-1:flags=lanczos,split[a][b];[a]palette
 # Alpha for editors: ProRes 4444
 ffmpeg -framerate 60 -i frames/%05d.png -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le sting-alpha.mov
 
-# Opaque VP9 WebM for a landing page, from a lossless master so it is not a second lossy generation
-ffmpeg -i master.mkv -c:v libvpx-vp9 -crf 32 -b:v 0 -row-mt 1 -pix_fmt yuv420p -color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -c:a libopus -b:a 128k loop.webm
+# Opaque VP9 WebM for a landing page, from a lossless RGB master (film_render.py --lossless), never from the
+# H.264 delivery file: the BT.709 matrix in the filter, then the tags; Opus when there is sound
+ffmpeg -i master.mkv -i mix.wav -map 0:v:0 -map 1:a:0 -vf "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -c:v libvpx-vp9 -crf 32 -b:v 0 -row-mt 1 -g 120 -color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -af apad -c:a libopus -b:a 128k -t 4.000 loop.webm
+
+# Its poster: frame 0 of the same lossless master, exact RGB
+ffmpeg -i master.mkv -frames:v 1 -pix_fmt rgb24 poster.png
 
 # Lossless H.264 master to make renditions from (large; keep it out of delivery)
 ffmpeg -framerate 60 -i frames/%05d.png -vf "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -c:v libx264 -qp 0 master.mkv
@@ -88,6 +92,11 @@ ffmpeg -framerate 60 -i frames/%05d.png -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 0
 # Light temporal grain before the delivery encode (test it after a platform-like re-encode)
 ffmpeg -i in.mp4 -vf "noise=alls=2:allf=t,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709" -c:v libx264 -crf 16 -c:a copy grained.mp4
 ```
+
+Tested on FFmpeg 9.0.2 with a flat #3D7BFF master: the WebM above decodes (BT.709) to 59,122,254, within 2
+levels, tagged bt709/bt709/bt709 and limited range; the poster is exact. With `-pix_fmt yuv420p` and output tags
+alone the colour matched on this build, but the stream carried no primaries or transfer tag. `make_film.py --web`
+runs this recipe per size and checks the WebM's frame 0 against the poster.
 
 A finish that blends layers must run in RGB: put `format=gbrp` before the blend filters and convert back with
 the colour step above.

@@ -20,7 +20,7 @@ in all (including the main take). Palette role layers count when --palette is
 given. Excess gestures become disabled optional choices, never audible by default.
 The first event is favoured by time; edits may deliberately exceed these limits.
 
-Edits apply LAST by id: {"id": "keep"|"drop"|{"action":"keep", "role":"hit",
+Edits apply LAST by id: {"id": "keep"|"drop"|{"action":"keep", "role":"tap",
 "gain_db":-3}}; a top-level {"edits":{...}} also works. keep restores even a
 merged/thinned event and removes its former merged layer; drop withholds it.
 role and gain (alias gain_db) change that event, including a merged layer.
@@ -270,6 +270,8 @@ def main():
         roles = palette.get('roles', {})
         if not isinstance(roles, dict):
             raise ValueError('palette roles must be an object')
+        roles = io.current_roles(roles)
+        io.current_events(events)
         edits = json.loads(Path(a.edits).read_text(encoding='utf-8')) if a.edits else {}
         if isinstance(edits, dict) and 'edits' in edits:
             edits = edits['edits']

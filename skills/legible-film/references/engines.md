@@ -190,7 +190,7 @@ in the composition engine.
   `silencedetect`, `astats`, `adelay`, `afade`, `alimiter`.
 - **pyloudnorm** (BS.1770 meter in Python), **ffmpeg-normalize** (batch loudnorm).
 - **librosa** 1.0 (requires Python 3.12+) for onset and beat tracking.
-- **Bundled with this skill:** `beat_grid.py` (tempo, phase, downbeats, drops and drift of a track),
+- **Bundled with this skill:** `tempo_map.py` (tempo, phase, downbeats, drops and drift of a track),
   `make_sound_kit.py` (a synthesised, rights-clean starter palette and temp track with exact sync points) and
   `mix_cues.py` (the effects stem, bed and mix from the cue list and the palette).
 - **earshot** (MIT; young) gives agents measurements and labels for sounds, cue sync sheets and code-made

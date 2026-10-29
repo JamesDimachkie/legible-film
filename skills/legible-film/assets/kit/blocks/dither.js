@@ -6,7 +6,7 @@
 // as a photosensitivity risk.
 //
 // Dither({ field: 'gradient' | 'noise' | 'image', src?, ink?, paper?, cell?: 0.9, pattern?: 'bayer' | 'blue',
-//          angle?: 30, speed?: 0.15, len, words?: Words-like single headline { text, role, fact } })
+//          angle?: 30, speed?: 0.15, len, words?: Type-like single headline { text, role, fact } })
 
 import { block, typeColour, layoutLines, linesOf, joinLines } from './common.js';
 
@@ -30,7 +30,8 @@ export const Dither = block('dither', (ctx, o) => {
   const pal = ctx.pal, u = ctx.u;
   const ink = ctx.colour(o.ink || 'ink'), paper = ctx.colour(o.paper || 'accent');
   const cellPx = (o.cell ?? 0.9) * u;
-  if (cellPx < 3) ctx.warn(`Dither: cells are ${cellPx.toFixed(1)} px at ${ctx.W}x${ctx.H}; under about 3 px the pattern is destroyed by 4:2:0 encoding and shimmers in motion`);
+  const k = ctx.film.outScale, outCell = cellPx * k;   // the cell in delivered pixels
+  if (outCell < 3) ctx.warn(`Dither: cells are ${outCell.toFixed(1)} px at ${Math.round(ctx.W * k)}x${Math.round(ctx.H * k)}; under about 3 px the pattern is destroyed by 4:2:0 encoding and shimmers in motion`);
   const len = ctx.time(o.len ?? 3);
   ctx.ground(ctx.t0, ink);
   const over = 1.4;
