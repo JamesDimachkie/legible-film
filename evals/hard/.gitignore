@@ -1,8 +1,0 @@
-# Everything these scripts generate is rebuilt from the scripts; never commit it.
-fixtures/
-fixtures-*/
-runs/
-grades/
-pilot/
-pilot-*/
-grade-work/

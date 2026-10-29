@@ -7,14 +7,17 @@
 Takes rotate per role unless variant is given (zero-based take index). Paths in
 the palette are relative to that palette. Event sync overrides the role's sync;
 when they differ or points_s is absent, the take's requested point is measured.
-Silent window_ms spans that far either side of t. Audible means above -60 dBFS
-per sample; the mixer checks overlapping tails, not just new attacks. Presence
+Silent window_ms spans that far either side of t, clamped to the output. A
+silent cue means no new sound: an audible take starting inside fails; an earlier
+take ringing into the window is informational, with peak and RMS in dBFS.
+Audible means above -60 dBFS per sample. Tail RMS includes the whole clamped
+window, including its quiet samples; levels include any final linear gain. Presence
 uses the isolated effect versus the ducked music over 150 ms after its sync.
 Bands are broad FFT power bands; they locate masking candidates, not audibility.
 No gain normalisation by default. --gain-to-lufs applies one linear gain to all
 stems only if the measured true peak would remain <= -1 dBTP. No limiter.
 Writes stereo 24-bit effects.wav, music.wav, mix.wav and mix-report.json. Needs
-numpy and FFmpeg. Exit 0 required cues placed and silence clean; 1 missing
+numpy and FFmpeg. Exit 0 required cues placed and no new takes in silent windows; 1 missing
 required events, broken silence, clipping or refused gain; 2 could not run.
 Measurements do not decide what sounds right. Every output is unheard.
 """
@@ -191,6 +194,7 @@ def mix(a):
         hits = np.flatnonzero(np.max(np.abs(x), axis=1) > .001)
         audible_ranges.append((start + int(hits[0]), start + int(hits[-1]) + 1) if len(hits) else (0, 0))
     silent_violations = []
+    silent_tails = []
     silent_outside = []
     for t, ev, half in silence:
         if t + half <= 0 or t - half >= duration:
@@ -200,8 +204,16 @@ def mix(a):
         for (row, x, start), (a1, b1) in zip(placed, audible_ranges):
             lo, hi = max(a0, a1, start), min(b0, b1, start + len(x))
             if hi > lo and np.max(np.abs(x[lo - start:hi - start])) > .001:
-                silent_violations.append({'silent_id': ev.get('id'), 'take_event_id': row['id'],
-                                          'overlap_s': [lo / a.rate, hi / a.rate]})
+                detail = {'silent_id': ev.get('id'), 'take_event_id': row['id'],
+                          'overlap_s': [lo / a.rate, hi / a.rate]}
+                if a0 <= start < b0:
+                    silent_violations.append(detail)
+                else:
+                    segment = x[max(a0, start) - start:min(b0, start + len(x)) - start]
+                    rms = np.sqrt(np.sum(segment.astype(np.float64) ** 2) / ((b0 - a0) * x.shape[1]))
+                    detail.update(window_s=[a0 / a.rate, b0 / a.rate],
+                                  peak_dbfs=io.db(np.max(np.abs(segment))), rms_dbfs=io.db(rms))
+                    silent_tails.append(detail)
     music = np.zeros_like(effects)
     ms = palette.get('music', {})
     if ms is None:
@@ -267,6 +279,9 @@ def mix(a):
                 applied_gain = requested
                 gain = 10 ** (applied_gain / 20)
                 effects *= gain; music *= gain; mix_audio *= gain
+    for tail in silent_tails:
+        tail['peak_dbfs'] += applied_gain
+        tail['rms_dbfs'] += applied_gain
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     for name, x in (('effects', effects), ('music', music), ('mix', mix_audio)):
@@ -286,6 +301,7 @@ def mix(a):
               'missing_roles': missing, 'required_sync_outside_output': failed, 'silent_window_violations': silent_violations,
               'stacked_events': stacked, 'presence': presence, 'listening_check_candidates': listening,
               'silent_windows_outside_output': silent_outside,
+              'silent_window_tails': silent_tails,
               'mix': dict(measured, peak_dbfs=io.db(np.max(np.abs(mix_audio))),
                           decoded_peak_dbfs=io.db(np.max(np.abs(io.decode(ffmpeg, out / 'mix.wav', a.rate))))),
               'float_mix_before_gain': before, 'gain_applied_db': applied_gain, 'gain_refused': refused,
@@ -302,6 +318,7 @@ def mix(a):
     if a.json:
         io.save_json(a.json, report)
     print(f"Placed {len(placed)} events; missing {len(missing)}; silence violations {len(silent_violations)}; "
+          f"tails in silent windows {len(silent_tails)} (information); "
           f"peak {report['mix']['peak_dbfs']:.2f} dBFS, true peak {measured['true_peak_dbtp']} dBTP, "
           f"{measured['integrated_lufs']} LUFS. Unheard.")
     if refused:

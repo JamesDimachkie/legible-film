@@ -215,7 +215,21 @@ def run_sound_cases(tool, record, j, scripts_dir):
     io.save_json(j('broken.json'), cues)
     code, _ = tool('mix_cues.py', j('broken.json'), j('palette.json'), '--out-dir', j('broken'))
     r = json.loads(Path(j('broken', 'mix-report.json')).read_text())
-    record('mix_cues: tail inside a silent window fails; exit 1', code == 1 and bool(r['silent_window_violations']))
+    tails = r.get('silent_window_tails', [])
+    expected_tail = io.decode(ffmpeg, j('attack.wav'))[1440:3360] * 10 ** (-2 / 20)
+    record('mix_cues: earlier decay in silent window passes with peak and RMS', code == 0 and
+           not r['silent_window_violations'] and len(tails) == 1 and tails[0]['take_event_id'] == 'attack' and
+           tails[0]['window_s'] == [1.03, 1.07] and
+           abs(tails[0]['peak_dbfs'] - io.db(np.max(np.abs(expected_tail)))) < .001 and
+           abs(tails[0]['rms_dbfs'] - io.level(expected_tail)) < .001,
+           f'exit {code}; tails {tails}')
+    cues['events'][-1]['t'] = 1.
+    io.save_json(j('starts-inside.json'), cues)
+    code, _ = tool('mix_cues.py', j('starts-inside.json'), j('palette.json'), '--out-dir', j('starts-inside'))
+    r = json.loads(Path(j('starts-inside', 'mix-report.json')).read_text())
+    record('mix_cues: take starting inside silent window fails; exit 1', code == 1 and
+           len(r['silent_window_violations']) == 1 and r['silent_window_violations'][0]['take_event_id'] == 'attack',
+           f"exit {code}; violations {r['silent_window_violations']}")
     code, _ = tool('mix_cues.py', j('cues.json'), j('palette.json'), '--out-dir', j('refused'), '--gain-to-lufs', 0)
     r = json.loads(Path(j('refused', 'mix-report.json')).read_text())
     record('mix_cues: unsafe linear normalisation refused; exit 1', code == 1 and bool(r['gain_refused']) and r['gain_applied_db'] == 0)

@@ -17,16 +17,6 @@ To run one:
 3. Grade both runs' outputs against the expectations under neutral labels that hide which run had the skill, with a
    grader from a different model family. Record pass or fail per expectation, with quoted evidence.
 
-## The challenge suite (`hard/`)
-
-Four tasks built to have no ceiling for a strong agent, graded from the files a run leaves rather than from what
-its reply says: a forensic audit of subtle picture, colour and audio defects; a revision that must change one
-qualifier and prove nothing else moved; a two-format teaser made under conflicting facts, an unsafe reference and
-sounds with different sync points; and a release decision that must narrow overclaiming copy and ask the one missing
-question. A script settles 22 items worth 90 points from decoded pixels, timestamps, audio and structured decisions;
-a blind judge compares craft separately. Fixtures are synthetic and generated from a seed. See
-[hard/README.md](hard/README.md).
-
 ## Triggering (`trigger-queries.json`)
 
 Ten requests that should load the skill and ten near-misses that should not. Run each about three times in a fresh
