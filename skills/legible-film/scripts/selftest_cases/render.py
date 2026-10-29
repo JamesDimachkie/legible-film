@@ -11,6 +11,7 @@ These synthetic checks do not judge any real film or normal-speed motion.
 """
 import argparse
 import contextlib
+from fractions import Fraction
 import importlib.util
 import io
 import json
@@ -178,6 +179,10 @@ def run_cases(scripts, work, record):
     spec = importlib.util.spec_from_file_location('render_primitives',scripts/'render_common.py')
     c = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(c)
+    if sys.platform != 'darwin':
+        available = c.free_memory()
+        record('memory guard: measured free memory is a positive int',type(available) is int and available > 0,
+               str(available))
     for error in (ValueError,AttributeError,OSError):
         def unavailable(_name, error=error):
             raise error('memory measurement unavailable')
@@ -187,6 +192,60 @@ def run_cases(scripts, work, record):
                               (1920,1080,30,'4.0'),(1920,1080,60,'4.2'),(3840,2160,60,'5.2')]:
         actual = c.auto_level(w,h,fps)
         record(f'encoder level: {w}x{h}@{fps} selects {expected}',actual == expected,actual)
+    limits = [(None,25000000,31250000),('3.0',12500000,12500000),('3.1',17500000,17500000),
+              ('3.2',25000000,25000000),('4.1',62500000,78125000),('4.2',62500000,78125000),
+              ('5.0',168750000,168750000),('5.1',300000000,300000000),('5.2',300000000,300000000),
+              ('6.0',300000000,300000000),('6.1',600000000,600000000),('6.2',1000000000,1000000000)]
+    capped = []
+    for level,maxrate,bufsize in limits:
+        with patch.object(c.subprocess,'Popen'):
+            encoder = c.Encoder('ffmpeg',j('command-only.mp4'),1920,1080,30,level=level)
+        command = encoder.command
+        capped.append(command[command.index('-maxrate')+1] == str(maxrate) and
+                      command[command.index('-bufsize')+1] == str(bufsize) and
+                      command[command.index('-crf')+1] == '14')
+        encoder.log.close()
+    record('encoder VBV: auto and explicit levels use High-profile MaxBR/MaxCPB; CRF stays 14',all(capped))
+    # Independent random RGB frames stress default CRF 14 at 1080p30. Stream them
+    # one at a time; do not retain a raw clip or all decoded frames in memory.
+    path = j('entropy1080p30.mp4')
+    encoder = c.Encoder('ffmpeg',path,1920,1080,30)
+    rng = np.random.default_rng(73)
+    try:
+        for _ in range(30):
+            encoder.write(rng.integers(0,256,(1080,1920,3),dtype=np.uint8))
+        encoder.close()
+    except BaseException:
+        encoder.abort()
+        raise
+    r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_packets','-show_streams',
+                        '-show_entries','stream=width,height,profile,level,avg_frame_rate,time_base,bit_rate:packet=dts,size',
+                        '-of','json',path],capture_output=True,text=True,check=True)
+    data = json.loads(r.stdout)
+    stream = data['streams'][0]
+    packets = [(int(p['dts'])*Fraction(stream['time_base']),int(p['size'])*8) for p in data['packets']]
+    # Prefill the CPB (initial delay CPB/MaxBR); feed at no more than MaxBR,
+    # pausing while full. Remove each access unit at DTS, not presentation time.
+    # Table A-1 High profile, level 4.0: MaxBR=25 Mbit/s, MaxCPB=31.25 Mbit.
+    maxrate,capacity = 25000000,31250000
+    fullness = minimum = Fraction(capacity)
+    previous = packets[0][0]
+    monotonic,trace = True,[]
+    for dts,bits in packets:
+        monotonic = monotonic and dts >= previous
+        fullness = min(capacity,fullness+maxrate*(dts-previous))-bits
+        minimum = min(minimum,fullness)
+        trace.append({'dts_s':float(dts),'bits':bits,'buffer_bits':float(fullness)})
+        previous = dts
+    peak = max(sum(bits for dts,bits in packets if start <= dts < start+1) for start,_ in packets)
+    Path(j('entropy-vbv.json')).write_text(json.dumps({'stream':stream,'command':encoder.command,
+        'maxrate_bits_per_s':maxrate,'capacity_bits':capacity,'initial_fullness_bits':capacity,
+        'minimum_fullness_bits':float(minimum),'peak_one_second_bits':peak,'packets':trace},indent=2),encoding='utf-8')
+    record('encoder VBV: high-entropy default 1080p30 never underflows level 4.0 CPB',
+           stream['profile'] == 'High' and stream['level'] == 40 and stream['width'] == 1920 and
+           stream['height'] == 1080 and stream['avg_frame_rate'] == '30/1' and len(packets) == 30 and
+           monotonic and minimum >= 0,
+           f'min buffer {float(minimum):.0f}/{capacity} bits; peak 1s {peak} bits (information only)')
     for fps,expected in [(29.97,'2997/100'),(30000/1001,'30000/1001')]:
         path = j(f'fraction-{expected.replace("/","-")}.mp4')
         encoder = c.Encoder('ffmpeg',path,32,32,fps)

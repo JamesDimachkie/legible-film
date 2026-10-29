@@ -110,7 +110,9 @@ diagnostic image does not establish how visible a defect is at normal viewing.
 The bundled detectors read frame differences, brightness and audio envelopes, so they miss what only an eye at full
 resolution catches: print over illustration, a qualifier drifting away from its number, two scenes' text
 overlapping for a few frames, a thread that blinks out, partial letterforms during a reveal, an object a few pixels
-outside the margin, a footnote that leaves early, and a review copy whose colour differs from the master. Look for
+outside the margin, a footnote that leaves early, and a review copy whose colour differs from the master. Nor does
+any script screen regular patterns (stripes, grids, dither) against the regulator's criteria in
+[kinetic-type](kinetic-type.md) §8; look for them at the delivered size. Look for
 these at each scene's busiest moment, in every rendition.
 
 Nor do they judge:

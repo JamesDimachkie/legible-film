@@ -23,6 +23,15 @@ COLOUR = ('scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,'
           'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv')
 LUT = np.arange(256, dtype=np.float32) / 255
 LUT = np.where(LUT <= 0.04045, LUT / 12.92, ((LUT + 0.055) / 1.055) ** 2.4)
+# H.264 Table A-1 MaxBR (kbit/s), MaxCPB (kbit), before the High-profile 1.25 factor.
+H264_VBV = {
+    '1.0': (64, 175), '1b': (128, 350), '1.1': (192, 500),
+    '1.2': (384, 1000), '1.3': (768, 2000), '2.0': (2000, 2000),
+    '2.1': (4000, 4000), '2.2': (4000, 4000), '3.0': (10000, 10000),
+    '3.1': (14000, 14000), '3.2': (20000, 20000), '4.0': (20000, 25000),
+    '4.1': (50000, 62500), '4.2': (50000, 62500), '5.0': (135000, 135000),
+    '5.1': (240000, 240000), '5.2': (240000, 240000), '6.0': (240000, 240000),
+    '6.1': (480000, 480000), '6.2': (800000, 800000)}
 
 
 def find_tool(name, explicit=None):
@@ -155,8 +164,17 @@ class Encoder:
         else:
             if w % 2 or h % 2:
                 raise ValueError('H.264 4:2:0 needs even dimensions')
+            level = str(level or auto_level(w, h, fps))
+            key = level.lower()
+            if key != '1b':
+                number = float(key)
+                key = f'{number / 10 if number >= 10 else number:.1f}'
+            if key not in H264_VBV:
+                raise ValueError('unsupported H.264 level: ' + level)
+            maxrate, bufsize = H264_VBV[key]
             cmd += ['-vf', COLOUR, '-c:v', 'libx264', '-profile:v', 'high', '-preset',
-                    'veryfast' if preview else 'slow', '-crf', str(crf), '-level:v', level or auto_level(w, h, fps),
+                    'veryfast' if preview else 'slow', '-crf', str(crf), '-level:v', level,
+                    '-maxrate', str(maxrate * 1250), '-bufsize', str(bufsize * 1250),
                     '-g', str(max(1, round(fps * 2))), '-flags', '+cgop', '-x264-params', 'open-gop=0',
                     '-threads', '1', '-movflags', '+faststart', '-f', 'mp4']
         self.command = cmd + [str(path)]

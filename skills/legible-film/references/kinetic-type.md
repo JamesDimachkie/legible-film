@@ -142,6 +142,14 @@ This register lives next to three hard limits.
   - replay a recap slowly or inside a small window;
   - `film_check.py` predicts flashes from the kit's ground timeline before rendering, and `flash_scan.py` screens
     every delivered file.
+- **Patterns.** Regular patterns can provoke seizures without flashing. The UK regulator's guidance treats a pattern
+  as a risk when all of these hold: more than five clear light-dark stripe pairs in any orientation (rows of dots
+  count); dark bars below 160 cd/m² with at least 20 cd/m² between light and dark; and more than 40% of the screen
+  when still, or more than 25% when it changes direction, oscillates, flashes or reverses contrast. Smooth flow in one
+  direction is exempt ([Ofcom, Section Two guidance, Annex 1](https://www.ofcom.org.uk/siteassets/resources/documents/tv-radio-and-on-demand/broadcast-guidance/programme-guidance/broadcast-code-guidance/section-2-guidance-notes.pdf)).
+  Keep world textures faint, and check dither fields, speed lines and grids against these criteria at the delivered
+  size; `film_check.py` warns from the kit's own patterns, and a person qualified in these tests settles borderline
+  cases.
 - **Motion.** Whips, rolls, zooms through letters and shakes are large full-frame motion, which can make susceptible
   viewers dizzy ([picture](picture.md) §6). Keep shakes short and decaying and never oscillating.
 - **Reading.** Words carrying a claim, a qualifier, the name or the practical line get a reading window that fits
