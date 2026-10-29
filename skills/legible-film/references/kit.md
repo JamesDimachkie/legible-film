@@ -65,7 +65,9 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
   `tempo_map.py` on the chosen track ([timing](timing.md) §9), and mark the drop shot with `drop: true`.
 - **Declare the contract:** `pace` (for example `{max_still: 0.6, max_still_share: 0.4}`) when the register calls for
   one; claims, names and interface lines declare their reading holds as rests by default, so a held claim is never
-  scored as a stall.
+  scored as a stall. Pace and cue spacing are guides: look and listen at the measurements and let the reviewer decide.
+- **Iterate sound:** pass `--sound-only` with the same film, sizes and `--out` to reuse verified picture renders.
+  The make checks the picture source and cue hashes, versions the deliverable, and reruns audio checks.
 - **Ground changes are flash budget:** every full-frame change between light and dark counts ([kinetic-type](kinetic-type.md)
   §8); the Type block warns when a run of flips crowds the limit.
 - **Tall frames:** blocks lay out in frame units, take the condensed width and stack; check the tall stills rather

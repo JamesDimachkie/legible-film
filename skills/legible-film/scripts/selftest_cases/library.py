@@ -103,11 +103,37 @@ def run_library_cases(tool, record, j, scripts_dir):
     code, text = tool('sound_library.py', 'pick', j('library-cues.json'), report_path, '--out', palette_path, '--takes', 3)
     record('sound_library: pick fills known roles exit 0', code == 0, text.strip()[:250])
     palette = json.loads(Path(palette_path).read_text())
+    single = dict(library, files=[rows['IMPCT_too_long']])
+    io.save_json(j('trim-library.json'), single)
+    io.save_json(j('trim-cues.json'), {'events': [
+        {'id': 'one', 't': 1, 'role': 'impact'}, {'id': 'two', 't': 1.5, 'role': 'impact'}]})
+    code, text = tool('sound_library.py', 'pick', j('trim-cues.json'), j('trim-library.json'),
+                      '--out', j('trim-palette.json'))
+    trimmed = json.loads(Path(j('trim-palette.json')).read_text())
+    take = trimmed.get('roles', {}).get('impact', {}).get('take_records', [{}])[0]
+    trim = take.get('trim') or {}
+    samples = io.decode(ffmpeg, Path(j('trim-palette.json')).parent / take['file'], rate, 2) if take else []
+    original = io.decode(ffmpeg, take['source_file'], rate, 2) if take else []
+    attack = round((rows['IMPCT_too_long']['points_s']['attack'] +
+                    rows['IMPCT_too_long']['attack_rise_s'] + .12) * rate)
+    intact = bool(take) and np.allclose(samples[:attack], original[:attack] * 10 ** (take['gain_db'] / 20),
+                                        atol=2 / 32768)
+    record('sound_library: long impact trimmed after attack with faded tail and attribution',
+           code == 0 and .49 <= trim.get('used_s', 0) <= .55 and trim.get('fade_ms') == 30
+           and trim.get('original_s', 0) > trim.get('used_s', 0) and len(samples) > 0
+           and intact and abs(samples[-1]).max() < .0001 and 'Trimmed from' in take.get('attribution', ''), text[:200])
+    single['files'][0] = dict(single['files'][0], licence='CC BY-ND 4.0')
+    io.save_json(j('nd-library.json'), single)
+    code, text = tool('sound_library.py', 'pick', j('trim-cues.json'), j('nd-library.json'),
+                      '--out', j('nd-palette.json'))
+    nd = json.loads(Path(j('nd-palette.json')).read_text())
+    record('sound_library: ND take refused when trimming is needed',
+           code == 1 and 'ND' in str(nd.get('missing_roles')), text[:200])
     expected = {'impact': 'IMPCT_sharp', 'whoosh': 'WHSH_soft', 'riser': 'riser_clean', 'tick': 'tick_bright'}
-    record('sound_library: shape/tag ranking chooses correct files, rejects long take',
+    record('sound_library: shape/tag ranking chooses correct files',
            all(Path(palette['roles'][role]['take_records'][0]['source_file']).stem.startswith(name)
                for role, name in expected.items()) and
-           all('too_long' not in r['source_file'] for rs in palette['roles'].values() for r in rs['take_records']))
+           all(r['licence'] for rs in palette['roles'].values() for r in rs['take_records']))
     hashes, family, matched = True, True, True
     for role, rs in palette['roles'].items():
         hashes &= all(lib.sha256(Path(palette_path).parent / p) == h for p, h in zip(rs['takes'], rs['sha256']))
@@ -115,7 +141,7 @@ def run_library_cases(tool, record, j, scripts_dir):
         values = [r['matched_level'] for r in rs['take_records']]
         matched &= max(values) - min(values) < .2
     record('sound_library: materialised take hashes and distinct source takes', hashes and family)
-    record('sound_library: variants level matched without mixer changes', matched and len(palette['roles']['impact']['takes']) == 2)
+    record('sound_library: variants level matched without mixer changes', matched and len(palette['roles']['impact']['takes']) >= 2)
     code, text = tool('mix_cues.py', j('library-cues.json'), palette_path, '--out-dir', j('library-mix'))
     record('sound_library: existing mixer accepts palette and places every event', code == 0, text.strip()[:150])
     code, text = tool('cue_onsets.py', j('library-mix', 'effects.wav'), j('library-cues.json'), '--json', j('library-sync.json'))

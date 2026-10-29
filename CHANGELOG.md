@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 (2026-10-29)
+
+- Report pace and cue timing as taste checks while retaining safety and specification gates.
+- Reuse verified picture renders for sound iterations with `--sound-only`.
+- Trim eligible library takes with a fade, preserving their attacks and recording the modification.
+
 ## 1.2.1 (2026-10-29)
 
 The film kit's own vocabulary, loops, and web deliverables. Films written for 1.2.0 still run unchanged: the old

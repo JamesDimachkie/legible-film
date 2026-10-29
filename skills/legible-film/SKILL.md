@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. The film kit's checks and renders also need Node 18+ with Playwright and a Chromium. No accounts or paid services required."
 metadata:
   author: "James Dimachkie"
-  version: "1.2.1"
+  version: "1.2.2"
 ---
 
 # Legible Film
