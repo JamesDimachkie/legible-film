@@ -89,6 +89,11 @@ Dark tints are flattened by 8-bit 4:2:0 encoding; judge exact dark brand colours
   24-30 fps and 12 Mbps at 48-60 fps as minimum guidance).
 - 4:2:2 and 4:4:4 H.264, and some HEVC variants, fail in browsers, phones or QuickTime; deliver them only when
   the spec asks.
+- **Set the H.264 level, then check it.** A hardware decoder plays streams up to the level it was built for, and a
+  device's specification names that level. x264 otherwise picks the level the stream needs, and slower presets use
+  more reference frames: on FFmpeg 9.0.2 a 2160p60 encode signalled level 5.2 with `-preset slow` but 6.0 with
+  `slower` and `veryslow`, while `-level 5.2` kept all three at 5.2. Pass `-level 4.2` for 1080p60 and `5.2` for
+  2160p60 unless the spec says otherwise, and verify with `qc_file.py --max-level`.
 - Alpha deliverables: ProRes 4444 (`.mov`) for editors, VP9 WebM with alpha for browsers. Check the alpha
   channel itself; a page background is not always captured as opaque.
 - A seamless loop survives encoding better from a lossless intermediate (PNG sequence) encoded once; check the

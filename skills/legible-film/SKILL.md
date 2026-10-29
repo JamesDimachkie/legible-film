@@ -253,7 +253,8 @@ Each was hit in real production or measured while building this skill.
 In `scripts/`; each prints `--help`. The measuring scripts also write JSON with `--json`; `frame_sheet.py` and
 `onion_frames.py` write PNG images. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2 the
 check could not run, which the report lists as not checked. Run `python scripts/selftest.py` once to confirm the
-environment (about half a minute, synthetic media only).
+environment (about a minute, synthetic media only), and `python scripts/kit_selftest.py` before using the film kit
+(it checks Node, Playwright and Chromium, and skips with the reason when one is missing).
 
 | Script | Answers |
 |---|---|

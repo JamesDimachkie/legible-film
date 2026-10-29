@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check the repository's Markdown: inline relative links, images (Markdown or HTML <img>) and heading
-anchors resolve, SKILL.md stays under 500 lines, and every script SKILL.md names exists and answers --help.
+anchors resolve, SKILL.md stays under 500 lines, and every script SKILL.md names exists and answers --help
+(Node scripts too, when node is on PATH).
 
 Reference-style links, external URLs and links inside fenced code are not checked, nor are the agent
 outputs under evals/results/*/runs, which are published verbatim.
@@ -10,6 +11,7 @@ outputs under evals/results/*/runs, which are published verbatim.
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -67,6 +69,15 @@ def main():
             continue
         r = subprocess.run([sys.executable, path, '--help'], capture_output=True, text=True)
         if r.returncode:
+            problems.append(f'{script} --help failed')
+    node = shutil.which('node')
+    for script in sorted(set(re.findall(r'`([a-z_]+\.mjs)', skill))):
+        path = os.path.join(SKILL, 'scripts', script)
+        if not os.path.exists(path):
+            problems.append(f'SKILL.md names a missing script: {script}')
+        elif not node:
+            print(f'note: node is not on PATH, so {script} --help was not run')
+        elif subprocess.run([node, path, '--help'], capture_output=True, text=True).returncode:
             problems.append(f'{script} --help failed')
     lines = skill.count('\n')
     if lines > 500:

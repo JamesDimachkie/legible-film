@@ -82,6 +82,13 @@ Each of these was hit in production with an HTML engine (HyperFrames, on Chromiu
 - **A standalone harness never sees the timeline.** Waiting on the default animation-frame polling never fired in a
   headless shell; poll on an interval, and inject `window.__timelines = {}` before the page loads.
 
+Measured while building this skill's own capture worker (Chromium 156 through Playwright, on Windows):
+
+- **A clip in CSS pixels returns CSS pixels.** At a device scale factor of 2, a DevTools screenshot whose clip scale
+  was 1 came back at half the intended size (320x180 for a 640x360 render); capture at the device scale, then check
+  the decoded frame's size. `film_capture.mjs calibrate` checks size, all four edges, a large 3D layer, fonts and
+  seek determinism before a capture loop is trusted.
+
 General browser-animation hygiene that prevents others: animate position with transforms rather than layout
 properties (layout positions round to whole pixels, so slow drifts step); keep any blur that animates on small layers;
 overscan a plate that is blurred so its transparent edge never enters the frame; and load gradients as pre-rendered,

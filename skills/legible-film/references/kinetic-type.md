@@ -72,11 +72,12 @@ register comes from what moves between the hits. `motion_scan.py` measures it:
 - **still share:** frames where under 1.5% of the picture changes by more than 24 grey levels from the frame before
   (at 320 px wide);
 - **still stretches** and the longest one, each with the beat it starts on when you give the tempo;
-- **hard cuts per 10 s** and full-frame flips.
+- **change events per 10 s:** frames where half the picture or more is replaced at once, with a whip's blurred
+  frames or a flash counted once; and full-frame flips.
 
 Measure the references the person chose and put their numbers beside the film's ([studio](studio.md) §4). Measured
-on a published 52-second kinetic-type launch film, before its end card: MEASURE-STILL% still frames, the longest
-still stretch MEASURE-LONGEST s, MEASURE-CUTS hard cuts per 10 s.
+this way on a published 52-second kinetic-type launch film, before its end card: 29% of frames still, the longest
+still stretch 0.57 s, and 5.5 change events per 10 s.
 
 Declare the film's own pace contract in the brief, for example "40% still frames or fewer and no still stretch over
 0.6 s, outside the end card and the declared reading holds", and check the delivered file against it:
