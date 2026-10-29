@@ -38,7 +38,8 @@ reason. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2
 | 8 | Viewing size | `python scripts/frame_sheet.py film.mp4 --at <text moments> --width 384 --out qa/phone.png` | what essential text looks like at feed size | that someone can read it in time |
 | 9 | Full-resolution moments | `python scripts/frame_sheet.py film.mp4 --at <changed and busiest moments> --width 1920 --keep-frames qa/frames --out qa/full.png` | margins, overlaps, print over illustration, qualifiers beside numbers, every rendition | motion |
 | 10 | Sounds on cue | `python scripts/cue_onsets.py stems/effects.wav cues.json --json qa/cues.json` (or the delivered file) | each required sound's onset offset, silent cues quiet | that the cue list matches the picture, or that it sounds right |
-| 11 | Delivered audio vs approved mix | `python scripts/sync_check.py film.mp4 audio/master.wav --json qa/sync.json` | transport offset or drift introduced by mux and encode | picture-event sync |
+| 11 | Delivered audio vs approved mix | `python scripts/sync_check.py film.mp4 audio/master.wav --json qa/sync.json` | transport offset, or a drift (a lag that grows) with its rate ratio and the resampling that repairs it; a single shift never fixes a drift | picture-event sync |
+| 13 | A qualifier, logo or patch through its whole interval | `python scripts/region_check.py film.mp4 --region X,Y,W,H --interval A-B --reference approved.png --json qa/region.json` | every decoded frame of the interval still carries the region (one representative still misses a qualifier that leaves 0.5 s early) | that it is read in time |
 | 12 | Motion path | `python scripts/onion_frames.py --out qa/onion.png qa/frames/<consecutive frames>` | spacing, overshoot and jumps across a move | a single bad frame inside the stack |
 
 Run 1-9 on every delivered rendition (each aspect ratio, the loop, the alpha version, the GIF), adapted as above;

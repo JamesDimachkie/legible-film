@@ -131,6 +131,43 @@ falls back to dynamic normalisation (a fallback reproduced on a synthetic tone i
 `print_format=json` to the second pass and read `normalization_type`; if it says `dynamic` and the dynamics must
 be kept, relax the target or apply plain gain with `volume=` instead.
 
+### Repair a steadily growing audio offset
+
+A global shift cannot remove drift. Compare separated non-silent windows with
+`sync_check.py delivered.mp4 approved.wav --windows 8 --json qa/sync.json`. A supported affine fit reports
+`delivered_time = time_scale * reference_time + offset_s`, with `rate_ratio = 1 / time_scale`.
+Positive offset means late audio. For a sample-clock error made by slowing audio to **0.99** of the approved
+rate, `rate_ratio` is about **0.99**, and the repair speed is **1.010101010101**. The tool retains the original
+window measurements and validates the proposed rate against full-length rate-adjusted windows. A step edit,
+nonlinear drift or weak/ambiguous correlation does not justify a single global repair.
+
+Use the tool's printed command and exact measured values. General recipe, with a 24 s picture, a fitted
+`time_scale` of 1.010101010101 and a fitted `offset_s` of +0.043 s:
+
+```bash
+# Inverse sample-clock repair: speed up, reset PTS, remove the corrected offset,
+# then pad/trim audio to the picture's measured duration. Copy every picture frame.
+ffmpeg -i delivered.mp4 -map 0:v:0 -map 0:a:0 -c:v copy \
+  -af "aresample=48000,asetrate=48000*1.010101010101,aresample=48000,asetpts=PTS-STARTPTS,atrim=start=0.042570000,asetpts=PTS-STARTPTS,apad,atrim=duration=24,asetpts=N/SR/TB" \
+  -t 24 -c:a aac -b:a 256k -ar 48000 -movflags +faststart delivered-rate-repaired.mp4
+```
+
+For general values `S = time_scale`, `B = offset_s`, and picture duration `D`, use `asetrate=48000*S`, then
+`aresample=48000,asetpts=PTS-STARTPTS`. If `B > 0`, remove `B/S` seconds with `atrim=start=B/S` and reset
+PTS again. If `B < 0`, insert `round(-B/S*48000)` samples of silence with `adelay=NS:all=1` (replace `N`
+with that integer); do not trim. If `B = 0`, omit both. Finish with `apad,atrim=duration=D,asetpts=N/SR/TB`
+and output `-t D`, never `-shortest`. Substitute evaluated numbers in filter arguments. Measure `D` from the
+picture, not the longer drifting audio or the container duration. The printed command requires a zero-origin
+picture; resolve nonzero container origins and discontinuities before applying this decoded-sample-clock fit.
+
+`asetrate` plus `aresample` changes pitch and is the inverse of a sample-clock error. For a true tempo error
+whose pitch should stay unchanged, substitute `atempo=S,asetpts=PTS-STARTPTS` for the rate filters (chain
+supported factors for a large change), then apply the same offset and duration steps. It is not the inverse
+of a pitch-changing resample. Prefer reconforming the approved master when the cause is uncertain.
+Re-run `sync_check.py` at every separated window on the repaired deliverable, `cue_onsets.py` against the
+picture's cue list, and the file/true-peak checks; a person must listen. These synthetic repairs establish
+measured alignment only, not picture-event sync or audio quality.
+
 ## Mux
 
 ```bash

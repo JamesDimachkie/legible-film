@@ -264,7 +264,8 @@ environment (about a minute, synthetic media only), and `python scripts/kit_self
 | `blank_scan.py` | Are there near-empty frames outside the designed ones? |
 | `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam; pace (still share, still stretches, cuts per 10 s) against a declared contract. |
 | `cue_onsets.py` | Does each sound start, peak or end on its cue, do silent cues stay quiet, and is the hit rate better than chance? |
-| `sync_check.py` | Is the delivered audio offset or drifting against the approved mix? |
+| `sync_check.py` | Is the delivered audio offset or drifting against the approved mix, and if it drifts, what resampling repairs it? |
+| `region_check.py` | Does a text, logo or patch survive its whole interval in the delivered file, or does it drop out early? |
 | `compare_versions.py` | Where did the picture change between two renders? |
 | `onion_frames.py` | What path and spacing does a move have across these frames? |
 | `beat_grid.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
