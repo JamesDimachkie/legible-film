@@ -62,6 +62,10 @@ stop only processes you started, by their own PID.
 | Check or review an existing file | Steps 7-8 |
 | Choose or set up tools | [engines](references/engines.md) |
 
+When an input the path needs is missing (the footage, the approved mix, the baseline), name the operations it blocks
+and finish everything that does not depend on it: the plan, the hypotheses, and the comparisons and checks to run when
+it arrives. Report missing media as not assessed.
+
 ## Studio grade
 
 When the person asks for studio grade, the highest quality, or gives a budget for premium assets, follow
@@ -84,8 +88,9 @@ Each step leaves a file in the project, so the next session, person or agent can
   date read, conditions and on-screen label.
 - Ask only for what is genuinely missing (usually the audience, where it plays, or the facts); write down everything
   you assumed instead of asking.
-- Write down how the delivered file will be checked (step 7) and who will watch it, so the plan carries its QC from
-  the start.
+- Write the QC plan as a table: each requirement of the brief (a claim on screen for its whole interval, a sound on
+  its event, a duration, a loudness), the check that measures it, its frame interval and its tolerance, and who will
+  watch. A safety screen such as the flash scan never stands in for a requirement's own check.
 
 Done when `brief.md` ([template](assets/templates/brief.md)) states the deliverable in one line (size, frame rate,
 duration, renditions, sound, captions), every claim in the draft has a facts entry, and the person has agreed the
@@ -169,7 +174,9 @@ Read [qc](references/qc.md). Check the file a viewer will receive.
 
 - Declare designed cuts, holds, flashes and silences, with reasons, before running detectors.
 - Run `qc_file.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py` and `frame_sheet.py` (overview, every
-  transition, viewing size); with sound, `cue_onsets.py` and `sync_check.py`; on a revision, `compare_versions.py`.
+  transition, viewing size); `region_check.py` on every essential claim, qualifier and logo across its whole
+  interval, because stills say nothing about the frames between them; with sound, `cue_onsets.py` and
+  `sync_check.py`; on a revision, `compare_versions.py`. Run each check as its own command and keep its exit status.
 - Inspect every flag in context and record it as confirmed, refuted or unresolved; check every string against the
   facts file.
 
@@ -206,6 +213,10 @@ sending wait for the person.
   note would change the approved design, show a still or a short motion proposal first.
 - Prove it: `compare_versions.py` shows changes only where intended; after a picture-only change, the re-exported cue
   list is byte-identical before the mix is reused; decoded audio hashes match when the sound should be unchanged.
+- Before rebuilding a mix, record each event's picture time, each sound's sync point and the brief's tolerance, and
+  check the delivered mix against that record. When a sound moves or goes, check both windows on the delivered mix:
+  the old one quiet, the new one on cue. Keep the effects stem and the mix recipe; without them, a removal is
+  unverified, and the report says so.
 
 ## Short pieces
 
@@ -244,6 +255,8 @@ Each was hit in real production or measured while building this skill.
 - A two-frames-a-second overview passed defects that full-resolution frames caught, and a frame-by-frame check passed
   an ending that looked wrong at speed. Use each check for what it can see.
 - In FFmpeg filter arguments, a Windows drive-letter colon breaks the graph; run from the file's folder.
+- PowerShell has no brace expansion, and a here-string's closing delimiter must start its own line; `ffprobe` reads
+  one input per call. List files explicitly and probe each file on its own ([ffmpeg-cookbook](references/ffmpeg-cookbook.md#windows-and-quoting-notes)).
 - Screen recordings and GIFs often vary their frame timing, so frame number divided by frame rate is not when a
   frame plays; a flash screen that assumed it cleared a 4 Hz flash. Time frames by their presentation timestamps,
   as the scripts do.
@@ -252,8 +265,9 @@ Each was hit in real production or measured while building this skill.
 
 In `scripts/`; each prints `--help`. The measuring scripts also write JSON with `--json`; `frame_sheet.py` and
 `onion_frames.py` write PNG images. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2 the
-check could not run, which the report lists as not checked. Run `python scripts/selftest.py` once to confirm the
-environment (about a minute, synthetic media only), and `python scripts/kit_selftest.py` before using the film kit
+check could not run, which the report lists as not checked. Run `python scripts/selftest.py` once per environment
+and skill version to confirm it (about a minute, synthetic media only; rerun after an update or a tool anomaly, not
+per project phase), and `python scripts/kit_selftest.py` before using the film kit
 (it checks Node, Playwright and Chromium, and skips with the reason when one is missing).
 
 | Script | Answers |

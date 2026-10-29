@@ -219,6 +219,24 @@ Periodic changes every few seconds in a VP8 or VP9 recording can be keyframes, n
   folder and use relative names, or escape the colon (`C\:/path`).
 - Escape commas inside filter expressions (`eq(n\,120)`) and quote the whole filter graph.
 - Some builds do not support `-pattern_type glob`; use numbered sequences (`frames/%05d.png`).
+- `ffprobe` takes one input per call ("Argument 'b.mp4' provided as input filename, but 'a.mp4' was already
+  specified"), and `-vsync` is gone from FFmpeg 9 (use `-fps_mode`). Probe each file on its own and check each exit
+  code; a chained batch reports only the last.
+- PowerShell has no brace expansion (`{a,b}.mp4`), and a here-string's closing `'@` must start its own line. Windows
+  PowerShell 5.1 writes text files with a byte-order mark (`Set-Content -Encoding UTF8`) or as UTF-16 (`Out-File`,
+  `>`); write files for other tools with `[IO.File]::WriteAllText`, which writes UTF-8 without one. Tested in
+  PowerShell 5.1 and 7:
+
+  ```powershell
+  $cues = @'
+  [{"id": "hit", "t": 0.5, "sound": "required", "sync": "attack", "tolerance_ms": 25}]
+  '@
+  [IO.File]::WriteAllText("$PWD\cues.json", $cues)
+  foreach ($f in @('a.mp4', 'b.mp4')) {
+    ffprobe -v error -show_entries format=duration -of csv=p=0 $f
+    if ($LASTEXITCODE -ne 0) { Write-Output "$f could not be probed (exit $LASTEXITCODE)" }
+  }
+  ```
 - `drawtext` needs fontconfig or an explicit `fontfile=`. On a Windows static build without a fontconfig file,
   FFmpeg 9.0.2 printed fontconfig errors and fell back to a default font, and an 8.1 build crashed. Pass
   `fontfile=` explicitly, or label images with Pillow (as `frame_sheet.py` does).

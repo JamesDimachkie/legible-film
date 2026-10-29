@@ -19,6 +19,15 @@ else is a candidate to inspect. A declaration is
 only for what was designed: listing an accident as intended turns a defect into a false report. Tune a
 threshold only with representative evidence and a stated reason.
 
+Then map each requirement of the brief to the check that measures it, so no requirement rests on a check built for
+something else (a clean flash screen says nothing about a qualifier that drops out for 16 frames):
+
+| Requirement | Check | Interval | Tolerance |
+|---|---|---|---|
+| "Up to 2x faster" stays legible with its qualifier | `region_check.py --region <qualifier> --reference approved.png` | 4.20-9.00 s, every decoded frame | the tool's codec tolerance |
+| The send click sounds on the button press | `cue_onsets.py` on the delivered mix against the original event times | the cue's window | the brief's 25 ms, never a default |
+| Plays muted on a phone | `frame_sheet.py --width 384` at each text moment | each reading window | read by a person |
+
 ## 2. The battery
 
 The commands show a 1080p60 MP4 with sound; substitute each rendition's own spec. For a GIF, leave out fast start,
@@ -76,6 +85,11 @@ A flag is a candidate until inspected. For each one:
 3. Try to refute it: intended behaviour, a stale cut, a measurement artifact (a near-black fade can cross the
    blank threshold in one encode and not another), or a fix that would damage approved work.
 4. Record it as **confirmed**, **refuted** (with the reason) or **unresolved**.
+
+An inconclusive result stays inconclusive: a cue hit rate no better than chance, a weak sync correlation, an onset
+under a repetitive bed. Report the candidate offset and what it rests on, then name the next diagnostic (the isolated
+effects stem, the sound's reference file, a person listening at that time). Loosening a tolerance to reach a pass
+turns an open question into a false one.
 
 A failed or incomplete decode is not a clean result: the affected checks are unverified. A high-contrast
 diagnostic image does not establish how visible a defect is at normal viewing.
