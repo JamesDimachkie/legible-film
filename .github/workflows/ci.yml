@@ -59,7 +59,7 @@ jobs:
           npm install playwright@1.64.1
           npx playwright install --with-deps chromium
       - name: Kit self-test (capture, motion blur, colour, sizes)
-        run: python skills/legible-film/scripts/kit_selftest.py --playwright "$RUNNER_TEMP/pw/node_modules/playwright"
+        run: python skills/legible-film/scripts/kit_selftest.py --require --playwright "$RUNNER_TEMP/pw/node_modules/playwright"
 
   docs:
     runs-on: ubuntu-latest

@@ -8,7 +8,7 @@ Runs one Chromium at a time, calibrates, checks info/analyse/stills, renders a s
 whip/cut fixture, verifies frame count, no cross-cut mixing, pre-cut blur, frame-locked
 state, frozen-source custody, BT.709 tags and a decoded brand patch via qc_file.py.
 Needs numpy, Pillow, FFmpeg and Node/Playwright/Chromium. Missing Node, Playwright or
-Chromium prints 'skipped: <reason>' and exits 0; other missing tools are exit 2.
+Chromium prints 'skipped: <reason>' and exits 0 (2 with --require); other missing tools are exit 2.
 Exit 0 all passed (or explicit dependency skip), 1 a check failed, 2 could not run.
 These synthetic checks do not establish a film's playback quality; audio is absent.
 """
@@ -39,11 +39,12 @@ def main():
     p.add_argument('--keep')
     p.add_argument('--playwright')
     p.add_argument('--browser')
+    p.add_argument('--require',action='store_true',help='exit 2 instead of skipping missing Node/Playwright/Chromium')
     a=p.parse_args()
     node=shutil.which('node')
     if not node:
         print('skipped: Node is missing')
-        return 0
+        return 2 if a.require else 0
     opts=[]
     if a.playwright:opts+=['--playwright',a.playwright]
     if a.browser:opts+=['--browser',a.browser]
@@ -59,7 +60,7 @@ def main():
         r=subprocess.run(cmd,capture_output=True,text=True,encoding='utf-8',errors='replace')
         if r.returncode and any(x in r.stderr for x in ('Playwright missing','Chromium missing','Chromium executable missing')):
             print('skipped: '+r.stderr.strip())
-            return 0
+            return 2 if a.require else 0
         (work/'calibrate.json').write_text(r.stdout,encoding='utf-8')
         if r.returncode:
             record('capture calibration',False,r.stderr[-800:])
@@ -87,7 +88,10 @@ def main():
         base=[sys.executable,'-I',str(HERE/'film_render.py'),str(film),'--from','23','--to','30',*opts]
         # Read the first progress line only after the frozen copy is already serving. Mutating
         # the live synthetic source now must have no effect on the frozen render.
-        proc=subprocess.Popen(base+['--out',str(work/'cut.mkv'),'--lossless','--no-dither','--shutter','360'],
+        # Simulate an unmeasurable platform through the real render, without --force.
+        memory_case="import runpy,sys; p=sys.argv.pop(1); m=runpy.run_path(p); m['C'].free_memory=lambda:None; sys.exit(m['main']())"
+        proc=subprocess.Popen([sys.executable,'-I','-c',memory_case,*base[2:],
+            '--out',str(work/'cut.mkv'),'--lossless','--no-dither','--shutter','360'],
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,encoding='utf-8',errors='replace')
         first=proc.stdout.readline()
         source=film/'index.html'
@@ -96,6 +100,8 @@ def main():
         out,err=proc.communicate()
         source.write_text(original,encoding='utf-8')
         record('render completed',proc.returncode==0,(first+out+err)[-350:])
+        record('render proceeds when memory is unmeasurable and says so',
+               proc.returncode==0 and 'guard could not measure memory' in first+out)
         if proc.returncode:
             return 1
         manifest=json.loads((work/'cut.mkv.manifest.json').read_text())

@@ -271,7 +271,8 @@ def main():
             avail = C.free_memory() if not a.force else None
             estimate = (560 * 1024 ** 2 + w * h * 100) * a.workers + 192 * 1024 ** 2
             print(f'memory estimate: {estimate / 1024**2:.0f} MiB for {a.workers} worker(s); '
-                  + (f'free {avail / 1024**2:.0f} MiB' if avail is not None else 'guard overridden'), flush=True)
+                  + (f'free {avail / 1024**2:.0f} MiB' if avail is not None else
+                     'guard overridden' if a.force else 'guard could not measure memory'), flush=True)
             if avail is not None and estimate > avail:
                 raise ValueError('workers exceed estimated free memory; reduce workers/resolution or use --force')
             count = end - a.start + 1

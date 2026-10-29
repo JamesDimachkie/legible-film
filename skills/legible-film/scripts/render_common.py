@@ -7,6 +7,7 @@ This module has no standalone operation. --help documents it; exit 0.
 import argparse
 import bisect
 import ctypes
+from fractions import Fraction
 import hashlib
 import json
 import math
@@ -43,7 +44,7 @@ def free_memory():
     try:
         return os.sysconf('SC_AVPHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
     except (AttributeError, ValueError, OSError):
-        raise RuntimeError('cannot measure free physical memory; use --force after checking it yourself')
+        return None
 
 
 def sha256(path):
@@ -132,7 +133,9 @@ def finish(avg, index, blend='linear', bloom=0, threshold=0.8, radii=(3, 12), gr
 def auto_level(w, h, fps):
     # H.264 frame size and macroblocks/second, including portrait shapes.
     mb = math.ceil(w / 16) * math.ceil(h / 16)
-    for level, size, rate in [('4.2', 8704, 522240), ('5.0', 22080, 589824),
+    for level, size, rate in [('3.0', 1620, 40500), ('3.1', 3600, 108000),
+                              ('3.2', 5120, 216000), ('4.0', 8192, 245760),
+                              ('4.2', 8704, 522240), ('5.0', 22080, 589824),
                               ('5.1', 36864, 983040), ('5.2', 36864, 2073600),
                               ('6.0', 139264, 4177920), ('6.1', 139264, 8355840), ('6.2', 139264, 16711680)]:
         if mb <= size and mb * fps <= rate:
@@ -143,8 +146,9 @@ def auto_level(w, h, fps):
 class Encoder:
     def __init__(self, ffmpeg, path, w, h, fps, crf=14, level=None, preview=False, lossless=False):
         self.log = tempfile.TemporaryFile()
+        rate = Fraction(fps).limit_denominator(1001)
         cmd = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24',
-               '-s', f'{w}x{h}', '-r', str(fps), '-i', 'pipe:0', '-an']
+               '-s', f'{w}x{h}', '-r', f'{rate.numerator}/{rate.denominator}', '-i', 'pipe:0', '-an']
         if lossless:
             # FFV1 in Matroska preserves all RGB bytes (no YUV subsampling or matrix round-trip).
             cmd += ['-c:v', 'ffv1', '-level', '3', '-pix_fmt', 'bgr0', '-threads', '1', '-f', 'matroska']

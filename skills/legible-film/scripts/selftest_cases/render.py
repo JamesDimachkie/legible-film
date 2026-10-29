@@ -10,7 +10,9 @@ Needs numpy, Pillow, FFmpeg. No Node. Exit 0 all passed, 1 a test failed, 2 coul
 These synthetic checks do not judge any real film or normal-speed motion.
 """
 import argparse
+import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -18,6 +20,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.dont_write_bytecode = True
 
@@ -130,6 +134,29 @@ def run_cases(scripts, work, record):
     encode('bar240.mkv',[np.asarray(Image.open(seq / f'{i:04d}.png')) for i in range(120)], rate)
     code, out = tool('motion_blur.py', j('bar240.mkv'), '--fps',60,'--out',j('video-blur.mkv'),'--lossless')
     record('motion_blur: timestamped 240fps video input renders', code == 0, out[-200:] if code else '')
+    spec = importlib.util.spec_from_file_location('blur_memory_case',scripts/'motion_blur.py')
+    blur = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(blur)
+    # Literal N/A duration must take the same last-frame fallback as an absent field.
+    rows = 'best_effort_timestamp_time=0|duration_time=N/A\nbest_effort_timestamp_time=0.004167|duration_time=N/A\n'
+    probe_process = SimpleNamespace(stdout=io.StringIO(rows),stderr=io.StringIO(''),returncode=0,
+                                    wait=lambda: 0,poll=lambda: 0)
+    with patch.object(blur.subprocess,'Popen',return_value=probe_process):
+        probe = blur.timestamp_probe('ffprobe',[],'unused',[],240)
+    record('motion_blur: ffprobe N/A duration is missing',probe['last_duration'] is None)
+    real_probe = blur.timestamp_probe
+    def missing_duration(*args):
+        result = real_probe(*args)
+        result['last_duration'] = None
+        return result
+    stdout = io.StringIO()
+    argv = ['motion_blur.py',j('bar240.mkv'),'--fps','60','--out',j('unknown-memory.mkv'),'--lossless']
+    with patch.object(blur.C,'free_memory',return_value=None), patch.object(blur,'timestamp_probe',missing_duration), \
+            patch.object(sys,'argv',argv), contextlib.redirect_stdout(stdout):
+        code = blur.main()
+    manifest = json.loads(Path(j('unknown-memory.mkv.manifest.json')).read_text()) if code == 0 else {}
+    record('motion_blur: unknown memory proceeds visibly; missing duration falls back to source rate',
+           code == 0 and 'guard could not measure memory' in stdout.getvalue() and manifest.get('output_frames') == 30)
     cuts = []
     for i in range(120):
         f = np.zeros((h,w,3),np.uint8)
@@ -151,6 +178,41 @@ def run_cases(scripts, work, record):
     spec = importlib.util.spec_from_file_location('render_primitives',scripts/'render_common.py')
     c = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(c)
+    for error in (ValueError,AttributeError,OSError):
+        def unavailable(_name, error=error):
+            raise error('memory measurement unavailable')
+        with patch.object(c,'os',SimpleNamespace(name='posix',sysconf=unavailable)):
+            record(f'memory guard: {error.__name__} means unmeasurable',c.free_memory() is None)
+    for w,h,fps,expected in [(720,480,30,'3.0'),(1280,720,30,'3.1'),(1280,720,60,'3.2'),
+                              (1920,1080,30,'4.0'),(1920,1080,60,'4.2'),(3840,2160,60,'5.2')]:
+        actual = c.auto_level(w,h,fps)
+        record(f'encoder level: {w}x{h}@{fps} selects {expected}',actual == expected,actual)
+    for fps,expected in [(29.97,'2997/100'),(30000/1001,'30000/1001')]:
+        path = j(f'fraction-{expected.replace("/","-")}.mp4')
+        encoder = c.Encoder('ffmpeg',path,32,32,fps)
+        for _ in range(3):
+            encoder.write(np.zeros((32,32,3),np.uint8))
+        encoder.close()
+        rate = encoder.command[encoder.command.index('-r')+1]
+        r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_entries',
+                            'stream=avg_frame_rate','-of','json',path],capture_output=True,text=True)
+        actual = json.loads(r.stdout)['streams'][0]['avg_frame_rate']
+        record(f'encoder rate: {fps} uses explicit {expected}',rate == expected and actual == expected)
+    spec = importlib.util.spec_from_file_location('kit_skip_cases',scripts/'kit_selftest.py')
+    kit = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(kit)
+    for dependency,message in [('Node','Node is missing'),('Playwright','Playwright missing'),
+                               ('Chromium','Chromium executable missing')]:
+        outcomes = []
+        for require in (False,True):
+            stdout = io.StringIO()
+            argv = ['kit_selftest.py','--keep',j(f'skip-{dependency}-{require}')] + (['--require'] if require else [])
+            result = SimpleNamespace(returncode=2,stdout='',stderr=message)
+            with patch.object(sys,'argv',argv), contextlib.redirect_stdout(stdout), \
+                    patch.object(kit.shutil,'which',return_value=None if dependency == 'Node' else 'node'), \
+                    patch.object(kit.subprocess,'run',return_value=result):
+                outcomes.append(kit.main() == (2 if require else 0) and 'skipped:' in stdout.getvalue())
+        record(f'kit dependencies: missing {dependency} skips normally and exits 2 with --require',all(outcomes))
     times = c.sample_times(14/60,60,.5,[.25],[[.2,.25,3]],[],360,4,32)
     record('scheduler: pre-cut exposure slides, keeps full 50ms span',max(times)<.25 and abs((times[-1]-times[0])*len(times)/(len(times)-1)-.05)<1e-9)
     rgb = np.zeros((8,8,3),np.float32)+.2

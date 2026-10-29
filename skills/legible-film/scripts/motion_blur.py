@@ -103,6 +103,8 @@ def timestamp_probe(ffprobe, input_options, path, cuts, declared_rate):
                 first = t
             previous = t
             last_duration = fields.get('duration_time', fields.get('pkt_duration_time'))
+            if last_duration == 'N/A':
+                last_duration = None
             clock_hash.update(struct.pack('<d', t))
             # This matches the old bisect_left(clock, cut - 1e-9) shot slices.
             shots[bisect.bisect_right(cuts, t + 1e-9)] += 1
@@ -299,7 +301,9 @@ def main():
     started = time.perf_counter()
     encoder = None
     try:
-        print(f'free memory: {C.free_memory() / 1024**2:.0f} MiB; one decoder/encoder, bounded streaming frames', flush=True)
+        avail = C.free_memory()
+        print((f'free memory: {avail / 1024**2:.0f} MiB' if avail is not None else
+               'guard could not measure memory') + '; one decoder/encoder, bounded streaming frames', flush=True)
         sequence = bool(re.search(r'%0?\d*d', a.input))
         input_options = []
         if sequence:
