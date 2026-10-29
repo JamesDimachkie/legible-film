@@ -6,8 +6,8 @@ file and every hard limit still apply, and words on a beat are not by themselves
 films that were measured; a film adopts one only as its own declared contract.
 
 Contents: [1. When it fits](#1-when-it-fits) · [2. Brief to beat sheet](#2-from-brief-to-beat-sheet) ·
-[3. Devices](#3-devices) · [4. Pace you can measure](#4-pace-you-can-measure) · [5. Never park](#5-never-park) ·
-[6. Type and colour](#6-type-and-colour) · [7. Joins are moves](#7-joins-are-moves) ·
+[3. Devices](#3-devices) · [4. Pace you can measure](#4-pace-you-can-measure) · [5. Motion between hits](#5-motion-between-hits) ·
+[6. Type and colour](#6-type-and-colour) · [7. Joins in motion](#7-joins-in-motion) ·
 [8. Safety in this register](#8-safety-in-this-register) · [9. Sound](#9-sound) · [10. Render](#10-render) ·
 [11. Checks](#11-checks-particular-to-this-register) · [12. With the kit](#12-with-the-kit)
 
@@ -25,9 +25,9 @@ evidence and boundary ([story-and-score](story-and-score.md) §2).
 
 ## 2. From brief to beat sheet
 
-1. **Length and tempo.** Fast tempos give short shots: a beat lasts 0.35 s at 172 BPM, 0.4 s at 150 and 0.5 s at
-   120. Starting drafts: a teaser 15-25 s at 150-175 BPM, a launch film 40-55 s, a calmer brand film 30-45 s at
-   120-128 BPM. When the music will be generated or written to a tempo, choose one with a whole number of frames per
+1. **Length and tempo.** Choose them together, since a beat lasts 60 / BPM seconds: 0.35 s at 172 BPM, 0.4 s at
+   150, 0.5 s at 120. Shorter films carry faster tempos. As starting drafts, teasers of 15-25 s tend to sit around
+   150-175 BPM, launch films run 40-55 s, and calmer brand films of 30-45 s settle nearer 120-128 BPM. When the music will be generated or written to a tempo, choose one with a whole number of frames per
    beat ([timing](timing.md) §5): at 60 fps, 150 BPM gives 24 frames and 120 gives 30, while 172 gives 20.93.
 2. **Words first.** Write the film as a short spoken script, then cut it into one or two words per beat. A phrase of
    four to eight words fills four to nine beats.
@@ -36,7 +36,7 @@ evidence and boundary ([story-and-score](story-and-score.md) §2).
    - concrete nouns and verbs over adjectives ("it maps every photo" over "amazing results");
    - a change of device every three or four phrases (a denial, a number, the name, a joke, a reveal), so the rhythm
      does not flatten;
-   - end on the name, then hold: the end card is the one place the film rests.
+   - end on the name, then hold: only the end card stays.
 4. **The drop is the turn.** The music's biggest change carries the film's turn ([story-and-score](story-and-score.md)
    §5). Put the biggest visual change on it (the first picture, the first ground in the accent colour, the push into
    the product) and keep one dimension of change unused until then. Measure where the track drops with
@@ -89,13 +89,13 @@ python scripts/motion_scan.py film.mp4 --end 21.0 --max-still 0.6 --max-still-sh
 A declared reading hold is a decision, not a defect ([picture](picture.md) §8). For a reference filmed off a screen
 with a phone, measure only the screen (`--crop`): handheld movement counts as motion everywhere.
 
-## 5. Never park
+## 5. Motion between hits
 
 - Keep something moving between the hits: the camera's slow push and slight roll, a landed word that keeps scaling
   (2-5% a second) or sliding, ghost rows of type, drifting particles with a job.
 - On a flat ground, give the world a sparse texture so the camera's move shows ([picture](picture.md) §6).
-- Pictures park most easily: push or pan them, punch in on each word, cut in to a detail on a beat.
-- The end card is the only rest, and even it pushes in slowly.
+- Still pictures stall first: push or pan them, punch in on each word, cut in to a detail on a beat.
+- Only the end card holds, and even it creeps in.
 - Movement between hits is texture. It never competes with the word being read ([picture](picture.md) §3).
 
 ## 6. Type and colour
@@ -104,9 +104,10 @@ with a phone, measure only the screen (`--crop`): handheld movement counts as mo
   reads at 60-120 px in a 384-px phone feed. Split the phrase when a word would have to shrink below about a fifth of
   the frame height.
 - **One new thing per beat:** a word, a ground, a picture. A cut, its ground change and its sound are one event.
-- **Runs of beat cuts** can accelerate (1, 1, 1, ½, ½, ¼ of a beat) into a hit, inside the flash budget (§8).
+- **Runs of beat cuts** can tighten from whole beats to half beats to a quarter beat before a hit, inside the flash
+  budget (§8).
 - **Grounds:** a dark ground, the brand accent and a light ground, changed at phrase changes; type colour follows the
-  ground, and the accent marks the word that matters ([picture](picture.md) §2). Make the dark and light grounds
+  ground, and the accent colour goes to the one word carrying the claim ([picture](picture.md) §2). Make the dark and light grounds
   tints of the brand colour rather than pure black and white ([picture](picture.md) §9).
 - **The width axis is motion:** a variable font's width can stretch, squeeze or fill a measure, on a word that stands
   alone (never on text that reflows).
@@ -116,7 +117,7 @@ with a phone, measure only the screen (`--crop`): handheld movement counts as mo
   needs its own ([story-and-score](story-and-score.md) §6).
 - **Glitches read as failure:** never on the product's name or a claim ([studio](studio.md) §7.5).
 
-## 7. Joins are moves
+## 7. Joins in motion
 
 - **Whips** between shots, alternating horizontal and vertical. Cut at the whip's fastest frame, with a long-shutter
   smear (§10) and a whoosh whose apex lands on the cut; the next shot arrives already moving.
@@ -159,7 +160,7 @@ This register lives next to three hard limits.
 
 ## 9. Sound
 
-Sound carries half of this register's energy, and every rule in [sound](sound.md) holds.
+In this register the sound does as much work as the picture, and every rule in [sound](sound.md) holds.
 
 - **Each cut is a sound decision:** a hit on a beat cut, a whoosh with its apex on a whip's cut, a riser whose end
   lands on the drop, a tick or pop for a small element. A silent cut is a decision too, and reading holds stay
