@@ -12,6 +12,7 @@ difference of 8-bit grey at analysis size). From that profile it lists:
 
   python motion_scan.py film.mp4
   python motion_scan.py loop.mp4 --loop --json qa/motion.json --csv qa/motion.csv
+  python motion_scan.py footage.mp4 --footage --json qa/footage.json
   python motion_scan.py film.mp4 --ignore 4.0-4.2,12.5-13.0
   python motion_scan.py film.mp4 --start 0 --end 20 --max-still-share .4 --max-still .6
 
@@ -22,7 +23,11 @@ more than two frames apart merged into one event, so a whip or a flash counts on
 mean-grey flips and per-second profiles. Optional pace gates subtract --ignore
 ranges exactly. --crop W:H:X:Y precedes analysis scaling; --bpm/--beat-offset label
 zero-based beats. Shares exclude the first frame (no preceding comparison). Frame
-indices are local to the selected window; times stay on the film clock. Pace gates
+indices are local to the selected window; times stay on the film clock. With --footage,
+the repeated-frame gate uses exact native decoded-frame hashes;
+near-holds remain information. Moving area is the union of pixels changing above
+--change-level at analysis size. Below 5%, whole-frame pace is unreliable; the
+region bounding box is also measured, and pace gates are inconclusive. Pace gates
 are the film's chosen contract, not a general quality standard.
 
 Every frame is decoded once and timed by its own presentation timestamp. With variable frame
@@ -57,6 +62,7 @@ DUR = re.compile(r'duration_time:\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)')
 
 
 def find_tool(name, explicit=None):
+    """Find an explicitly named tool, environment override or PATH executable."""
     candidate = explicit or os.environ.get(name.upper())
     if candidate:
         return candidate if (os.path.isfile(candidate) or shutil.which(candidate)) else None
@@ -214,6 +220,37 @@ def pace_profile(times, until, areas, means, cuts, args, ignore):
             'thresholds': {'change_level': args.change_level, 'still_area': args.still_area, 'cut_area': args.cut_area}}
 
 
+
+def native_hashes(ffmpeg, path, start, end):
+    """Hash each decoded frame without scaling or colour conversion."""
+    trim = f'trim=start={start}' + (f':end={end}' if end is not None else '')
+    cmd = [ffmpeg, '-hide_banner', '-nostdin', '-v', 'error', '-i', path, '-map', '0:v:0',
+           '-vf', trim, *passthrough(ffmpeg), '-f', 'framemd5', '-']
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if r.returncode:
+        raise RuntimeError('native frame hashing failed: ' + (r.stderr.strip().splitlines() or ['?'])[-1])
+    return [line.split(',')[-1].strip() for line in r.stdout.splitlines() if line and not line.startswith('#')]
+
+
+def region_profile(ffmpeg, path, filters, width, height, box, change_level):
+    """Measure per-frame change and mean inside the moving area's bounding box."""
+    frames = Frames(ffmpeg, path, ','.join(filters), width * height)
+    x0, y0, x1, y1 = box
+    previous = None
+    areas = [0.0]
+    steps = [0.0]
+    means = []
+    for buf in frames:
+        frame = np.frombuffer(buf, np.uint8).reshape(height, width)[y0:y1, x0:x1].astype(np.int16)
+        means.append(float(frame.mean()))
+        if previous is not None:
+            difference = np.abs(frame - previous)
+            areas.append(float((difference > change_level).mean()))
+            steps.append(float(difference.mean()))
+        previous = frame
+    frames.times(len(means))
+    return areas, means, steps
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('video')
@@ -224,13 +261,16 @@ def main():
     p.add_argument('--max-stutter', type=float, default=0.01, help='allowed share of repeated frames inside motion')
     p.add_argument('--hold-level', type=float, default=0.1, help='a step below this counts as held')
     p.add_argument('--hold-seconds', type=float, default=1.5, help='report held stretches at least this long')
+    p.add_argument('--footage', action='store_true',
+                   help='gate only exact native decoded duplicates; report near-holds')
     p.add_argument('--loop', action='store_true', help='also check the last-to-first seam')
     p.add_argument('--seam-ratio', type=float, default=1.5, help='seam may be this many times the typical end step')
     p.add_argument('--ignore', help='designed ranges in seconds, e.g. 3.9-4.2,10-11')
     p.add_argument('--change-level', type=float, default=24, help='grey change must exceed this (0-255)')
     p.add_argument('--still-area', type=float, default=0.015, help='still when changed area is below this share')
     p.add_argument('--still-min', type=float, default=0.3, help='minimum pace stretch to list, seconds')
-    p.add_argument('--cut-area', type=float, default=0.5, help='share of the picture changing at once that counts as a change event')
+    p.add_argument('--cut-area', type=float, default=0.5,
+                   help='share of the picture changing at once that counts as a change event')
     p.add_argument('--bpm', type=float, help='report zero-based beat at each still stretch start')
     p.add_argument('--beat-offset', type=float, default=0, help='film time of beat zero')
     p.add_argument('--start', type=float, default=0, help='first film time included, seconds')
@@ -289,6 +329,7 @@ def main():
     step, skip = [0.0], [0.0]  # step[n]: n vs n-1; skip[n]: n+1 vs n-1, stored at n
     n = 0
     areas, means = [0.0], []
+    moving_mask = np.zeros((H, W), dtype=bool)
     for buf in frames:
         f = np.frombuffer(buf, np.uint8).reshape(H, W).astype(np.int16)
         means.append(float(f.mean()))
@@ -296,7 +337,9 @@ def main():
             first = f
         if prev is not None:
             step.append(float(np.abs(f - prev).mean()))
-            areas.append(float((np.abs(f - prev) > a.change_level).mean()))
+            changed = np.abs(f - prev) > a.change_level
+            moving_mask |= changed
+            areas.append(float(changed.mean()))
         if prev2 is not None:
             skip.append(float(np.abs(f - prev2).mean()))
         prev2, prev = prev, f
@@ -344,6 +387,18 @@ def main():
         # A repeated frame decodes nearly, not exactly, identical under B-frames: compare with its neighbours.
         if i + 1 < n and d[i - 1] > a.move and nxt > a.move and d[i] < max(a.still, 0.15 * min(d[i - 1], nxt)):
             stutter.append({'frame': i, 'time_s': round(times[i], 3), 'declared': declared(i)})
+    near_holds = []
+    if a.footage:
+        try:
+            hashes = native_hashes(ffmpeg, a.video, a.start, a.end)
+        except RuntimeError as e:
+            print(f'motion_scan.py: {e}', file=sys.stderr)
+            return 2
+        if len(hashes) != n:
+            print('motion_scan.py: native duplicate check has a different frame count', file=sys.stderr)
+            return 2
+        near_holds = [row for row in stutter if hashes[row['frame']] != hashes[row['frame'] - 1]]
+        stutter = [row for row in stutter if hashes[row['frame']] == hashes[row['frame'] - 1]]
     ghost_ids = {x['frame'] for x in ghosts}
     cuts = [c for c in cuts if c['frame'] - 1 not in ghost_ids]
     moving = int((d > a.move).sum())
@@ -353,6 +408,9 @@ def main():
               'analysis_size': [W, H], 'median_step': round(float(np.median(d[1:])), 3), 'moving_frames': moving,
               'cuts': cuts, 'one_frame_intrusions': ghosts, 'stutter_frames': stutter,
               'stutter_share_of_motion': round(share, 4)}
+    if a.footage:
+        result['near_holds'] = near_holds
+        result['duplicate_tolerance'] = 'exact native decoded frame hash'
     # Holds and energy: descriptions to look at, not verdicts. A held stretch can be a designed
     # reading hold, a freeze on a silence, or a stall; only a look at speed tells which.
     held = d < a.hold_level
@@ -388,17 +446,38 @@ def main():
     failed = bool([x for x in ghosts if not x['declared']]) or share > a.max_stutter
     result['pace'] = pace_profile(times, shown_until, areas, means, cuts, a, ignore)
     pace = result['pace']
+    fraction = float(moving_mask.mean())
+    pace['moving_area_fraction'] = round(fraction, 6)
+    small = 0 < fraction < 0.05
+    if small:
+        ys, xs = np.nonzero(moving_mask)
+        box = [int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1]
+        try:
+            region_areas, region_means, region_steps = region_profile(
+                ffmpeg, a.video, filters, W, H, box, a.change_level)
+        except RuntimeError as e:
+            print(f'motion_scan.py: {e}', file=sys.stderr)
+            return 2
+        if len(region_means) != n:
+            print('motion_scan.py: moving-region scan has a different frame count', file=sys.stderr)
+            return 2
+        pace['moving_region_bbox'] = box
+        region_cuts = [{'frame': i} for i in range(1, n) if region_steps[i] > a.cut]
+        pace['moving_region'] = pace_profile(times, shown_until, region_areas, region_means, region_cuts, a, ignore)
+        pace['moving_region']['moving_frames'] = sum(step > a.move for step in region_steps[1:])
+        pace['interpretation'] = ('Moving area below 5%: whole-frame still share and pace are unreliable; '
+                                  'pace contracts are inconclusive.')
     pace['gates'] = {}
     if a.max_still_share is not None:
-        passed = pace['gate_still_share'] <= a.max_still_share + 1e-6
+        passed = None if small else pace['gate_still_share'] <= a.max_still_share + 1e-6
         pace['gates']['max_still_share'] = {'pass': passed, 'limit': a.max_still_share,
                                           'actual': pace['gate_still_share']}
-        failed = failed or not passed
+        failed = failed or passed is False
     if a.max_still is not None:
-        passed = pace['gate_longest_still_s'] <= a.max_still + 1e-6
+        passed = None if small else pace['gate_longest_still_s'] <= a.max_still + 1e-6
         pace['gates']['max_still'] = {'pass': passed, 'limit': a.max_still,
                                     'actual': pace['gate_longest_still_s']}
-        failed = failed or not passed
+        failed = failed or passed is False
     if a.loop:
         seam = float(np.abs(first - last).mean())
         ends = np.concatenate([d[1:11], d[-10:]])
@@ -422,14 +501,25 @@ def main():
     print(f"{os.path.basename(a.video)}: {n} frames at {rate}; median step {result['median_step']}; "
           f"{moving} moving frames")
     print(f"  cuts: {[c['time_s'] for c in cuts] or 'none'}")
+    print(f"  moving area anywhere in clip: {fraction:.3%} of analysis frame")
+    if small:
+        region = pace['moving_region']
+        print('  ' + pace['interpretation'])
+        print(f"  moving region {pace['moving_region_bbox']}: {region['moving_frames']} moving frames; "
+              f"still {region['still_share']:.2%}; "
+              f"longest {region['longest_still_s']:.3f} s; "
+              f"change events/10 s {region['change_events_per_10s']:.2f}; "
+              f"median changed area {region['median_change_area']:.3%}")
     print(f"  pace: still {pace['still_share']:.2%}; longest {pace['longest_still_s']:.3f} s; "
-          f"change events/10 s {pace['change_events_per_10s']:.2f} (step-detector cuts/10 s {pace['cuts_per_10s']:.2f}); "
+          f"change events/10 s {pace['change_events_per_10s']:.2f} "
+          f"(step-detector cuts/10 s {pace['cuts_per_10s']:.2f}); "
           f"flips {len(pace['flips'])}; "
           f"median changed area {pace['median_change_area']:.3%}")
     print(f"  pace gates excluding declared ranges: still {pace['gate_still_share']:.2%}; "
           f"longest {pace['gate_longest_still_s']:.3f} s")
     for name, gate in pace['gates'].items():
-        print(f"  {'PASS' if gate['pass'] else 'FAIL'} pace {name}: {gate['actual']} <= {gate['limit']}")
+        status = 'INCONCLUSIVE' if gate['pass'] is None else 'PASS' if gate['pass'] else 'FAIL'
+        print(f"  {status} pace {name}: {gate['actual']} <= {gate['limit']}")
     e = result['energy']
     print(f"  first motion at {result['first_motion_s']} s; quiet frames {e['quiet_share']:.0%}; "
           f"longest quiet stretch {e['longest_quiet_s']} s; p90 step {e['p90_step']}")
@@ -442,6 +532,8 @@ def main():
     print(f"  repeated frames inside motion: {len(undeclared_stutter)} undeclared "
           f"({share:.2%} of moving frames; limit {a.max_stutter:.0%})"
           + (f" at {[s['time_s'] for s in undeclared_stutter[:12]]}" if undeclared_stutter else ''))
+    if a.footage:
+        print(f'  near-holds (information): {len(near_holds)}')
     if a.loop:
         s = result['loop_seam']
         print(f"  loop seam: step {s['step']} vs typical end step {s['typical_end_step']} "

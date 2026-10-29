@@ -41,7 +41,7 @@ reason. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2
 | 2 | Brand colour survives | add `--color-patch 4.0@120,80,40,40=#3080C0` (a flat region at a time) | the region decodes to the brand colour under the file's own tags | how every player will show it |
 | 3 | Flashing (hard limit) | `python scripts/flash_scan.py film.mp4 --json qa/flash.json` | no candidate WCAG 2.3.1 general or red flash sequence was found | certification (Harding, IRIS, broadcast PSE) |
 | 4 | Near-empty frames | `python scripts/blank_scan.py film.mp4 --ignore <designed> --json qa/blank.json` | runs of flat or failed frames outside declared ranges | that a declared breath reads as intended |
-| 5 | Cuts, one-frame intrusions, stutter, holds, pace, loop seam | `python scripts/motion_scan.py film.mp4 [--loop] --ignore <designed> --json qa/motion.json`; with a declared pace contract add `--end <end card> --max-still 0.6 --max-still-share 0.4` | where the cuts are, stray single frames, repeated frames inside motion, when motion first starts, long holds, still share and still stretches, cuts per 10 s, seam continuity | whether a move or a hold feels right at speed |
+| 5 | Cuts, one-frame intrusions, stutter, holds, pace, loop seam | `python scripts/motion_scan.py film.mp4 [--loop] --ignore <designed> --json qa/motion.json`; with a declared pace contract add `--end <end card> --max-still 0.6 --max-still-share 0.4`; on camera footage add `--footage` | where the cuts are, stray single frames, repeated frames inside motion (with `--footage`, only exact duplicates), when motion first starts, long holds, still share and still stretches, cuts per 10 s, seam continuity; the moving area, with pace inside it when it is small | whether a move or a hold feels right at speed |
 | 6 | Overview | `python scripts/frame_sheet.py film.mp4 --every 0.5 --out qa/overview.png` | what is on screen every half second | anything between the samples |
 | 7 | Every transition | `python scripts/frame_sheet.py film.mp4 --around <cut times> --span 1.6 --rate 20 --out qa/joins.png` | sampled states around each join; `--frames A-B` shows every decoded frame of a suspect interval | rhythm |
 | 8 | Viewing size | `python scripts/frame_sheet.py film.mp4 --at <text moments> --width 384 --out qa/phone.png` | what essential text looks like at feed size | that someone can read it in time |
@@ -109,9 +109,11 @@ diagnostic image does not establish how visible a defect is at normal viewing.
 ## 6. Change proof on every revision
 
 - **Picture:** `python scripts/compare_versions.py new.mp4 baseline.mp4 --expect <changed ranges>` lists where
-  the picture changed. Two renders of the same source are rarely bit-identical after lossy encoding; establish
-  your pipeline's normal range for unchanged windows (one HTML pipeline measured about 42-45 dB PSNR). PSNR
-  averages the frame, so also inspect important text and geometry at full size around the change.
+  the picture changed. The strongest proof re-renders both versions losslessly (`-qp 0`) and compares them with
+  `--lossless-proof`, which gives the exact changed frames. Between lossy files, establish your pipeline's normal
+  range for unchanged windows (one HTML pipeline measured about 42-45 dB PSNR; a deterministic FFmpeg pipeline
+  re-renders bit-identically, and encoder ripple around an edit then reads 55-62 dB). PSNR averages the frame, so
+  also inspect important text and geometry at full size around the change.
 - **Cue list:** after a picture-only change, re-export the cue list and compare it byte for byte with the one
   the mix used; reuse the mix only when they are identical.
 - **Sound that should be unchanged:** hash the decoded audio of both files in one stated format (see the

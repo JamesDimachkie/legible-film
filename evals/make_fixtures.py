@@ -13,6 +13,7 @@ film-v3.mp4 (eval 5) is a 10 s 1280x720 test film with a tone, standing in for u
 Needs FFmpeg with libx264 and the native AAC encoder.
 """
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -59,6 +60,10 @@ def main():
                     '-vf', 'format=yuv420p', '-map', '0:v', '-map', '1:a', '-c:v', 'libx264', '-crf', '22',
                     '-c:a', 'aac', '-b:a', '128k', film], check=True)
     print(film)
+    spec = importlib.util.spec_from_file_location('footage_fixtures', os.path.join(HERE, 'footage_fixtures.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.build(OUT)
 
 
 if __name__ == '__main__':

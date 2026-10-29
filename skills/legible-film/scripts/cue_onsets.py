@@ -2,12 +2,15 @@
 """Measure where sounds start against the cue list: the clock, checked on audio.
 
 For each cue in cues.json, find the strongest sound onset near the cue time and report the offset
-in milliseconds. Cues marked "silent" are checked for unexpected new sounds instead. Disabled spotted events (enabled: false) are withheld; silent cues remain checked.
+in milliseconds. Cues marked "silent" are checked for unexpected new sounds instead. Disabled
+spotted events (enabled: false) are withheld; silent cues remain checked.
 The cue list
 itself is linted first (sounds stacked on one instant, required cues inside a silent window).
 
   python cue_onsets.py audio/effects_stem.wav cues.json
   python cue_onsets.py deliver/film.mp4 cues.json --chance 200 --json qa/cues.json
+  python cue_onsets.py mix.wav cues.json --reference click=sfx/click.wav
+  python cue_onsets.py mix.wav old-cues.json --reference click=sfx/click.wav --expect-absent
 
 cues.json (times in seconds on the film clock; "frame" plus a top-level "fps" also works):
   {"fps": 30, "events": [
@@ -27,6 +30,10 @@ how often chance alone lands within tolerance. A hit rate no better than chance 
 Each result carries the rise in dB that identified it; a weak rise is reported as weak, not as an
 error. This measures audio timing against the list; whether the list matches the picture, and
 whether the sound feels right, still need a person watching and listening.
+Reference matching uses normalised correlation; ambiguous overlap is inconclusive, not proof of absence.
+Reference attack is the first sample, apex is the maximum absolute sample, and end is the last
+sample; trim the isolated file to the intended audible boundaries. Relative ref paths are relative
+to the cue file. --expect-absent checks only referenced cues. Inconclusive results exit 1.
 Needs numpy and FFmpeg. Exit code 0 when every cue that is not optional checks out; 1 when a
 required cue is missed or off tolerance, a silent cue has a new sound, or such a cue lies outside
 the audio; 2 when the cue list is invalid or the audio cannot be read.
@@ -183,8 +190,8 @@ def validate(spec):
         name = f'cue {cue_id!r}'
         if not isinstance(ev.get('enabled', True), bool):
             problems.append(f'{name}: enabled must be boolean')
-        if ev.get('sound', 'required') not in ('required', 'silent', 'optional'):
-            problems.append(f"{name}: sound must be required, silent or optional, not {ev.get('sound')!r}")
+        if ev.get('sound', 'required') not in ('required', 'silent', 'optional', 'absent'):
+            problems.append(f"{name}: sound must be required, silent, optional or absent, not {ev.get('sound')!r}")
         if ev.get('sync', 'attack') not in ('attack', 'apex', 'end'):
             problems.append(f"{name}: sync must be attack, apex or end, not {ev.get('sync')!r}")
         if 't' in ev:
@@ -197,6 +204,8 @@ def validate(spec):
                 problems.append(f'{name}: "frame" needs a top-level "fps"')
         else:
             problems.append(f'{name} has no time: give "t" in seconds, or "frame" with a top-level "fps"')
+        if 'ref' in ev and (not isinstance(ev['ref'], str) or not ev['ref']):
+            problems.append(f'{name}: ref must be a nonempty path')
         for key in ('tolerance_ms', 'window_ms'):
             if key in ev and not number(ev[key], positive=True):
                 problems.append(f'{name}: {key} must be a positive number of milliseconds, not {ev[key]!r}')
@@ -229,6 +238,59 @@ def lint(events, fps, duration_s, stack_ms):
     return notes
 
 
+def reference_match(x, ref, t, sync, win, tol, absent, refpath):
+    """Find a reference on the audio clock using locally normalised correlation."""
+    # FFT numerator and sliding local energy; zero-mean correlation removes DC.
+    ref = ref - np.mean(ref)
+    n = len(ref)
+    energy = float(np.dot(ref, ref))
+    if n < 2 or energy < 1e-12:
+        raise ValueError('reference is silent or too short')
+    point = 0 if sync == 'attack' else n - 1 if sync == 'end' else int(np.argmax(np.abs(ref)))
+    lo = max(0, int(round((t - win / 1000) * RATE)) - point)
+    hi = min(len(x) - n, int(round((t + win / 1000) * RATE)) - point)
+    if hi < lo:
+        raise ValueError('reference does not fit in the audio search window')
+    seg = x[lo:hi + n]
+    size = 1 << (len(seg) + n - 2).bit_length()
+    numerator = np.fft.irfft(np.fft.rfft(seg, size) * np.fft.rfft(ref[::-1], size), size)[n - 1:n - 1 + hi - lo + 1]
+    cs = np.concatenate(([0.0], np.cumsum(seg)))
+    cs2 = np.concatenate(([0.0], np.cumsum(seg * seg)))
+    sums = cs[n:] - cs[:-n]
+    power = np.maximum(0, cs2[n:] - cs2[:-n] - sums * sums / n)
+    corr = numerator / np.sqrt(np.maximum(power * energy, 1e-30))
+    best = int(np.argmax(corr))
+    peak = float(corr[best])
+    guard = max(1, int(.002 * RATE))
+    masked = corr.copy()
+    masked[max(0, best - guard):best + guard + 1] = -1
+    second = float(masked.max()) if len(masked) > 2 * guard + 1 else -1.0
+    margin = peak - second
+    offset = ((lo + best + point) / RATE - t) * 1000
+    gain = float(numerator[best] / energy)
+    level = 20 * math.log10(max(1e-12, abs(gain) * np.sqrt(energy / n)))
+    row = dict(onset_s=round((lo + best + point) / RATE, 5), offset_ms=round(offset, 3),
+               tolerance_ms=tol, correlation=round(peak, 4), second_best=round(second, 4),
+               margin=round(margin, 4), level_db=round(level, 1), reference=refpath)
+    if peak < .15 and float(np.sqrt(np.mean(seg * seg))) < 10 ** (-55 / 20):
+        status = 'quiet as intended' if absent else 'missing'
+        reason = 'search window is below -55 dBFS RMS'
+    elif peak < .35:
+        status, reason = 'inconclusive', 'weak reference correlation'
+    elif margin < .05 or second > .95 * peak:
+        status, reason = 'inconclusive', 'competing peaks or repetitive overlap'
+    elif absent:
+        status, reason = 'RESIDUAL', 'reference match remains in the old window'
+    elif abs(offset) <= tol:
+        status, reason = 'on cue', 'reference match within tolerance'
+    else:
+        status, reason = ('LATE' if offset > 0 else 'EARLY'), 'reference match outside tolerance'
+    row.update(status=status, reason=reason)
+    if status == 'inconclusive':
+        row['next'] = f'Check the isolated effects stem and reference {refpath}; have a person listen at {t:.3f} s.'
+    return row
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('audio', help='a stem, a mix, or a video file with audio')
@@ -239,6 +301,8 @@ def main():
     p.add_argument('--floor-db', type=finite, default=-55.0, help='ignore onsets quieter than this (dBFS RMS)')
     p.add_argument('--stack-ms', type=finite, default=50.0, help='lint: required cues closer than this')
     p.add_argument('--chance', type=int, default=0, help='random cue sets for a chance baseline (e.g. 200)')
+    p.add_argument('--reference', action='append', default=[], metavar='ID=FILE')
+    p.add_argument('--expect-absent', action='store_true', help='check referenced cues for residual matches')
     p.add_argument('--json')
     p.add_argument('--ffmpeg')
     a = p.parse_args()
@@ -247,13 +311,16 @@ def main():
         print('ffmpeg is required (PATH, FFMPEG, or --ffmpeg)', file=sys.stderr)
         return 2
     try:
-        with open(a.cues, encoding='utf-8') as fh:
-            spec = json.load(fh)
+        with open(a.cues, 'rb') as fh:
+            raw = fh.read()
+        encoding = 'utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
+        spec = json.loads(raw.decode(encoding))
     except OSError as e:
         print(f'cue_onsets.py: cannot read cue file {a.cues}: {e.strerror or e}', file=sys.stderr)
         return 2
     except UnicodeError:
-        print(f'cue_onsets.py: cannot read cue file {a.cues}: it is not UTF-8 text', file=sys.stderr)
+        print(f'cue_onsets.py: cannot read cue file {a.cues}: it is not UTF-8 or BOM-marked UTF-16 text',
+              file=sys.stderr)
         return 2
     except json.JSONDecodeError as e:
         print(f'cue_onsets.py: cannot read cue file {a.cues}: invalid JSON at line {e.lineno}, column {e.colno}',
@@ -265,9 +332,23 @@ def main():
         for problem in problems:
             print(f'  {problem}', file=sys.stderr)
         return 2
+    refs = {}
+    for item in a.reference:
+        if '=' not in item or not all(item.split('=', 1)):
+            p.error('--reference needs ID=FILE')
+        key, path = item.split('=', 1)
+        refs[key] = path
+    ids = {str(ev.get('id')) for ev in events}
+    if set(refs) - ids:
+        p.error('--reference names an unknown cue')
+    for ev in events:
+        if (ev.get('sound') == 'absent' or a.expect_absent) and not (str(ev.get('id')) in refs or ev.get('ref')):
+            p.error('absence checks require a reference for every cue')
     events = [ev for ev in events if ev.get('enabled', True) or ev.get('sound') == 'silent']
-    r = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-i', a.audio, '-map', '0:a:0', '-ac', '1', '-ar', str(RATE),
-                        '-f', 'f32le', '-'], capture_output=True, check=False)
+    command = [ffmpeg, '-v', 'error', '-nostdin', '-i', a.audio, '-map', '0:a:0', '-ac', '1', '-ar', str(RATE)]
+    if refs or any(ev.get('ref') for ev in events):
+        command += ['-af', 'aresample=async=1:first_pts=0']
+    r = subprocess.run(command + ['-f', 'f32le', '-'], capture_output=True, check=False)
     if r.returncode:
         print('could not decode audio: ' + r.stderr.decode(errors='replace').strip()[-200:], file=sys.stderr)
         return 2
@@ -286,6 +367,23 @@ def main():
         row = {'id': ev.get('id'), 't': round(t, 4), 'sound': kind, 'sync': sync}
         if hi <= lo:
             row['status'] = 'outside audio'
+            rows.append(row)
+            continue
+        refpath = refs.get(str(ev.get('id'))) or ev.get('ref')
+        if refpath:
+            if str(ev.get('id')) not in refs and not os.path.isabs(refpath):
+                refpath = os.path.join(os.path.dirname(os.path.abspath(a.cues)), refpath)
+            rr = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-i', refpath, '-map', '0:a:0',
+                                 '-ac', '1', '-ar', str(RATE), '-f', 'f32le', '-'], capture_output=True)
+            if rr.returncode:
+                print('could not decode reference: ' + refpath, file=sys.stderr)
+                return 2
+            try:
+                row.update(reference_match(x, np.frombuffer(rr.stdout, np.float32).astype(np.float64),
+                                           t, sync, win, tol, a.expect_absent or kind == 'absent', refpath))
+            except ValueError as exc:
+                print(f'cue_onsets.py: {ev.get("id")}: {exc}', file=sys.stderr)
+                return 2
             rows.append(row)
             continue
         if kind == 'silent':
@@ -313,14 +411,16 @@ def main():
         rows.append(row)
 
     measured = [r['offset_ms'] for r in rows if r.get('status') in ('on cue', 'LATE', 'EARLY')]
-    scored = [r for r in rows if r['sound'] == 'required' and r['sync'] == 'attack' and 'offset_ms' in r]
+    scored = [r for r in rows if r['sound'] == 'required' and r['sync'] == 'attack'
+              and 'offset_ms' in r and 'reference' not in r]
     hit_rate = sum(1 for r in scored if r['status'] == 'on cue') / len(scored) if scored else None
     summary = {'cues': len(rows), 'measured': len(measured),
                'median_offset_ms': float(np.median(measured)) if measured else None,
                'spread_ms': (max(measured) - min(measured)) if measured else None,
                'hit_rate': round(hit_rate, 3) if hit_rate is not None else None,
                'failures': sum(1 for r in rows if r.get('status') in ('missing', 'LATE', 'EARLY', 'UNEXPECTED SOUND',
-                                                                     'outside audio') and r['sound'] != 'optional')}
+                                                                     'outside audio', 'RESIDUAL', 'inconclusive')
+                               and r['sound'] != 'optional')}
     if a.chance and scored:
         rng = np.random.default_rng(0)
         margin = a.window_ms / 1000 + 0.01
@@ -338,6 +438,14 @@ def main():
                              'p95_hit_rate': round(p95, 3),
                              'verdict': ('above chance' if hit_rate > p95 else
                                          'inconclusive: no better than random cue times in this audio')}
+    if 'chance' in summary and summary['chance']['verdict'].startswith('inconclusive'):
+        for row in scored:
+            if 'reference' not in row:
+                row['status'] = 'inconclusive'
+                row['reason'] = 'hit rate no better than chance'
+                row['next'] = f'Check the isolated effects stem or reference; have a person listen at {row["t"]:.3f} s.'
+        failures = ('missing', 'LATE', 'EARLY', 'UNEXPECTED SOUND', 'outside audio', 'RESIDUAL', 'inconclusive')
+        summary['failures'] = sum(1 for r in rows if r.get('status') in failures and r['sound'] != 'optional')
     out = {'audio': a.audio, 'cues': a.cues, 'lint': notes, 'summary': summary, 'rows': rows,
            'limit': 'Audio timing against the cue list; not a judgement of picture sync or of the sound.'}
     if a.json:
@@ -353,11 +461,21 @@ def main():
         print(f"  chance baseline over {c['sets']} random cue sets: mean {c['mean_hit_rate']}, "
               f"95th percentile {c['p95_hit_rate']} -> {c['verdict']}")
     for row in rows:
-        detail = (f"offset {row['offset_ms']:+d} ms (tol {row['tolerance_ms']:g}), strength {row['strength_db']} dB"
-                  if 'offset_ms' in row else (f"onset at {row['onset_s']} s, rise {row['rise_db']} dB"
-                                              if 'onset_s' in row else ''))
+        if 'offset_ms' in row and 'strength_db' in row:
+            detail = (f"offset {row['offset_ms']:+d} ms (tol {row['tolerance_ms']:g}), "
+                      f"strength {row['strength_db']} dB")
+        elif 'offset_ms' in row:
+            detail = (f"offset {row['offset_ms']:+g} ms (tol {row['tolerance_ms']:g}), "
+                      f"correlation {row['correlation']:.4f}, second {row['second_best']:.4f}, "
+                      f"margin {row['margin']:.4f}, level {row['level_db']:.1f} dBFS")
+        elif 'onset_s' in row:
+            detail = f"onset at {row['onset_s']} s, rise {row['rise_db']} dB"
+        else:
+            detail = ''
         print(f"  {str(row['id']):20s} {row['t']:8.3f} s  {row['sound']:8s} {row.get('status', ''):18s} {detail}"
-              + ('  (weak)' if row.get('confidence') == 'weak' else ''))
+              + ('  (weak)' if row.get('confidence') == 'weak' else '')
+              + ('  ' + row['reason'] if row.get('reason') else '')
+              + ('  next: ' + row['next'] if row.get('next') else ''))
     return 1 if summary['failures'] else 0
 
 

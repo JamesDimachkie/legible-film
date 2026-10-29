@@ -54,6 +54,7 @@ stop only processes you started, by their own PID.
 | The request | Path |
 |---|---|
 | A new video | Steps 1-9 |
+| An edit of recordings: an interview, talking head, screen recording, event film or cut-down | Steps 1-9 with [footage](references/footage.md) |
 | A fast, beat-cut film of big words (a teaser, trailer or hype film) | Steps 1-9 in the [kinetic-type](references/kinetic-type.md) register |
 | A type-led film built with the bundled engine | Steps 1-9, building with the [film kit](references/kit.md) |
 | The best film possible, with a budget for premium work | Steps 1-9 at [studio grade](#studio-grade) |
@@ -102,7 +103,8 @@ Read [story-and-score](references/story-and-score.md); for product interfaces, [
 
 - Write the change, its evidence and its boundary ("This does not establish ___").
 - Write three concepts (the product in use, a relational analogy, a reframe), choose one, state it as a governing
-  operation, and run the operation, truth, decoding and specificity tests.
+  operation, and run the operation, truth, decoding and specificity tests. For an edit of recordings, the approved
+  selects and an outline drawn from the sources take the place of the concepts ([footage](references/footage.md) §1).
 - Choose the structure, the turn, the peak and the ending's job, then fill the score
   ([score.csv](assets/templates/score.csv); a [filled example](assets/examples/score-example.md) shows the method).
 
@@ -269,8 +271,8 @@ Each was hit in real production or measured while building this skill.
 In `scripts/`; each prints `--help`. The measuring scripts also write JSON with `--json`; `frame_sheet.py` and
 `onion_frames.py` write PNG images. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2 the
 check could not run, which the report lists as not checked. Run `python scripts/selftest.py` once per environment
-and skill version to confirm it (about a minute, synthetic media only; rerun after an update or a tool anomaly, not
-per project phase), and `python scripts/kit_selftest.py` before using the film kit
+and skill version to confirm it (a few minutes, synthetic media only; it remembers a passing environment, and reruns
+after an update or with `--force`), and `python scripts/kit_selftest.py` before using the film kit
 (it checks Node, Playwright and Chromium, and skips with the reason when one is missing).
 
 | Script | Answers |
@@ -281,6 +283,11 @@ per project phase), and `python scripts/kit_selftest.py` before using the film k
 | `make_film.py` | One command from a kit film to delivered, checked files: doctor, preflight, sound chain, render, mux, the QC battery, an A/B listening pair and the delivery report. `--doctor` checks the setup. |
 | `film_render.py` | Render a kit film with cut-aware motion blur and the correct colour path (it drives `film_capture.mjs`). |
 | `motion_blur.py` | Turn a render made at a multiple of the frame rate into true motion blur, never across a cut. |
+| **Edit recordings** | |
+| `transcript_cut.py` | Turn selects from a word-timed transcript into edit items, each cut in the pause between words; which joins are jump cuts? |
+| `assemble.py` | Render an `edit.json` frame-accurately: cuts, J and L cuts, dissolves, retimes, crop paths, overlays, colour conversion; stems, cue list and declarations. |
+| `reframe.py` | Propose or check a crop path that keeps the subject in a tall or square frame; flag frames where it leaves. |
+| `captions.py` | Build SRT and WebVTT under reading rules, check a caption file (or a burned-in one) against them, and burn captions clear of faces and platform overlays. |
 | **Sound** | |
 | `beat_grid.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
 | `make_sound_kit.py` | Synthesise a rights-clean draft palette and temp track with exactly known sync points. |
@@ -290,17 +297,17 @@ per project phase), and `python scripts/kit_selftest.py` before using the film k
 | `sound_check.py` | Listening candidates in a mix: phone-band loss, brightness, digital silence, crest, layers, the ending. |
 | **Check the delivered file** | |
 | `qc_file.py` | Does the file meet its spec and decode cleanly? Colour tags, loudness, true peak before and after a lossy re-encode, head and tail levels, mono fold-down, brand colour patches. |
-| `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? |
+| `frame_sheet.py` | What exactly is on screen at these times, at full size or at viewing size? Paginates to a pixel budget, or writes single frames. |
 | `flash_scan.py` | Is there a candidate WCAG 2.3.1 flash sequence? |
 | `blank_scan.py` | Are there near-empty frames outside the designed ones? |
 | `motion_scan.py` | Cuts, one-frame intrusions, repeated frames in motion, holds, first motion, loop seam; pace (still share, still stretches, cuts per 10 s) against a declared contract. |
 | `region_check.py` | Does a text, logo or patch survive its whole interval in the delivered file, or does it drop out early? |
-| `cue_onsets.py` | Does each sound start, peak or end on its cue, do silent cues stay quiet, and is the hit rate better than chance? |
+| `cue_onsets.py` | Does each sound start, peak or end on its cue, do silent cues stay quiet, and is the hit rate better than chance? With a reference file, is that sound in the mix, and has a moved sound left its old place? |
 | `sync_check.py` | Is the delivered audio offset or drifting against the approved mix, and if it drifts, what resampling repairs it? |
 | `compare_versions.py` | Where did the picture change between two renders? |
 | `onion_frames.py` | What path and spacing does a move have across these frames? |
 | **The environment** | |
-| `selftest.py` | Do the scripts work here? Synthetic media with known answers, every script. |
+| `selftest.py` | Do the scripts work here? Synthetic media with known answers, every script; `--quick` probes the dependencies in seconds. |
 | `kit_selftest.py` | Do Node, Playwright and Chromium capture and render the kit correctly here? |
 
 `film_capture.mjs`, `render_common.py` and `sound_io.py` are helpers the scripts above load.
@@ -322,6 +329,7 @@ per project phase), and `python scripts/kit_selftest.py` before using the film k
 | Studio grade | [studio](references/studio.md) |
 | A fast, beat-cut film of big words | [kinetic-type](references/kinetic-type.md) |
 | Building with the bundled engine | [kit](references/kit.md) |
+| Editing recordings: selects, the edit file, reframing, colour, dialogue, captions | [footage](references/footage.md) |
 | Finding assets: footage, stills, music, effects, voice, type, 3D, textures | [assets](references/assets.md) |
 | Making assets with generative or enhancement tools | [generation](references/generation.md) |
 | Checking a figure | [sources](references/sources.md) |

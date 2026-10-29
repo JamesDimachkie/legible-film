@@ -157,6 +157,47 @@
         "Runs flash_scan.py, qc_file.py (with the lossy re-encode check) and motion_scan.py on the delivered files and reports the results with numbers",
         "Reports the films as unwatched and the sound as unheard by any person, and names the weakest remaining point"
       ]
+    },
+    {
+      "id": 10,
+      "name": "footage-cutdown",
+      "prompt": "Please cut a 12-second 9:16 Reels clip from the clean answer in evals/files/interview.mp4. The word timings are in evals/files/interview.words.json. Burn in captions, include an SRT, and check the finished clip before I post it.",
+      "expected_output": "A 12-second vertical cut of the clean retake, with a speaker-centred crop, matching burned captions and SRT, delivered-file checks and an honest review report.",
+      "files": [
+        "evals/files/interview.mp4",
+        "evals/files/interview.words.json"
+      ],
+      "expectations": [
+        "Delivers a 12-second 9:16 clip using the clean retake, without the filler or false start, and preserves the meaning of the answer",
+        "Documents source intervals and places every edit boundary in a pause rather than inside a transcript word",
+        "Frames the off-centre speaker in the vertical crop and checks that the subject remains in frame",
+        "Delivers an SRT and burned captions from the same conformed timing source, matching the selected words",
+        "Checks caption reading rate, line length and duration, and places captions clear of the mouth or reports the conflict",
+        "Checks the delivered file for duration, dimensions, frame rate, colour tags, loudness and true peak after a lossy re-encode and reports measurements",
+        "Checks caption timing against the edited audio and identifies names and numbers as needing human verification",
+        "Reports the clip as unwatched and unheard, names the weakest remaining point and requests a normal-speed human review",
+        "Does not post or upload the clip"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "dialogue-mix",
+      "prompt": "Please mix evals/files/voice.wav over evals/files/music.wav for a web page. Make it 30 seconds and keep the voice clear throughout. Tell me what you checked.",
+      "expected_output": "A 30-second mix with the music ducked for each phrase, measurable separation, delivered-master checks and an honest report.",
+      "files": [
+        "evals/files/voice.wav",
+        "evals/files/music.wav"
+      ],
+      "expectations": [
+        "Delivers a 30-second mix containing both aligned source tracks without truncation",
+        "Ducks the music under each voice phrase and states the intended voice-to-music separation",
+        "Reports measured voice-to-music separation for each phrase or identifies every phrase that misses the stated target",
+        "Provides aligned stems or a reproducible gain envelope so the mix can be checked and revised",
+        "Reports the delivered master loudness and true peak with units",
+        "Measures and reports true peak after a lossy re-encode of the delivered master",
+        "Reports the mix as unheard and does not claim intelligibility was verified by ear",
+        "Names the weakest remaining point and asks for listening on a phone and headphones"
+      ]
     }
   ]
 }

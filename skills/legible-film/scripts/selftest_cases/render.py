@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Synthetic known-answer cases for the render lane.
+"""Synthetic known-answer cases for the render tools.
 
   python selftest_render_cases.py --scripts scripts --keep work/render-cases
 
