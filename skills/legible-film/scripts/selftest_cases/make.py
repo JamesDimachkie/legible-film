@@ -12,7 +12,9 @@ end to end: the doctor finding a missing tool, a silent and a draft-sound run wh
 and picture lengths match exactly, a declared cut that is not in the picture, sizes that
 export different cue lists or cuts (stopped) or different reading rests (reported, not
 failed), info.seams and info.changes, --resume skipping a finished render, and the exit
-codes. It also builds 1440-frame 1920x1080 and 1080x1920 films with FFmpeg (no browser)
+codes; and the sound chain (spotting with sound-edits.json, the social master refused on a
+sparse film, a hybrid library palette with its listening pair, sound_check.py warnings as
+findings). It also builds 1440-frame 1920x1080 and 1080x1920 films with FFmpeg (no browser)
 and makes a dozen cut sheets on each, one bounded frame_sheet.py call per cut.
 One Chromium at a time. Missing Node, Playwright or Chromium (or too little free memory
 for a render) prints 'skipped: <reason>' and records nothing. Needs numpy, Pillow, FFmpeg,
@@ -52,7 +54,8 @@ window.__lf={
     ...(P.seams?{seams:P.seams}:{}),...(P.changes?{changes:P.changes}:{}),
     music:{stop:2.9},pace:{max_still_share:.9,max_still:2},
     cues:[{id:'swing',t:.8,role:'whoosh',sound:'required',sync:'apex',tolerance_ms:25,picture:'the bar passes centre'},
-          {id:'cut',t:1.5+shift,role:'impact',sound:'required',sync:'attack',tolerance_ms:17,picture:'the light shot arrives'}],
+          {id:'cut',t:1.5+shift,role:'impact',sound:'required',sync:'attack',tolerance_ms:17,picture:'the light shot arrives'}]
+          .concat(P.extraCues||[]),
     captions:[{t0:.3,t1:1.4,words:[['Hello',.3],['there',.7]]}],
     texts:[{id:'hello',role:'headline',string:'HELLO',readStart:.4},{id:'after',role:'headline',string:'HELLO',readStart:1.8}],
     warnings:[]}),
@@ -81,11 +84,11 @@ def run_make_cases(tool, record, j, scripts_dir):
         except (OSError, ValueError):
             return {}
 
-    def film(name, cuts, flip=None, cue_shift=0, cut_shift=0, seams=None, changes=None):
+    def film(name, cuts, flip=None, cue_shift=0, cut_shift=0, seams=None, changes=None, extra_cues=None):
         folder = Path(j('make-films', name))
         folder.mkdir(parents=True, exist_ok=True)
         params = json.dumps({'cuts': cuts, 'flip': flip, 'cueShift': cue_shift, 'cutShift': cut_shift,
-                             'seams': seams, 'changes': changes})
+                             'seams': seams, 'changes': changes, 'extraCues': extra_cues or []})
         (folder / 'index.html').write_text(PAGE.replace('__PARAMS__', params), encoding='utf-8')
         return folder
 
@@ -151,7 +154,7 @@ def run_make_cases(tool, record, j, scripts_dir):
            and 'Nothing has been posted' in text and 'WEAKEST POINT' in text)
 
     # 4. A draft soundtrack in two aspect ratios: audio exactly as long as the picture, labelled draft.
-    code, out = tool('make_film.py', clean, '--sizes', '320x180,180x320', '--samples', 2,
+    code, out = tool('make_film.py', clean, '--sizes', '320x180,180x320', '--samples', 2, '--master', 'broadcast',
                      '--out', j('make-out', 'draft'), '--json', j('make-draft.json'))
     d = load(j('make-draft.json'))
     record('make_film: draft run in two aspect ratios exits 0', code == 0 and d.get('sound') == 'draft',
@@ -182,6 +185,13 @@ def run_make_cases(tool, record, j, scripts_dir):
            next((x.strip() for x in text.splitlines() if 'rests differ' in x), 'no per-size line'))
     record('make_film: one sheet per declared cut', bool(list(Path(j('make-out', 'draft', 'qa', '320x180')).glob(
         'joins-01-1.500s.png'))))
+    record('make_film: master numbers reported (broadcast -23 LUFS, gain reduction, true peak after AAC re-encode)',
+           'Master (`mix_cues.py`): preset broadcast, integrated -23.0 LUFS (target -23.0), largest gain reduction' in text
+           and 'after an AAC 128 kbps re-encode -' in text,
+           next((x.strip() for x in text.splitlines() if 'Master (`mix_cues.py`)' in x), 'no master line')[:200])
+    record('make_film: sound_check.py runs on every size with the spotted cue list',
+           all(Path(j('make-out', 'draft', 'qa', size, 'sound-check.json')).is_file() for size in ('320x180', '180x320'))
+           and text.count('`sound_check.py` ') == 2 and Path(j('make-out', 'draft', 'qa', 'spotting.csv')).is_file())
     record('make_film: deliver/ holds only deliverables, manifests, captions and the report',
            listed == ['clean.srt', 'clean.vtt', 'clean_180x320.mp4', 'clean_180x320.mp4.manifest.json',
                       'clean_320x180.mp4', 'clean_320x180.mp4.manifest.json', 'delivery-report.md'], str(listed))
@@ -189,20 +199,120 @@ def run_make_cases(tool, record, j, scripts_dir):
     # 5. --resume skips finished renders: no new render file, the old one untouched.
     renders = Path(j('make-out', 'draft', 'renders'))
     before = {p.name: p.stat().st_mtime_ns for p in renders.iterdir()} if renders.is_dir() else {}
-    code, out = tool('make_film.py', clean, '--sizes', '320x180,180x320', '--samples', 2,
+    code, out = tool('make_film.py', clean, '--sizes', '320x180,180x320', '--samples', 2, '--master', 'broadcast',
                      '--out', j('make-out', 'draft'), '--resume', '--json', j('make-resume.json'))
     r = load(j('make-resume.json'))
     after = {p.name: p.stat().st_mtime_ns for p in renders.iterdir()} if renders.is_dir() else {}
     record('make_film: --resume skips both finished renders and leaves them untouched',
            code == 0 and {'render 320x180', 'render 180x320'} <= set(r.get('resumed', [])) and before == after
            and len(before) == 4, f"exit {code}; resumed {r.get('resumed')}")
-    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--samples', 2, '--preview',
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--samples', 2, '--preview', '--master', 'broadcast',
                      '--out', j('make-out', 'draft'), '--resume', '--json', j('make-resume-2.json'))
     r = load(j('make-resume-2.json'))
     record('make_film: --resume re-renders when a setting changes, without overwriting',
            code == 0 and 'render 320x180' not in r.get('resumed', []) and
            all(Path(renders, n).stat().st_mtime_ns == t for n, t in before.items()) and
            (renders / 'clean_320x180-preview.mp4').is_file(), f"exit {code}")
+
+    # 5b. Spotting: clustered and repeated cues are merged and thinned; sound-edits.json drops one, applied last.
+    #     The default social master on a sparse 3 s film needs too much limiting: refused, and said.
+    spotted = film('spotted', [1.5], extra_cues=[
+        {'id': 'cut-tick', 't': 1.52, 'role': 'tick', 'sound': 'required', 'sync': 'attack'},
+        {'id': 't1', 't': 2.0, 'role': 'tick', 'sound': 'required', 'sync': 'attack'},
+        {'id': 't2', 't': 2.08, 'role': 'tick', 'sound': 'required', 'sync': 'attack'},
+        {'id': 't3', 't': 2.16, 'role': 'tick', 'sound': 'required', 'sync': 'attack'}])
+    (spotted / 'sound-edits.json').write_text(json.dumps({'swing': 'drop'}), encoding='utf-8')
+    code, out = tool('make_film.py', spotted, '--sizes', '320x180', '--preview', '--out', j('make-out', 'spotted'),
+                     '--json', j('make-spotted.json'))
+    sp = load(j('make-spotted.json'))
+    rpt = Path(j('make-out', 'spotted', 'deliver', 'delivery-report.md'))
+    text = rpt.read_text(encoding='utf-8') if rpt.is_file() else ''
+    mixlog = Path(j('make-out', 'spotted', 'logs', 'sound.log'))
+    record('make_film: spotting merges, thins and applies edits; the mix uses cues.spotted.json',
+           Path(j('make-out', 'spotted', 'qa', 'spotting.csv')).is_file() and 'cut-tick into cut' in text
+           and 't2:' in text and 't3:' in text and 'dropped by edits: swing (edit)' in text
+           and mixlog.is_file() and 'cues.spotted.json' in mixlog.read_text(encoding='utf-8'),
+           next((x.strip() for x in text.splitlines() if 'merged into gestures' in x), 'no spotting lines')[:200])
+    refused = [f for f in sp.get('findings', []) if 'refused' in f['detail']]
+    master = load(j('make-out', 'spotted', 'sound', 'mix-report.json')).get('mastering', {})
+    record('make_film: default social master either reaches -14 LUFS or is refused as a finding; exit follows',
+           master.get('preset') == 'social' and (
+               (bool(master.get('refused')) and bool(refused) and code == 1) or
+               (not master.get('refused') and abs(master.get('target_error_lu', 9)) <= .5 and master.get('aac_pass'))),
+           f"exit {code}; refused: {master.get('refused')}; largest gain reduction {master.get('max_gain_reduction_db')}")
+
+    # 5c. Hybrid: a licensed library fills the roles it can, the draft the rest and sub/air/bed; one version 2
+    #     palette with every role's source and licence; a loudness-matched, randomised listening pair.
+    import numpy as np
+    rate = 48000
+    library = Path(j('make-library'))
+    for name, y in (('WHSH_soft', .35 * np.sin(2 * np.pi * 2100 * np.arange(rate) / rate) *
+                     np.sin(np.pi * np.arange(rate) / rate) ** 5),):
+        folder = library / name
+        folder.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'f32le', '-ar', str(rate), '-ac', '2', '-i', '-',
+                        '-c:a', 'pcm_s24le', str(folder / (name + '.wav'))],
+                       input=np.column_stack((y, y)).astype('<f4').tobytes(), check=True)
+        (folder / 'licence.json').write_text(json.dumps({'licence': 'CC0 1.0', 'source_url': 'synthetic:test',
+                                                         'attribution': 'Synthetic fixture: ' + name}), encoding='utf-8')
+    code, out = tool('make_film.py', clean, '--sizes', '320x180,180x320', '--preview', '--master', 'broadcast',
+                     '--sound', 'library:' + str(library), '--out', j('make-out', 'hybrid'), '--json', j('make-hybrid.json'))
+    h = load(j('make-hybrid.json'))
+    hybrid = load(j('make-out', 'hybrid', 'library', 'palette-hybrid.json'))
+    src = hybrid.get('sources', {})
+    record('make_film: library:FOLDER is hybrid; exit 0', code == 0 and h.get('sound') == 'hybrid',
+           f"exit {code}; {[f['check'] + ': ' + f['detail'] for f in h.get('findings', [])][:3]}")
+    record('make_film: hybrid palette v2: whoosh from the library, impact and sub/air/bed synthesised, all licensed',
+           hybrid.get('version') == 2 and src.get('whoosh', {}).get('origin') == 'library'
+           and src.get('impact', {}).get('origin', '').startswith('draft')
+           and all(src.get(r, {}).get('origin', '').startswith('draft') for r in ('sub', 'air', 'bed'))
+           and all(s.get('licence') and s.get('attribution') for s in src.values()) and 'bed' in hybrid,
+           str({r: src.get(r, {}).get('origin') for r in ('whoosh', 'impact', 'sub', 'air', 'bed')}))
+    record('make_film: attribution lines printed', 'sound attribution: Synthetic fixture: WHSH_soft' in out)
+    key = load(j('make-out', 'hybrid', 'qa', 'listen-key.json'))
+    listen = Path(j('make-out', 'hybrid', 'deliver', 'listen'))
+    pair = {k: lengths(listen / f'{k}.mp4') if (listen / f'{k}.mp4').is_file() else (0, None) for k in 'AB'}
+
+    def picture_md5(path):
+        r = subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-i', str(path), '-map', '0:v:0', '-c', 'copy',
+                            '-f', 'md5', '-'], capture_output=True, text=True)
+        return r.stdout.strip()
+    record('make_film: listening pair A/B: same picture, the two mixes, randomised and keyed outside deliver/',
+           sorted([key.get('A'), key.get('B')]) == ['draft', 'hybrid'] and pair['A'] == pair['B'] == (90, 144000)
+           and picture_md5(listen / 'A.mp4') == picture_md5(listen / 'B.mp4') != ''
+           and not list(Path(j('make-out', 'hybrid', 'deliver')).rglob('*key*')), str(pair))
+    record('make_film: listening pair loudness-matched within 0.5 LU', key.get('matched_within_0_5_lu') is True
+           and abs(key['integrated_lufs']['A'] - key['integrated_lufs']['B']) <= .5, str(key.get('integrated_lufs')))
+    questions = (listen / 'questions.md').read_text(encoding='utf-8') if (listen / 'questions.md').is_file() else ''
+    record('make_film: questions.md asks about weight, camera-moving whooshes, the opening, harshness, the ending',
+           all(w in questions for w in ('weightier', 'camera moving', 'opening', 'harsh', 'jarring', 'ending land')))
+    text = Path(j('make-out', 'hybrid', 'deliver', 'delivery-report.md')).read_text(encoding='utf-8') \
+        if Path(j('make-out', 'hybrid', 'deliver', 'delivery-report.md')).is_file() else ''
+    record('make_film: hybrid report lists sources, licences, master numbers and the pending listening pair',
+           '## Sound chain' in text and 'library (CC0 1.0): whoosh' in text and 'largest gain reduction' in text
+           and 'Listening pair: `deliver/listen/A.mp4`' in text and 'waits for a person to answer questions.md' in text
+           and 'Synthetic fixture: WHSH_soft' in text)
+
+    # 5d. A supplied palette with no bed or music leaves digital silence between hits: sound_check.py warns,
+    #     and its warning is a finding to listen for.
+    sparse = Path(j('make-sparse'))
+    sparse.mkdir(parents=True, exist_ok=True)
+    t = np.arange(round(.12 * rate)) / rate
+    burst = .4 * np.sin(2 * np.pi * 1200 * t) * np.exp(-t / .02)
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'f32le', '-ar', str(rate), '-ac', '2', '-i', '-',
+                    '-c:a', 'pcm_s24le', str(sparse / 'burst.wav')],
+                   input=np.column_stack((burst, burst)).astype('<f4').tobytes(), check=True)
+    (sparse / 'palette.json').write_text(json.dumps({'version': 1, 'rate': rate, 'roles': {
+        role: {'takes': ['burst.wav'], 'sync': sync, 'gain_db': 0, 'licence': 'generated for this test',
+               'attribution': 'make cases'} for role, sync in (('impact', 'attack'), ('whoosh', 'apex'))}}),
+        encoding='utf-8')
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--preview', '--master', 'none',
+                     '--sound', sparse / 'palette.json', '--out', j('make-out', 'sparse'), '--json', j('make-sparse.json'))
+    sc = load(j('make-out', 'sparse', 'qa', '320x180', 'sound-check.json'))
+    heard = [f['detail'] for f in load(j('make-sparse.json')).get('findings', []) if f['check'] == 'sound_check']
+    record('make_film: sound_check.py warnings become findings to listen for; exit 1',
+           code == 1 and 'digital_silence' in sc.get('warnings', []) and
+           any(d.startswith('listen for: digital silence') for d in heard), f'exit {code}; {heard[:2]}')
 
     # 6. A declared cut that never happens, and a big change nobody declared: exit 1, both listed.
     missing = film('missing', [1.5, 2.2], flip=.6)

@@ -16,14 +16,24 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
      The sizes must export one cue list and one set of cuts (one timeline), or the run
      stops. Rests, smears, flashes, seams and changes follow each size's layout: they
      are reported per size and each size is checked against its own.
-  3. sound: none (no audio stream), a palette (--sound PATH, or FILM/palette.json or
-     FILM/audio/palette.json), or draft: make_sound_kit.py into FILM/audio/draft/ with a
-     temp track at info.beat.bpm, beat 0 on the film's beat 0 (info.beat.offset), the
-     drop on info.music.drop (seconds) or info.music.drop_beat, else --drop-beat N
-     (a zero-based film beat), else none, and the music stopping at info.music.stop.
-     library:FOLDER indexes licensed local effects into OUT/library and picks a palette
-     for the exported cues; files without licence evidence are excluded.
-     mix_cues.py then builds effects.wav, music.wav and mix.wav in OUT/sound/.
+  3. sound (SOUND-DESIGN.md): none (no audio stream), a palette (--sound PATH, or
+     FILM/palette.json or FILM/audio/palette.json), draft, or library:FOLDER.
+     Draft: make_sound_kit.py (palette version 2: layers, sub, air, a looping bed) into
+     FILM/audio/draft/ with a temp track at info.beat.bpm, beat 0 on the film's beat 0
+     (info.beat.offset), the drop on info.music.drop (seconds) or info.music.drop_beat,
+     else --drop-beat N (a zero-based film beat), else none; the music stops at
+     info.music.stop (on a bar line the kit's rhythm stops there and its ring-out plays).
+     library:FOLDER is hybrid: sound_library.py indexes and picks licensed takes for every
+     role it can fill; the draft fills the rest and the layer roles (sub, air, bed); one
+     version 2 palette records each role's source, licence and attribution, and the
+     attribution lines are printed. Spotting: spot_cues.py turns the exported cue list
+     into qa/cues.spotted.json and qa/spotting.csv (FILM/sound-edits.json applied last);
+     the mix, cue_onsets.py and sound_check.py all use the spotted list. mix_cues.py
+     builds effects, music, bed and mix in OUT/sound/ with --master (default social;
+     web, broadcast, none), its safety limiter checked after an AAC re-encode.
+     Listening pair (library sound only): the draft-only mix too, and deliver/listen/A.mp4
+     and B.mp4 (same picture, the two mixes, loudness-matched within 0.5 LU, randomised;
+     the key in qa/listen-key.json) with questions.md for the listener.
   4. render: film_render.py per size (--size, --res, --samples, --preview) into
      OUT/renders/, never overwriting a file.
   5. mux: video copied, AAC-LC 48 kHz 256 kbps, apad and -t at the picture's exact
@@ -31,7 +41,8 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
   6. QC per size into OUT/qa/WxH/: qc_file.py, flash_scan.py, blank_scan.py and
      motion_scan.py with the declared ranges (and info.pace as gates when declared:
      max_still_share, max_still, start, end), cue_onsets.py on the effects stem,
-     sync_check.py against mix.wav, frame_sheet.py (an overview; one sheet per declared
+     sync_check.py against mix.wav, sound_check.py with the spotted cue list (each warning
+     is a listening candidate to inspect), frame_sheet.py (an overview; one sheet per declared
      cut, 480 px tiles, so memory stays bounded; essential texts at 384 px at their
      readStart), and the declared-cut check: every info.cuts entry must show as a large
      change (motion_scan's change-area or step-cut measure) within one frame of the first
@@ -80,10 +91,11 @@ EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
 SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
 SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
 PER_SIZE = ('rests', 'smears', 'fast', 'flashes', 'seams', 'changes')
+LAYER_ROLES = ('sub', 'air', 'bed')   # always synthesised in a hybrid palette
 SHEET_TILE = 480   # long side of a cut-sheet tile; one frame_sheet.py call per cut keeps memory bounded
 FLAG = re.compile(r'FAIL|INSPECT|flag|inconclusive|drift|offset|miss|near-empty|look at|outside', re.I)
 QC_TOOLS = ('qc_file.py', 'flash_scan.py', 'blank_scan.py', 'motion_scan.py', 'cue_onsets.py', 'sync_check.py',
-            'frame_sheet.py')
+            'frame_sheet.py', 'sound_check.py')
 NODE_PROBE = r"""
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
 import {createRequire} from 'node:module';
@@ -347,6 +359,76 @@ def change_ranges(rows, fps):
     return out
 
 
+def listen_for(name, report):
+    """One sound_check.py warning as a finding with its numbers."""
+    c = (report.get('checks') or {}).get(name) or (report.get(name) if isinstance(report.get(name), dict) else {})
+    text = {
+        'phone_band_loss': lambda: f"phone-band loss {c.get('loss_lu', 0):.1f} LU (starting point "
+                                   f"{c.get('starting_point_lu')} LU): much of the sound may vanish on a phone",
+        'above_2khz': lambda: f"{100 * c.get('energy_share', 0):.1f}% of the energy above 2 kHz (starting point "
+                              f"{100 * (c.get('starting_point_share') or 0):.0f}%): may sound dull",
+        'digital_silence': lambda: 'digital silence inside the film: ' + ', '.join(
+            '{:.3f}-{:.3f} s'.format(*(float(v) for v in (
+                [g.get('from_s', g.get('start_s')), g.get('to_s', g.get('end_s'))] if isinstance(g, dict) else g[:2])))
+            for g in c.get('gaps', [])[:6]),
+        'crest_factor': lambda: f"crest factor {c.get('db', 0):.1f} dB (starting points {c.get('starting_points_db')}): "
+                                'peaks far above the body, or squashed',
+        'ending': lambda: f"the last 10% is {c.get('difference_lu', 0):+.1f} LU against the body: does the ending land?",
+        'layers_per_second': lambda: f"{len(c.get('windows', []))} second(s) with more layers than the starting "
+                                     'points: is it cluttered?',
+    }.get(name)
+    try:
+        return 'listen for: ' + (text() if text else f'{name}: {json.dumps(c)[:200]}')
+    except (TypeError, ValueError):
+        return f'listen for: {name}'
+
+
+def sound_check_summary(report):
+    checks = report.get('checks') or {}
+    loud = report.get('loudness') or {}
+    phone = checks.get('phone_band_loss', {})
+    upper = checks.get('above_2khz', {})
+    crest = checks.get('crest_factor', {})
+    return [f"{loud.get('integrated_lufs')} LUFS, phone-band loss {phone.get('loss_lu', float('nan')):.1f} LU, "
+            f"{100 * upper.get('energy_share', float('nan')):.1f}% above 2 kHz, crest {crest.get('db', float('nan')):.1f} dB, "
+            f"{len((checks.get('digital_silence') or {}).get('gaps', []))} digital-silence gap(s); "
+            f"listening candidates: {', '.join(report.get('warnings', [])) or 'none'}"]
+
+
+def sound_state(sound, plain=False):
+    mode = sound.get('mode')
+    b = (lambda x: x) if plain else (lambda x: f'**{x}**')  # noqa: E731
+    if mode == 'none':
+        return ('intentionally absent (no audio stream)' if plain else
+                'audio intentionally absent; no audio stream, verified by qc_file.py --audio none')
+    if mode == 'draft':
+        return b('unheard') + (' (draft soundtrack)' if plain else ' (draft soundtrack: synthesised by '
+                                'make_sound_kit.py; not for release until a person listens and decides)')
+    if mode == 'hybrid':
+        return b('unheard') + (' (hybrid: library takes and synthesised draft; listening pair awaits answers)' if plain
+                               else ' (hybrid: licensed library takes with the synthesised draft for the other roles; '
+                               'the listening pair in deliver/listen/ waits for a person to answer questions.md)')
+    return b('unheard')
+
+
+def rights_line(sound):
+    sources = sound.get('sources') or {}
+    library = sorted({str(x) for s in sources.values() if s.get('origin') == 'library'
+                      for x in (s.get('licence') or [])})
+    synth = [r for r, s in sources.items() if 'synthesised' in str(s.get('origin'))]
+    parts = []
+    if library:
+        parts.append(f"{sum(1 for s in sources.values() if s.get('origin') == 'library')} role(s) from the library "
+                     f"under {', '.join(library)} (licence evidence as supplied, not independent clearance)")
+    if synth:
+        parts.append(f'{len(synth)} role(s) synthesised by make_sound_kit.py (generated for this project, no '
+                     'third-party material)')
+    other = [r for r, s in sources.items() if s.get('origin') not in ('library',) and r not in synth]
+    if other:
+        parts.append(f'{len(other)} role(s) from a supplied palette: check its licences')
+    return '; '.join(parts) + '; attribution lines in the Sound chain section' if parts else 'no sources recorded'
+
+
 def cut_sheets(py, video, cuts, size, fps, folder, span=1.6):
     """One frame_sheet.py call per cut, tiles SHEET_TILE px on the long side: bounded memory at any film length.
 
@@ -391,6 +473,9 @@ class Make:
         spec = importlib.util.spec_from_file_location('lf_render_common', HERE / 'render_common.py')
         self.C = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.C)
+        spec = importlib.util.spec_from_file_location('lf_sound_io', HERE / 'sound_io.py')
+        self.io = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.io)
 
     # --- plumbing -------------------------------------------------------------------------
     def run(self, label, cmd, cwd=None):
@@ -546,8 +631,9 @@ class Make:
         self.C.validate_timeline(info)
         return info
 
-    # --- optional local sound library (the existing mixer remains unchanged) ----------------
+    # --- sound chain: kit, spot, source, master (SOUND-DESIGN.md) -------------------------------
     def library_palette(self, library, cues_path):
+        """Index a licensed local library (resumable) and pick takes for the spotted cues; return its palette."""
         folder = Path(library).resolve()
         if not folder.is_dir():
             raise CouldNotRun('sound library folder missing: ' + str(folder))
@@ -576,59 +662,180 @@ class Make:
         code, message = self.py('library-pick', 'sound_library.py', 'pick', cues_path, index, '--out', palette)
         if code == 2:
             raise CouldNotRun('sound library pick: ' + message.strip()[-600:])
-        report = load_json(palette, {}) or {}
-        for missing in report.get('missing_roles', []):
-            self.finding('sound', 'sound_library.py', str(missing))
-        for line in report.get('attributions', []):
-            print('  sound attribution: ' + line, flush=True)
-        return str(palette)
+        return palette
+
+    def hybrid_palette(self, draft_path, library_path):
+        """One version 2 palette: library takes for every role the library filled, the synthesised draft for the
+        rest and for the layer roles (sub, air, bed). Each role names its source, licence and attribution."""
+        draft, library = load_json(draft_path, {}), load_json(library_path, {}) or {}
+        target = Path(library_path).parent / 'palette-hybrid.json'
+
+        def moved(path, base):
+            source = (Path(base).parent / path).resolve()
+            try:
+                return Path(os.path.relpath(source, target.parent)).as_posix()
+            except ValueError:   # another drive on Windows: keep it absolute
+                return str(source)
+        palette = {k: v for k, v in draft.items() if k not in ('roles', 'music')}
+        palette.update(version=2, roles={}, sources={}, draft=draft.get('draft'))
+        if draft.get('music'):
+            palette['music'] = dict(draft['music'], file=moved(draft['music']['file'], draft_path))
+        picked = {r: v for r, v in (library.get('roles') or {}).items() if v.get('takes')}
+        missing = {m.get('role'): m for m in library.get('missing_roles', [])}
+        for role in sorted(set(draft.get('roles', {})) | set(picked)):
+            if role in picked and role not in LAYER_ROLES:
+                take = dict(picked[role], takes=[moved(t, library_path) for t in picked[role]['takes']])
+                take.pop('take_records', None)
+                if draft.get('roles', {}).get(role, {}).get('layers'):
+                    take['layers'] = draft['roles'][role]['layers']   # recorded transient over synthesised weight
+                palette['roles'][role] = take
+                palette['sources'][role] = {'origin': 'library', 'licence': sorted(set(take.get('licence') or [])),
+                                            'attribution': sorted(set(take.get('attribution') or [])),
+                                            'source': sorted(set(take.get('source') or []))}
+            else:
+                take = dict(draft['roles'][role], takes=[moved(t, draft_path) for t in draft['roles'][role]['takes']])
+                palette['roles'][role] = take
+                if role in LAYER_ROLES:
+                    why = 'layer role, always synthesised'
+                elif role in missing:
+                    why = 'library could not fill it: ' + json.dumps(missing[role].get('rejections') or
+                                                                     missing[role].get('reason'))
+                else:
+                    why = 'not asked of the library (no cue uses it)'
+                palette['sources'][role] = {'origin': 'draft (synthesised)', 'licence': [take.get('licence')],
+                                            'attribution': [take.get('attribution')], 'why': why}
+        lines = list(library.get('attributions', []))
+        if any(s['origin'] != 'library' for s in palette['sources'].values()):
+            lines.append('Synthesised draft sounds: make_sound_kit.py, original procedural synthesis, '
+                         'no third-party samples.')
+        palette['attributions'] = lines
+        palette['library_warnings'] = library.get('warnings', [])
+        save_json(target, palette)
+        return target
+
+    def spot(self, cues_path, palette):
+        """spot_cues.py over the exported cue list, applying FILM/sound-edits.json last when present."""
+        qa = self.out / 'qa'
+        edits = self.film / 'sound-edits.json'
+        spotted = qa / 'cues.spotted.json'
+
+        def go():
+            qa.mkdir(parents=True, exist_ok=True)
+            args = [cues_path, '--out-dir', qa, '--json', qa / 'spotting.json']
+            if palette:
+                args += ['--palette', palette]
+            if edits.is_file():
+                args += ['--edits', edits]
+            code, text = self.py('spotting', 'spot_cues.py', *args)
+            if code == 2:
+                raise CouldNotRun('spot_cues.py could not run: ' + text.strip()[-600:])
+            events = (load_json(spotted, {}) or {}).get('events', [])
+
+            def notes(e):
+                return ' | '.join(e.get('spotting') or [])
+            dropped = [e for e in events if not e.get('enabled', True) and
+                       re.search(r'edit applied last.*drop', notes(e))]
+            merged = [e for e in events if e.get('merged_into') and e not in dropped]
+            thinned = [e for e in events if not e.get('enabled', True) and e not in dropped and e not in merged]
+            edited = [e for e in events if 'edit applied last' in notes(e) and e not in dropped]
+            return {'exit': code, 'edits': str(edits) if edits.is_file() else None, 'events': len(events),
+                    'audible': sum(1 for e in events if e.get('enabled', True) and e.get('sound') != 'silent'),
+                    'merged': [f"{e['id']} into {e['merged_into']}" for e in merged],
+                    'thinned': [f"{e['id']}: {notes(e)}" for e in thinned],
+                    'dropped': [f"{e['id']} (edit)" for e in dropped],
+                    'edited': [f"{e['id']}: {notes(e)}" for e in edited],
+                    'texture': [e['id'] for e in events if e.get('enabled', True) and e.get('texture')],
+                    'summary': (text.strip().splitlines() or [''])[0][:300]}, [spotted, qa / 'spotting.csv']
+        result = self.step('spotting', {'cues': sha256(cues_path),
+                                        'palette': self.palette_hashes(palette) if palette else None,
+                                        'edits': sha256(edits) if edits.is_file() else None,
+                                        'tool': self.tool_hashes('spot_cues.py')}, go)
+        if result.get('exit') == 1:
+            self.finding('sound', 'spot_cues.py', 'spotting left review warnings: see qa/spotting.csv')
+        return spotted, result
+
+    def draft_kit(self, info, duration):
+        """make_sound_kit.py (palette version 2) into FILM/audio/draft, placed on the film's clock; resumable."""
+        kit = self.film / 'audio' / 'draft'
+
+        def go():
+            notes = []
+            path = self.draft_palette(info, duration, notes)
+            return {'palette': str(path), 'notes': notes}, [path, kit / 'palette.json']
+        return self.step('sound kit', {'duration': duration, 'beat': info.get('beat'), 'music': info.get('music'),
+                                       'drop_beat': self.a.drop_beat, 'master': getattr(self.a, 'master', None),
+                                       'tools': self.tool_hashes('make_sound_kit.py', 'sound_io.py')}, go)
+
+    def mix(self, name, palette, cues, stems, duration, master):
+        def go():
+            stems.mkdir(parents=True, exist_ok=True)
+            code, text = self.py(name.replace(' ', '-'), 'mix_cues.py', cues, palette, '--out-dir', stems,
+                                 '--duration', f'{duration:.6f}', '--master', master,
+                                 '--json', stems / 'mix-report.json')
+            if code == 2:
+                raise CouldNotRun('mix_cues.py could not run: ' + text.strip()[-600:])
+            report = load_json(stems / 'mix-report.json', {}) or {}
+            outputs = [stems / n for n in ('effects.wav', 'music.wav', 'bed.wav', 'mix.wav', 'mix-report.json')]
+            return {'exit': code, 'mix': report.get('mix', {}), 'mastering': report.get('mastering', {}),
+                    'missing_roles': report.get('missing_roles', []),
+                    'silent_window_violations': report.get('silent_window_violations', []),
+                    'listening_check_candidates': report.get('listening_check_candidates', []),
+                    'warnings': report.get('warnings', []), 'summary': (text.strip().splitlines() or [''])[0][:300],
+                    'mix_sha256': sha256(stems / 'mix.wav') if (stems / 'mix.wav').is_file() else None}, outputs
+        return self.step(name, {'palette': str(palette), 'files': self.palette_hashes(palette), 'cues': sha256(cues),
+                                'duration': duration, 'master': master,
+                                'tools': self.tool_hashes('mix_cues.py', 'sound_io.py')}, go)
 
     def sound(self, info, cues_path):
         mode = self.sound_mode
-        if mode.startswith('library:'):
-            mode = self.library_palette(mode[len('library:'):], cues_path)
         if mode == 'none':
             self.state['steps']['sound'] = {'result': {'mode': 'none'}, 'resumed': False}
             return {'mode': 'none'}
         duration = info['frames'] / info['fps']
-        cues_hash = sha256(cues_path)
-        if mode == 'draft':
-            inputs = {'mode': 'draft', 'cues': cues_hash, 'duration': duration, 'beat': info.get('beat'),
-                      'music': info.get('music'), 'drop_beat': self.a.drop_beat,
-                      'tools': self.tool_hashes('make_sound_kit.py', 'mix_cues.py', 'sound_io.py')}
+        master = getattr(self.a, 'master', None) or 'social'
+        library = mode[len('library:'):] if mode.startswith('library:') else None
+        kit = self.draft_kit(info, duration) if (mode == 'draft' or library) else None
+        draft = Path(kit['palette']) if kit else None
+        given = None if (mode == 'draft' or library) else Path(mode)
+        spotted, spotting = self.spot(cues_path, given or draft)
+        if library:
+            palette = self.hybrid_palette(draft, self.library_palette(library, spotted))
         else:
-            inputs = {'mode': 'palette', 'palette': str(mode), 'files': self.palette_hashes(mode), 'cues': cues_hash,
-                      'duration': duration, 'tools': self.tool_hashes('mix_cues.py', 'sound_io.py')}
-        stems = self.out / 'sound'
-
-        def go():
-            notes = []
-            palette = Path(mode) if mode != 'draft' else self.draft_palette(info, duration, notes)
-            stems.mkdir(parents=True, exist_ok=True)
-            code, text = self.py('mix', 'mix_cues.py', cues_path, palette, '--out-dir', stems, '--duration',
-                                 f'{duration:.6f}', '--json', stems / 'mix-report.json')
-            if code == 2:
-                raise CouldNotRun('mix_cues.py could not run: ' + text.strip()[-600:])
-            report = load_json(stems / 'mix-report.json', {}) or {}
-            outputs = [stems / n for n in ('effects.wav', 'music.wav', 'mix.wav', 'mix-report.json')]
-            return {'mode': 'draft' if mode == 'draft' else 'palette', 'palette': str(palette), 'exit': code,
-                    'notes': notes, 'mix': report.get('mix', {}), 'missing_roles': report.get('missing_roles', []),
-                    'silent_window_violations': report.get('silent_window_violations', []),
-                    'listening_check_candidates': report.get('listening_check_candidates', []),
-                    'warnings': report.get('warnings', []), 'summary': (text.strip().splitlines() or [''])[-1][:300],
-                    'mix_sha256': sha256(stems / 'mix.wav') if (stems / 'mix.wav').is_file() else None}, outputs
-        result = self.step('sound', inputs, go)
-        if result.get('exit') == 1:
-            report = load_json(stems / 'mix-report.json', {}) or {}
-            said = [f"required role {m.get('role')} missing for {m.get('id')}" for m in report.get('missing_roles', [])
-                    if m.get('sound') == 'required']
-            said += [f"{v.get('take_event_id')} sounds inside silent window {v.get('silent_id')} "
-                     f"({v['overlap_s'][0]:.3f}-{v['overlap_s'][1]:.3f} s)" for v in report.get('silent_window_violations', [])]
-            said += [f'required sync outside the film: {x}' for x in report.get('required_sync_outside_output', [])]
-            said += report.get('warnings', []) + ([f"gain refused: {report['gain_refused']}"] if report.get('gain_refused') else [])
-            for detail in said or ['the mixer exited 1: see sound/mix-report.json']:
-                self.finding('sound', 'mix_cues.py', detail)
+            palette = given or draft
+        result = dict(self.mix('sound', palette, spotted, self.out / 'sound', duration, master))
+        p = load_json(palette, {}) or {}
+        sources = p.get('sources') or {
+            r: {'origin': 'draft (synthesised)' if mode == 'draft' else 'supplied palette',
+                'licence': v.get('licence'), 'attribution': v.get('attribution')} for r, v in p.get('roles', {}).items()}
+        lines = p.get('attributions') or sorted({x for s in sources.values() for x in (
+            [s['attribution']] if isinstance(s.get('attribution'), str) else s.get('attribution') or []) if x})
+        result.update(mode='hybrid' if library else 'draft' if mode == 'draft' else 'palette', palette=str(palette),
+                      master=master, spotted=str(spotted), spotting=spotting, notes=(kit or {}).get('notes', []),
+                      attributions=lines, sources=sources)
+        for line in lines:
+            print('  sound attribution: ' + line, flush=True)
+        self.mix_findings(result, self.out / 'sound', 'mix_cues.py')
+        if library:
+            # The listening pair's other half: the same spotted cues on the draft palette alone.
+            other = self.mix('sound draft-only', draft, spotted, self.out / 'sound-draft', duration, master)
+            result['draft_mix'] = other
+            self.mix_findings(other, self.out / 'sound-draft', 'mix_cues.py (draft-only listening mix)')
         return result
+
+    def mix_findings(self, result, stems, label):
+        if result.get('exit') != 1:
+            return
+        report = load_json(stems / 'mix-report.json', {}) or {}
+        said = [f"required role {m.get('role')} missing for {m.get('id')}" for m in report.get('missing_roles', [])
+                if m.get('sound') == 'required']
+        said += [f"{v.get('take_event_id')} sounds inside silent window {v.get('silent_id')} "
+                 f"({v['overlap_s'][0]:.3f}-{v['overlap_s'][1]:.3f} s)" for v in report.get('silent_window_violations', [])]
+        said += [f'required sync outside the film: {x}' for x in report.get('required_sync_outside_output', [])]
+        said += report.get('warnings', [])
+        if report.get('gain_refused'):
+            said.append(f"mastering or gain refused: {report['gain_refused']}")
+        for detail in said or [f'the mixer exited 1: see {stems.name}/mix-report.json']:
+            self.finding('sound', label, detail)
 
     @staticmethod
     def palette_hashes(path):
@@ -651,6 +858,7 @@ class Make:
         beat = info.get('beat') or None
         music = info.get('music') or {}
         at = skip = 0.0
+        ring = False
         if beat and beat.get('bpm'):
             bpm, offset = float(beat['bpm']), float(beat.get('offset') or 0)
             at, skip = max(0.0, offset), max(0.0, -offset)
@@ -677,7 +885,13 @@ class Make:
                 drop_bar = bars
             else:
                 bars = bars_needed
-            args += ['--temp-bpm', f'{bpm:g}', '--bars', bars, '--drop-bar', drop_bar, '--stop-bar', bars + 1]
+            stop_bar = bars + 1
+            if music.get('stop') is not None:
+                exact = (float(music['stop']) - offset) * bpm / 60 / 4 + 1
+                if abs(exact - round(exact)) < 1e-6 and drop_bar < round(exact) <= bars + 1:
+                    # On a bar line: the kit's own rhythmic stop lands there and its ring-out plays on.
+                    stop_bar, ring = round(exact), True
+            args += ['--temp-bpm', f'{bpm:g}', '--bars', bars, '--drop-bar', drop_bar, '--stop-bar', stop_bar]
             notes.append(f'temp track {bpm:g} BPM, {bars} bars, beat 0 at film {offset:.3f} s')
         else:
             notes.append('the film declares no beat: draft effects only, no temp track')
@@ -687,13 +901,21 @@ class Make:
         palette = load_json(kit / 'palette.json')
         if palette.get('music'):
             stop = music.get('stop')
-            stop = min(float(stop), duration) if stop is not None else duration
+            if ring:
+                stop = min(duration, at + float(palette['music']['stop_s']) - skip)
+                notes.append(f"rhythm stops at {float(music['stop']):.3f} s (info.music.stop, a bar line); "
+                             f'the ring-out plays to {stop:.3f} s')
+            else:
+                stop = min(float(stop), duration) if stop is not None else duration
+                if music.get('stop') is not None:
+                    notes.append(f'music stops at {stop:.3f} s (info.music.stop)')
             palette['music'].update({'at_s': round(at, 6), 'offset_s': round(skip, 6), 'stop_s': round(stop, 6)})
-            palette['music']['label'] = (palette['music'].get('label', '') + ' Placed by make_film.py: its beat 0 on '
-                                         'the film\'s beat 0; stops at ' + f'{stop:.3f} s.').strip()
-            if music.get('stop') is not None:
-                notes.append(f'music stops at {stop:.3f} s (info.music.stop)')
-        palette['draft'] = 'draft soundtrack from make_sound_kit.py: synthesised, unheard; not for release until a person listens'
+            palette['music']['label'] = (palette['music'].get('label', '') + " Placed by make_film.py: its beat 0 on "
+                                         "the film's beat 0; stops at " + f'{stop:.3f} s.').strip()
+        palette['draft'] = ('draft soundtrack from make_sound_kit.py: synthesised, unheard; '
+                            'not for release until a person listens')
+        if getattr(self.a, 'master', None):
+            palette['master'] = {'preset': self.a.master}
         target = kit / 'palette-film.json'
         save_json(target, palette)
         return target
@@ -758,15 +980,91 @@ class Make:
             if sound['mode'] == 'none':
                 shutil.copyfile(render['path'], target)
                 return {'audio': 'intentionally absent', 'duration': duration, 'path': str(target)}, [target]
-            ffmpeg = find_tool('ffmpeg', self.a.ffmpeg)
-            code, text = self.run(f'mux-{label}', [
-                ffmpeg, '-hide_banner', '-v', 'error', '-nostdin', '-n', '-i', render['path'], '-i', mix,
-                '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-af', 'apad', '-c:a', 'aac', '-profile:a', 'aac_low',
-                '-ar', '48000', '-b:a', '256k', '-t', f'{duration:.6f}', '-movflags', '+faststart', target])
-            if code:
-                raise CouldNotRun(f'mux failed at {label}: ' + text.strip()[-600:])
+            self.mux_audio(f'mux-{label}', render['path'], mix, target, duration)
             return {'audio': 'AAC-LC 48 kHz 256 kbps', 'duration': duration, 'path': str(target)}, [target]
         return self.step(f'mux {label}', inputs, go)
+
+    def mux_audio(self, label, picture, wav, target, duration, gain_db=0.0):
+        """Video copied; AAC-LC 48 kHz 256 kbps; apad and -t at the picture's exact duration; never -shortest."""
+        ffmpeg = find_tool('ffmpeg', self.a.ffmpeg)
+        audio = (f'volume={gain_db:.4f}dB,' if abs(gain_db) > 1e-6 else '') + 'apad'
+        code, text = self.run(label, [
+            ffmpeg, '-hide_banner', '-v', 'error', '-nostdin', '-n', '-i', picture, '-i', wav,
+            '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-af', audio, '-c:a', 'aac', '-profile:a', 'aac_low',
+            '-ar', '48000', '-b:a', '256k', '-t', f'{duration:.6f}', '-movflags', '+faststart', target])
+        if code:
+            raise CouldNotRun(f'mux failed ({label}): ' + text.strip()[-600:])
+
+    def listen_pair(self, size, render, sound, info):
+        """Same picture, the delivered (hybrid) mix and the draft-only mix, loudness-matched, randomised as A and B."""
+        import random
+        listen = self.out / 'deliver' / 'listen'
+        duration = (render.get('frames') or info['frames']) / info['fps']
+        mixes = {'hybrid': self.out / 'sound' / 'mix.wav', 'draft': self.out / 'sound-draft' / 'mix.wav'}
+        inputs = {'render': sha256(render['path']), 'mixes': {k: sha256(v) for k, v in mixes.items()},
+                  'duration': duration}
+
+        def go():
+            listen.mkdir(parents=True, exist_ok=True)
+            ffmpeg = find_tool('ffmpeg', self.a.ffmpeg)
+            level = {k: self.io.meter(ffmpeg, v) for k, v in mixes.items()}
+            if None in (level['hybrid']['integrated_lufs'], level['draft']['integrated_lufs']):
+                raise CouldNotRun('the listening mixes could not be measured (silence?)')
+            # Plain gain on the draft-only mix: a quieter version tends to be heard as worse just for being quieter.
+            gain = level['hybrid']['integrated_lufs'] - level['draft']['integrated_lufs']
+            order = ['hybrid', 'draft']
+            random.SystemRandom().shuffle(order)
+            files = {}
+            for letter, which in zip('AB', order):
+                files[letter] = listen / f'{letter}.mp4'
+                self.set_aside(files[letter])
+                self.mux_audio(f'listen-{letter}', render['path'], mixes[which], files[letter], duration,
+                               gain if which == 'draft' else 0.0)
+            measured = {k: self.io.meter(ffmpeg, f) for k, f in files.items()}
+            difference = abs(measured['A']['integrated_lufs'] - measured['B']['integrated_lufs'])
+            key = {'A': order[0], 'B': order[1], 'duration_s': round(duration, 6),
+                   'meaning': {'hybrid': 'library takes with the synthesised draft for the rest (the delivered mix)',
+                               'draft': 'the synthesised draft palette alone, same spotted cues and master'},
+                   'picture': render['path'], 'size': self.label(size),
+                   'gain_applied_to_draft_db': round(gain, 3),
+                   'integrated_lufs': {k: v['integrated_lufs'] for k, v in measured.items()},
+                   'true_peak_dbtp': {k: v['true_peak_dbtp'] for k, v in measured.items()},
+                   'difference_lu': round(difference, 3), 'matched_within_0_5_lu': difference <= 0.5,
+                   'sha256': {k: sha256(f) for k, f in files.items()},
+                   'note': 'Keep this key from the listener until their answers are recorded.'}
+            save_json(self.out / 'qa' / 'listen-key.json', key)
+            (listen / 'questions.md').write_text(self.listen_questions(key, sound), encoding='utf-8')
+            return key, [files['A'], files['B'], listen / 'questions.md', self.out / 'qa' / 'listen-key.json']
+        key = self.step('listening pair', inputs, go)
+        if not key['matched_within_0_5_lu']:
+            self.finding('sound', 'listening pair', f"A and B differ by {key['difference_lu']} LU (more than 0.5)")
+        for letter, peak in key['true_peak_dbtp'].items():
+            if peak is not None and peak > -1.0:
+                self.finding('sound', 'listening pair', f'{letter}.mp4 true peak {peak} dBTP after loudness matching')
+        return key
+
+    def listen_questions(self, key, sound):
+        events = [e for e in (load_json(sound['spotted'], {}) or {}).get('events', [])
+                  if e.get('enabled', True) and e.get('sound') != 'silent']
+        hits = ', '.join(f"{e['t']:.2f} s" for e in events if 'impact' in str(e.get('role')) or 'hit' in str(e.get('role')))
+        moves = ', '.join(f"{e['t']:.2f} s" for e in events if 'whoosh' in str(e.get('role')))
+        return '\n'.join([
+            '# Listening pair: A and B', '',
+            f"`A.mp4` and `B.mp4` are the same picture ({key['size']}) with two different soundtracks, matched in "
+            f"loudness (they differ by {key['difference_lu']} LU). Which is which is written down elsewhere; please "
+            'answer before anyone tells you.', '',
+            'Play each one through at normal speed, at the same volume: once on a phone speaker and once on '
+            'headphones. Then answer, naming the moment (in seconds) where you can:', '',
+            '1. Which hits feel weightier, A or B?' + (f' (hits at {hits})' if hits else ''),
+            '2. In which version do the whooshes feel like the camera moving, rather than a sound laid on top?'
+            + (f' (whooshes at {moves})' if moves else ''),
+            f"3. Does the opening (the first {min(3.0, key.get('duration_s', 12) / 4):g} s) hold your attention "
+            'in A? In B?',
+            '4. Is anything harsh, piercing, clicky or jarring in either? Where?',
+            '5. Does the ending land in A? In B? Does the sound finish with the picture?',
+            '6. Which would you ship: A, B or neither? Why?', '',
+            'Send back your name, the date, the devices you used and your answers. Until then the sound is '
+            'unheard.', ''])
 
     def declared_ranges(self, qa, info):
         fps = info['fps']
@@ -810,6 +1108,8 @@ class Make:
         duration = frames / fps
         has_sound = sound['mode'] != 'none'
         inputs = {'file': sha256(path), 'cues': sha256(cues_path), 'mix': sound.get('mix_sha256'),
+                  'spotted': sha256(sound['spotted']) if sound.get('spotted') else None,
+                  'palette': self.palette_hashes(sound['palette']) if sound.get('palette') else None,
                   'declared': sha256(qa / 'declared.json') if (qa / 'declared.json').is_file() else None,
                   'reading': sha256(qa / 'reading.json') if (qa / 'reading.json').is_file() else None,
                   'info': {k: info.get(k) for k in ('fps', 'frames', 'cuts', 'smears', 'rests', 'flashes', 'pace', 'beat',
@@ -874,6 +1174,13 @@ class Make:
                 window = min(3.0, 0.4 * duration)
                 tool('sync_check', 'sync_check.py', path, self.out / 'sound' / 'mix.wav', '--window', f'{window:.3f}',
                      '--max-lag-ms', f'{max_lag:.1f}', '--json', qa / 'sync.json', json_path=qa / 'sync.json')
+                # The delivered file's sound against the spotted cue list: reasons to listen, never a verdict.
+                tool('sound_check', 'sound_check.py', path, '--cues', sound['spotted'], '--palette', sound['palette'],
+                     '--json', qa / 'sound-check.json', json_path=qa / 'sound-check.json')
+                report = load_json(qa / 'sound-check.json', {}) or {}
+                if checks['sound_check']['status'] != 'could not run':
+                    checks['sound_check']['flags'] = [listen_for(n, report) for n in report.get('warnings', [])]
+                    checks['sound_check']['summary'] = sound_check_summary(report)
             sheets = []
             every = 0.5 if duration <= 60 else round(duration / 120, 3)
             tool('sheet_overview', 'frame_sheet.py', path, '--every', every, '--out', qa / 'overview.png')
@@ -1000,20 +1307,21 @@ class Make:
     def cue_onsets(self, sound, cues_path):
         if sound['mode'] == 'none':
             return None
-        events = (load_json(cues_path, {}) or {}).get('events', [])
+        spotted = Path(sound.get('spotted') or cues_path)
+        events = (load_json(spotted, {}) or {}).get('events', [])
         if not events:
             self.not_checked.append('sound on cue (cue_onsets.py): the cue list has no events')
             return {'status': 'not run', 'summary': ['the cue list has no events']}
 
         def go():
             path = self.out / 'qa' / 'cue-onsets.json'
-            code, text = self.py('cue-onsets', 'cue_onsets.py', self.out / 'sound' / 'effects.wav', cues_path,
+            code, text = self.py('cue-onsets', 'cue_onsets.py', self.out / 'sound' / 'effects.wav', spotted,
                                  '--json', path)
             status = {0: 'pass', 1: 'inspect'}.get(code, 'could not run')
             return {'tool': 'cue_onsets.py', 'exit': code, 'status': status, 'json': str(path),
                     'summary': [x for x in text.strip().splitlines() if x.strip()][:12]}, [path]
         result = self.step('cue onsets', {'effects': sha256(self.out / 'sound' / 'effects.wav'),
-                                          'cues': sha256(cues_path), 'tool': self.tool_hashes('cue_onsets.py')}, go)
+                                          'cues': sha256(spotted), 'tool': self.tool_hashes('cue_onsets.py')}, go)
         if result['status'] != 'pass':
             self.finding('sound', 'cue_onsets', ' '.join(result['summary'][:3])[:300])
         return result
@@ -1035,6 +1343,8 @@ class Make:
                 captions.append(dst)
                 keep.add(dst.name)
         keep |= {n + '.manifest.json' for n in keep} | {'delivery-report.md'}
+        if sound.get('listen'):
+            keep.add('listen')
         for p in deliver.iterdir():
             if p.name not in keep:
                 self.set_aside(p)
@@ -1056,8 +1366,7 @@ class Make:
                              'cues_sha256': sha256(cues_path), 'mix_sha256': sound.get('mix_sha256'),
                              'palette': sound.get('palette')},
                  'versions': r.get('versions', {}), 'captions': [c.name for c in captions],
-                 'status': {'watched': 'unwatched', 'sound': 'intentionally absent (no audio stream)' if
-                            sound['mode'] == 'none' else 'unheard' + (' (draft soundtrack)' if draft else ''),
+                 'status': {'watched': 'unwatched', 'sound': sound_state(sound, plain=True),
                             'published': 'nothing posted, uploaded or sent'}}
             save_json(str(path) + '.manifest.json', m)
             manifests[label] = m
@@ -1066,10 +1375,8 @@ class Make:
         return manifests
 
     def report(self, info, source, sound, renders, delivered, qcs, onsets, manifests, captions):
-        draft, silent = sound['mode'] == 'draft', sound['mode'] == 'none'
-        sound_status = ('audio intentionally absent; no audio stream, verified by qc_file.py --audio none' if silent else
-                        '**unheard** (draft soundtrack: synthesised by make_sound_kit.py; not for release until a '
-                        'person listens and decides)' if draft else '**unheard**')
+        draft, silent = sound['mode'] in ('draft', 'hybrid'), sound['mode'] == 'none'
+        sound_status = sound_state(sound)
         files = [f'{m["file"]}: {m["bytes"] / 1e6:.6f} MB, SHA-256 `{m["sha256"]}`' for m in manifests.values()]
         files += [f'{c.name}: caption sidecar, SHA-256 `{sha256(c)}`' for c in captions]
 
@@ -1170,10 +1477,9 @@ class Make:
             'Claims and strings against `facts.json`; the independent claims check':
                 ['film_check.py preflight (facts, contrast, reading windows, predicted flashing): ' + '; '.join(pre),
                  'the independent claims check: not done (needs a reviewer reading every string against today\'s sources)'],
-            'Asset rights (`assets.csv`)': ('not checked by make_film.py' + (
-                '; the draft sound is synthesised by make_sound_kit.py (generated for this project, no third-party '
-                'material)' if draft else '') + ('; assets.csv present, not verified' if
-                                                 (self.film / 'assets.csv').is_file() else '; no assets.csv in the film folder')),
+            'Asset rights (`assets.csv`)': ('picture assets not checked by make_film.py' + (
+                '; assets.csv present, not verified' if (self.film / 'assets.csv').is_file() else
+                '; no assets.csv in the film folder') + ('; sound: ' + rights_line(sound) if not silent else '')),
         }
         inspect = [f"{f['size']}: {f['check']}: {f['detail']}" for f in self.findings]
         not_checked = [
@@ -1218,11 +1524,64 @@ class Make:
                 out.append(line)
             i += 1
         text = re.sub(r'\n{3,}', '\n\n', '\n'.join(out)).rstrip() + '\n'
-        head = ['', '## Items to inspect', ''] + ([f'- {x}' for x in inspect] or
+        chain = [] if silent else ['', '## Sound chain', ''] + [
+            (f'  - {x.strip()}' if x.startswith('  ') else f'- {x}') for x in self.sound_chain(sound, qcs)]
+        head = chain + ['', '## Items to inspect', ''] + ([f'- {x}' for x in inspect] or
                                                   ['- None from the automated checks. The checks measure files; they '
                                                    'do not watch or listen.']) + ['']
         anchor = '\n## Not checked, and why'
         return text.replace(anchor, '\n'.join(head) + anchor, 1) if anchor in text else text + '\n'.join(head)
+
+    def sound_chain(self, sound, qcs):
+        """The chain's numbers: spotting, sources and licences, mastering, sound_check, the listening pair."""
+        def few(items, n=8):
+            return '; '.join(items[:n]) + (f'; and {len(items) - n} more' if len(items) > n else '') if items else 'none'
+        sp = sound.get('spotting') or {}
+        lines = [f"Spotting (`spot_cues.py`, `qa/spotting.csv`): {sp.get('events')} cue events, {sp.get('audible')} audible "
+                 f"after spotting" + (f"; edits applied last from `{Path(sp['edits']).name}`" if sp.get('edits') else
+                                      '; no sound-edits.json'),
+                 f"  merged into gestures: {few(sp.get('merged', []))}",
+                 f"  thinned (withheld or optional): {few(sp.get('thinned', []))}",
+                 f"  dropped by edits: {few(sp.get('dropped', []))}"]
+        if sp.get('edited'):
+            lines.append(f"  changed by edits: {few(sp['edited'])}")
+        sources = sound.get('sources') or {}
+        groups = {}
+        for role, src in sorted(sources.items()):
+            lic = ', '.join(str(x) for x in (src.get('licence') if isinstance(src.get('licence'), list)
+                                              else [src.get('licence')]) if x)
+            groups.setdefault(f"{src.get('origin')} ({lic or 'licence not stated'})", []).append(role)
+        lines.append('Sources: ' + ('; '.join(f'{k}: {", ".join(v)}' for k, v in groups.items()) or 'none recorded'))
+        why = [f'{r}: {s["why"]}' for r, s in sorted(sources.items()) if s.get('why') and 'layer role' not in s['why']
+               and 'not asked' not in s['why']]
+        if why:
+            lines.append('  synthesised because the library could not fill them: ' + few(why, 6))
+        lines.append('Attribution lines: ' + (' | '.join(sound.get('attributions') or []) or 'none'))
+
+        def mastered(name, r):
+            m, mix = r.get('mastering') or {}, r.get('mix') or {}
+            aac = (m.get('aac_128k') or {}).get('true_peak_dbtp')
+            text = (f"{name}: preset {m.get('preset', sound.get('master'))}, integrated {mix.get('integrated_lufs')} LUFS"
+                    + (f" (target {m['target_lufs']})" if m.get('target_lufs') is not None else '')
+                    + f", largest gain reduction {m.get('max_gain_reduction_db', 0) or 0:.2f} dB, true peak "
+                    f"{mix.get('true_peak_dbtp')} dBTP, after an AAC 128 kbps re-encode "
+                    + (f'{aac} dBTP' if aac is not None else 'not measured'))
+            return text + (f"; REFUSED: {m['refused']}" if m.get('refused') else '')
+        lines.append(mastered('Master (`mix_cues.py`)', sound))
+        if sound.get('draft_mix'):
+            lines.append(mastered('Draft-only listening mix', sound['draft_mix']))
+        for label, q in qcs.items():
+            c = (q.get('checks') or {}).get('sound_check') or {}
+            lines.append(f"`sound_check.py` {label}: {c.get('status', 'not run')}: " +
+                         ('; '.join(c.get('summary') or []) or '') +
+                         (' — ' + '; '.join(c.get('flags')) if c.get('flags') else ''))
+        listen = sound.get('listen')
+        if listen:
+            lines.append(f"Listening pair: `deliver/listen/A.mp4` and `B.mp4` ({listen['size']}, loudness "
+                         f"{listen['integrated_lufs']['A']} and {listen['integrated_lufs']['B']} LUFS, difference "
+                         f"{listen['difference_lu']} LU, randomised; key in `qa/listen-key.json`); questions in "
+                         '`deliver/listen/questions.md`. Unheard until a person answers them.')
+        return lines
 
     def previous_note(self):
         prev = self.out / 'previous' / self.stamp
@@ -1240,6 +1599,8 @@ def main():
     p.add_argument('--preview', action='store_true', help='sharp one-sample render, not a delivery master')
     p.add_argument('--samples', type=int, default=4)
     p.add_argument('--sound', help='draft, none, library:FOLDER or a palette.json path; default the film\'s palette, else draft')
+    p.add_argument('--master', choices=('social', 'web', 'broadcast', 'none'), default='social',
+                   help='mastering preset passed to mix_cues.py (social -14, web -16, broadcast -23 LUFS)')
     p.add_argument('--drop-beat', type=float, help='zero-based film beat for the draft drop, if the film declares none')
     p.add_argument('--out', help='output folder; default FILM-make beside the film folder')
     p.add_argument('--name', help='deliverable base name; default the film folder name')
@@ -1364,6 +1725,8 @@ def main():
             print(f'  render {label}: {Path(r["path"]).name}' +
                   (f'; {m.size_notes[label]}' if label in m.size_notes else ''), flush=True)
             delivered[label] = m.mux(size, r, sound, info)
+            if sound['mode'] == 'hybrid' and 'listen' not in sound:
+                sound['listen'] = m.listen_pair(size, r, sound, info)
         onsets = m.cue_onsets(sound, cues_path)
         for size in sizes:
             label = m.label(size)
@@ -1376,8 +1739,8 @@ def main():
             raise Stopped('no size rendered; nothing to deliver')
         manifests = m.deliver(info, source, sound, renders, delivered, qcs, onsets, cues_path)
         code = 1 if m.findings else 0
-        status = ('unwatched; ' + ('audio intentionally absent' if sound['mode'] == 'none' else
-                                   'sound unheard' + (' (draft soundtrack)' if sound['mode'] == 'draft' else '')))
+        status = 'unwatched; ' + ('audio intentionally absent' if sound['mode'] == 'none' else
+                                  'sound ' + sound_state(sound, plain=True))
         print(f"  delivered: {', '.join(x['file'] for x in manifests.values())} in {out / 'deliver'}")
         print(f'  status: {status}; nothing posted. Weakest point: write it in deliver/delivery-report.md after '
               'looking at the sheets in qa/.')
