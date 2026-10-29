@@ -2,9 +2,23 @@
 
 ## 1.2.2 (2026-10-29)
 
-- Report pace and cue timing as taste checks while retaining safety and specification gates.
-- Reuse verified picture renders for sound iterations with `--sound-only`.
-- Trim eligible library takes with a fade, preserving their attacks and recording the modification.
+Sound iterations without re-rendering the picture, taste reported as numbers, and library takes that fit their cues.
+
+- **make_film.py --sound-only** reuses the previous make's renders and picture checks when the picture source and
+  the cue list are unchanged (cue content is compared, not the note of which size exported it), muxes the new sound
+  into versioned deliverables beside the earlier ones (`_1920x1080-2.mp4`), and reruns the spec, sync and sound
+  checks on them. On the Atlasfold showcase at two sizes, a remix with a new master took 82 s against 39 minutes for
+  the full make, and both video streams came out bit-identical. Any change to the picture, the cue list, a render or
+  a lossless master is refused with the reason; a refused run keeps the earlier `make-state.json`; like `--resume`,
+  it trusts only records written in its own output folder; manifests record `picture_reused`.
+- **Taste checks:** a missed pace target and a cue a few milliseconds early or late are reported as measured numbers
+  against their targets under their own heading in the delivery report, for a person to look and listen at, and no
+  longer set the exit status. Safety and specification gates (flashing, spec, sync, a required cue missing) still
+  do.
+- **sound_library.py pick** trims a take that is longer than its cue spacing or role allows: the attack and at least
+  120 ms of body are kept, a 30 ms fade ends it, and the palette and attribution record the original and used
+  lengths. A take licensed no-derivatives, or one with too little room for its attack, is skipped with the reason.
+  `--max-duration`, `--min-body` and `--fade-ms` tune it.
 
 ## 1.2.1 (2026-10-29)
 
@@ -30,6 +44,24 @@ names are read as the new ones, and the Atlasfold showcase renders the same pixe
 - **Terminal:** `fullFrame: true` makes the window the whole frame, for a tall frame.
 - `references/ffmpeg-cookbook.md`: an opaque VP9 WebM recipe from a lossless master with the BT.709 matrix, and its
   poster, tested on a flat brand colour.
+
+- **Fixes from an independent review** of the kit and make pipeline (Atlasfold renders the same pixels):
+  - **make_film.py --resume** binds `make-state.json` to the resolved output folder and records outputs relative to it:
+    resuming in a copied or moved folder runs every step again (it reported a missing deliverable as delivered and
+    wrote manifests into the original folder), a cached step whose outputs or results point outside the output or film
+    folder runs again, and manifests are never written outside the output folder.
+  - **Flash prediction** draws every tracked node as its element paints (fill, background, borders, box shadows,
+    images and canvases, through its children, with their opacity, blur and blend mode). A white tracked panel flipping
+    eight times a second predicted 0 transitions; it now predicts 9, as `flash_scan.py` measures on the render. A
+    tracked node it cannot draw (an SVG, a video) marks the prediction incomplete in film_check.py's output.
+  - **Loop seam:** the preflight compares each tracked element's corners, so a square turned 90 degrees no longer
+    passes because it fills the same box; blur and 3-D turns are compared too.
+  - **make_film.py --web --loop** measures each WebM's own seam with `motion_scan.py --loop` and carries it into the
+    WebM's manifest, the delivery report and the exit status.
+  - **Blank nodes:** a `transparent` or alpha-zero fill no longer counts as paint; borders, shadows and text count only
+    in a colour that is not transparent, and a child only on frames it is visible.
+  - **--res:** film_check.py takes `--res N` (make_film.py passes its own) and judges type size, the large-text
+    contrast rule, dither cells and still resolution at the delivered size, keeping the layout at the CSS size.
 
 ## 1.2.0 (2026-10-29)
 

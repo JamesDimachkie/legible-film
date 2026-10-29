@@ -14,11 +14,15 @@ export different cue lists or cuts (stopped) or different reading rests (reporte
 failed), info.seams and info.changes, --resume skipping a finished render, and the exit
 codes; and the sound chain (spotting with sound-edits.json, the social master refused on a
 sparse film, a hybrid library palette with its listening pair, sound_check.py warnings as
-findings). It also builds 1440-frame 1920x1080 and 1080x1920 films with FFmpeg (no browser)
+findings), and --resume in a copied output folder (every step runs again; nothing is written into
+the original). It also builds 1440-frame 1920x1080 and 1080x1920 films with FFmpeg (no browser)
 and makes a dozen cut sheets on each, one bounded frame_sheet.py call per cut. A small kit film
 (new_film.py) proves film_check.py's blank-node and loop-seam errors and make_film.py's --loop,
---web (VP9 WebM from a lossless render, poster from frame 0) and --res (the output short side,
-odd sides refused).
+--web (VP9 WebM from a lossless render, poster from frame 0, its own seam measured) and --res (the
+output short side, odd sides refused). Small kit films reproduce review findings: a flashing
+tracked panel the flash prediction must see (and an SVG it cannot model, reported as incomplete), a
+square turned 90 degrees at a loop seam, transparent and alpha-zero fills that paint nothing, and
+large-text contrast judged at the delivered size under --res.
 One Chromium at a time. Missing Node, Playwright or Chromium (or too little free memory
 for a render) prints 'skipped: <reason>' and records nothing. Needs numpy, Pillow, FFmpeg,
 Node, Playwright, Chromium and film_check.py beside make_film.py. Exit 0 all passed (or
@@ -121,6 +125,58 @@ LEGACY = """export default function film(kit) {
 """
 
 
+# A tracked white panel over black whose opacity flips eight times a second: the flash prediction must
+# draw it. __BODY__ swaps the fill for an SVG inside the node, which the prediction cannot model.
+FLASH = """export default function film(kit) {
+  const Flash = kit.block('flash', ctx => {
+    ctx.ground(ctx.t0, '#000000');
+    const panel = ctx.track(ctx.group.add({ name: 'panel', w: ctx.W, h: ctx.H }), 'panel');
+    __BODY__
+    return { len: 2, camera: () => ({ drift: false }), update(t) { panel.opacity = Math.floor(t * 8) % 2 ? 0 : 1; } };
+  });
+  return { title: 'Flash', size: [240, 240], fps: 20, scenes: [Flash({ len: 2 })] };
+}
+"""
+FLASH_SVG = ("panel.el.innerHTML = `<svg width=\"${ctx.W}\" height=\"${ctx.H}\">"
+             "<rect width=\"${ctx.W}\" height=\"${ctx.H}\" fill=\"#ffffff\"/></svg>`;")
+
+# A loop whose square, with a red top edge, turns __TURN__ degrees over its one second.
+ROTATE = """export default function film(kit) {
+  const Shape = kit.block('shape', ctx => {
+    ctx.ground(ctx.t0, '#000000');
+    const n = ctx.track(ctx.group.add({ name: 'shape', w: 60, h: 60 }).rest({ fill: '#ffffff' }), 'shape');
+    n.el.style.borderTop = '12px solid red'; n.el.style.boxSizing = 'border-box';
+    return { len: 1, camera: () => ({ drift: false }), update(t) { n.rot = __TURN__ * t; } };
+  });
+  return { title: 'Rotate', size: [240, 240], fps: 10, loop: true, scenes: [Shape({ len: 1 })] };
+}
+"""
+
+# A tracked node whose only paint is __FILL__; __CHILD__ may give it a visible child.
+BLANK = """export default function film(kit) {
+  const Blank = kit.block('blank', ctx => {
+    ctx.ground(ctx.t0, '#000000');
+    const n = ctx.track(ctx.group.add({ name: 'blank', w: 80, h: 80 }).rest({ fill: '__FILL__' }), 'blank');
+    __CHILD__
+    return { len: 1, camera: () => ({ drift: false }), update() {} };
+  });
+  return { title: 'Blank', size: [240, 240], fps: 10, scenes: [Blank({ len: 1 })] };
+}
+"""
+
+# 24 CSS px type at 3.66:1 on black: large text (3:1 needed) at 480x270, small (4.5:1) at --res 135.
+LOW = """export default function film(kit) {
+  const Low = kit.block('low', ctx => {
+    ctx.ground(ctx.t0, '#000000');
+    const word = ctx.textNode(ctx.group, { string: 'LOW', size: 24, weight: 400, color: '#666666' });
+    ctx.text({ id: 'low', role: 'headline', string: 'LOW', nodes: [word], bg: () => '#000000' });
+    return { len: 2, camera: () => ({ drift: false }), update() {} };
+  });
+  return { title: 'Low', size: [480, 270], fps: 10, scenes: [Low({ len: 2 })] };
+}
+"""
+
+
 def orbit(**change):
     """The orbit film's source with any of its parts replaced."""
     parts = dict(ORBIT_PARTS, **change)
@@ -137,9 +193,9 @@ def run_kit_cases(tool, record, j, load, lengths):
         record('kit cases: new_film.py makes a project', False, out[-200:])
         return
 
-    def check(source):
+    def check(source, *args):
         film_js.write_text(source, encoding='utf-8')
-        return tool('film_check.py', folder, '--size', '240x240')
+        return tool('film_check.py', folder, *(args or ('--size', '240x240')))
 
     code, out = check(orbit())
     record('film_check: a loop whose tracked properties return to frame 0 passes and says the seam closes',
@@ -162,6 +218,45 @@ def run_kit_cases(tool, record, j, load, lengths):
     record('film_check: 1.2.0 names (Words, slam, punch, whipY) still run as Type, land, burst, whip-v',
            code == 0 and 'impact' in roles and 'burst' in labels and declared.get('pace', {}).get('max_still') == 2,
            f'exit {code}; roles {sorted(map(str, roles))}; {labels[:80]}')
+
+    # Review finding 2: a tracked panel flashing over the ground is in the prediction; an SVG it cannot draw
+    # makes the prediction say it is incomplete instead of reading as a clean zero.
+    code, out = check(FLASH.replace('__BODY__', "panel.rest({ fill: '#ffffff' });"))
+    record('film_check: a tracked full-frame panel flipping 8 times a second is predicted as flashing; exit 1',
+           code == 1 and 'ERROR flash: ' in out and 'more than 3 flashes' in out and 'INCOMPLETE' not in out,
+           next((x.strip() for x in out.splitlines() if 'flash prediction' in x), f'exit {code}'))
+    code, out = check(FLASH.replace('__BODY__', FLASH_SVG))
+    record('film_check: a tracked SVG the prediction cannot draw marks the flash prediction incomplete',
+           'INCOMPLETE: 1 tracked node(s)' in out and 'the prediction is incomplete' in out and '"panel": an SVG' in out
+           and 'paints nothing' not in out,
+           next((x.strip() for x in out.splitlines() if 'flash prediction' in x), f'exit {code}'))
+    # Review finding 3: a square turned 90 degrees fills the same box; the seam check compares its corners.
+    code, out = check(ROTATE.replace('__TURN__', '90'))
+    record('film_check: a loop whose square ends turned 90 degrees does not close; exit 1',
+           code == 1 and '"shape" orientation: turned 90.0 deg' in out, f'exit {code}')
+    code, out = check(ROTATE.replace('__TURN__', '360'))
+    record('film_check: a loop whose square turns one whole revolution closes', code == 0 and 'the seam closes' in out,
+           f'exit {code}')
+    # Review finding 5: a transparent or alpha-zero fill is not paint; a visible filled child is.
+    for fill in ('transparent', 'rgba(255, 255, 255, 0)'):
+        code, out = check(BLANK.replace('__FILL__', fill).replace('__CHILD__', ''))
+        record(f'film_check: a tracked node whose only fill is {fill} paints nothing; exit 1',
+               code == 1 and 'blank: tracked node "blank" (blank, scene 1) paints nothing' in out, f'exit {code}')
+    code, out = check(BLANK.replace('__FILL__', 'transparent').replace(
+        '__CHILD__', "n.add({ w: 40, h: 40 }).rest({ fill: '#ffffff' });"))
+    record('film_check: a transparent tracked node with a visible filled child paints',
+           code == 0 and 'blank:' not in out, f'exit {code}')
+    # Review finding 6: with --res the large-text rule is judged on the delivered raster, the layout kept.
+    code, out = check(LOW, '--size', '480x270')
+    record('film_check: 24 px type at 3.66:1 passes as large text at its CSS size',
+           code == 0 and 'contrast:' not in out, f'exit {code}')
+    code, out = check(LOW, '--size', '480x270', '--res', 135)
+    reading = load(Path(folder, 'reading.json'))
+    row = next(iter(reading.get('texts', [])), {})
+    record('film_check: --res 135 judges the same type at 12 delivered px, where it needs 4.5:1; exit 1',
+           code == 1 and 'needs 4.5:1 at 12 px in the 240x135 delivered raster' in out and 'delivered 240x135' in out
+           and row.get('min_font_px') == 24 and row.get('min_output_px') == 12 and reading.get('size') == '480x270',
+           f"exit {code}; {row.get('min_font_px')} -> {row.get('min_output_px')} px")
     film_js.write_text(orbit(), encoding='utf-8')
 
     # --res is the output short side; an odd side is refused before anything runs, with a --res that works.
@@ -196,6 +291,18 @@ def run_kit_cases(tool, record, j, load, lengths):
            and web.get('frames') == 60 and web.get('tags') == ['bt709'] * 3 and web.get('audio') == 'none'
            and web.get('frame0_vs_poster_mean_abs') is not None and web['frame0_vs_poster_mean_abs'] <= 3
            and list(Path(out_dir, 'renders').glob('orbit_120x120-preview.mkv')), str(web))
+    # Review finding 4: the WebM's own seam is measured (motion_scan.py --loop on the WebM) and reported.
+    seam = load(j('make-out', 'orbit', 'qa', '240x240', 'motion-webm.json')).get('loop_seam') or {}
+    log = Path(out_dir, 'logs', 'motion_scan_webm-240x240.log')
+    record('make_film: --web --loop runs motion_scan.py --loop on the WebM and carries its seam into the manifest '
+           'and the report',
+           seam.get('pass') is True and log.is_file() and 'orbit_120x120.webm' in log.read_text(encoding='utf-8')
+           and web.get('loop_seam') == 'pass' and 'orbit_120x120.webm: loop seam: step' in report
+           and 'loop seam pass' in report, str(seam))
+    # Review finding 6: the preflight is judged at the delivered size, its layout at the CSS size.
+    pre = load(j('make-out', 'orbit', 'qa', '240x240', 'preflight.json'))
+    record('make_film: with --res the preflight runs at the CSS size and judges type at the delivered size',
+           pre.get('size') == '240x240' and pre.get('output_size') == '120x120', str(pre.get('output_size')))
 
 
 def run_make_cases(tool, record, j, scripts_dir):
@@ -303,6 +410,18 @@ def run_make_cases(tool, record, j, scripts_dir):
                'render 320x180' in state.get('steps', {}), sorted(state.get('steps', {}))[:6])
     finally:
         page.write_bytes(original)
+    # Like --resume, --sound-only trusts only records written in its own output folder: a copy's records name the
+    # original's renders, so the copy refuses and the original is left as it was.
+    import shutil
+    silent_copy = Path(j('make-out', 'silent-copy'))
+    shutil.rmtree(silent_copy, ignore_errors=True)
+    shutil.copytree(j('make-out', 'silent'), silent_copy)
+    before = sorted(p.name for p in Path(j('make-out', 'silent', 'deliver')).iterdir())
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--sound', 'draft', '--preview',
+                     '--out', silent_copy, '--sound-only')
+    after = sorted(p.name for p in Path(j('make-out', 'silent', 'deliver')).iterdir())
+    record('make_film: sound-only in a copied output folder refuses instead of reusing the original renders',
+           code == 2 and 'copied or moved folder' in out and before == after, out[-300:])
     import importlib.util
     spec_mf = importlib.util.spec_from_file_location('lf_make_film_cues', os.path.join(scripts_dir, 'make_film.py'))
     mf = importlib.util.module_from_spec(spec_mf)
@@ -389,6 +508,43 @@ def run_make_cases(tool, record, j, scripts_dir):
            code == 0 and 'render 320x180' not in r.get('resumed', []) and
            all(Path(renders, n).stat().st_mtime_ns == t for n, t in before.items()) and
            (renders / 'clean_320x180-preview.mp4').is_file(), f"exit {code}")
+
+    # 5a. Review finding 1: --resume in a copy of an output folder must not trust the original's paths. The copy
+    #     loses its deliverable; resuming there rebuilds it in the copy and never writes into the original.
+    import hashlib
+    import shutil
+    original, copy = Path(j('make-out', 'silent')), Path(j('make-out', 'silent-copy'))
+    shutil.rmtree(copy, ignore_errors=True)
+    shutil.copytree(original, copy)
+    (copy / 'deliver' / 'clean_320x180.mp4').unlink()
+
+    def digests(folder):
+        return {str(x.relative_to(folder)): hashlib.sha256(x.read_bytes()).hexdigest()
+                for x in sorted(folder.rglob('*')) if x.is_file()}
+    before = digests(original)
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--sound', 'none', '--preview',
+                     '--out', copy, '--resume', '--json', j('make-copy-resume.json'))
+    r = load(j('make-copy-resume.json'))
+    state = load(copy / 'make-state.json')
+    made = copy / 'deliver' / 'clean_320x180.mp4'
+    manifest = load(str(made) + '.manifest.json')
+    record('make_film: --resume in a copied output folder runs every step again and delivers into the copy',
+           code == 0 and made.is_file() and manifest.get('sha256') == hashlib.sha256(made.read_bytes()).hexdigest()
+           and not r.get('resumed') and 'every step runs again' in out
+           and state.get('root') == str(copy.resolve()) and str(copy.resolve()) in out,
+           f"exit {code}; resumed {r.get('resumed')}; {next((x for x in out.splitlines() if 'delivered' in x), '')}")
+    record('make_film: --resume in the copy leaves the original output folder byte for byte',
+           digests(original) == before, f'{len(before)} files')
+    record('make_film: the state records outputs relative to the output folder',
+           all(not Path(k).is_absolute() for st in state.get('steps', {}).values() for k in st.get('outputs', {})),
+           str(sorted(state.get('steps', {}).get('mux 320x180', {}).get('outputs', {}))))
+    made.unlink()
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--sound', 'none', '--preview',
+                     '--out', copy, '--resume', '--json', j('make-copy-resume-2.json'))
+    r = load(j('make-copy-resume-2.json'))
+    record('make_film: --resume in the same folder keeps the render and rebuilds only the missing deliverable',
+           code == 0 and made.is_file() and 'render 320x180' in r.get('resumed', [])
+           and 'mux 320x180' not in r.get('resumed', []), f"exit {code}; resumed {r.get('resumed')}")
 
     # 5b. Spotting: clustered and repeated cues are merged and thinned; sound-edits.json drops one, applied last.
     #     The default social master on a sparse 3 s film cannot reach -14 LUFS within the limiter cap: it
@@ -555,11 +711,17 @@ def run_make_cases(tool, record, j, scripts_dir):
 
     # 10. Kit films: blank nodes and loop seams in the preflight; --loop, --web and --res in make_film.py.
     run_kit_cases(tool, record, j, load, lengths)
-    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--loop', '--sound', 'none', '--preview',
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--loop', '--web', '--sound', 'none', '--preview',
                      '--out', j('make-out', 'not-a-loop'), '--json', j('make-not-a-loop.json'))
-    flags = [f['detail'] for f in load(j('make-not-a-loop.json')).get('findings', []) if f['check'] == 'loop_seam']
+    findings = load(j('make-not-a-loop.json')).get('findings', [])
+    flags = [f['detail'] for f in findings if f['check'] == 'loop_seam']
     record('make_film: --loop on a film that does not loop reports the failing seam; exit 1',
            code == 1 and any('loop seam: step' in d and 'FAIL' in d for d in flags), f'exit {code}; {flags[:1]}')
+    webm = [f['detail'] for f in findings if f['check'] == 'loop_seam_webm']
+    web = load(j('make-out', 'not-a-loop', 'deliver', 'clean_320x180.webm.manifest.json')).get('checks', {})
+    record('make_film: --loop --web reports the WebM\'s own failing seam and marks the WebM for inspection',
+           any('clean_320x180.webm: loop seam: step' in d and 'FAIL' in d for d in webm)
+           and web.get('loop_seam') == 'inspect' and web.get('status') == 'inspect', f'{webm[:1]}; {web.get("status")}')
 
 
 def main():

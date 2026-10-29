@@ -40,15 +40,18 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
 4. **Preview:** serve the folder (`python -m http.server --directory my-film 8000`) and open it. Space plays; `,` and
    `.` step a frame; the arrow keys step a beat; S shows the safe area, R the reading states, L the ground luminance.
 5. **Preflight** at every size you will deliver: `python scripts/film_check.py my-film --size 1920x1080`, then
-   `--size 1080x1920`. Fix every error; read every warning.
+   `--size 1080x1920` (add `--res N` when the render scales the frame, so type size and the large-text contrast rule
+   are judged at the delivered size). Fix every error; read every warning.
 6. **Stills** of the hardest frames in every size, at full size and at feed size, judged as [picture](picture.md)
    says: with the preview served, `node scripts/film_capture.mjs stills http://127.0.0.1:8000/?render --at 2.5,b12
    --size 1080x1920 --out qa/stills`, or a quick `make_film.py --preview` and `frame_sheet.py` on its renders.
 7. **Make:** `python scripts/make_film.py my-film --sizes 1920x1080,1080x1920 --samples 4` runs preflight, sound,
    render, mux, the QC battery and the declared-cut check, and writes `deliver/` with a filled delivery report.
-   `--preview` renders one sharp sample a frame for a quick look; `--resume` skips finished steps. `--res N`
-   sets each output's short side (720 makes 1280x720 and 720x1280; an odd side is refused with a `--res` that
-   works). A loop (`loop: true` in the spec, or `--loop`) gets its seam measured on every delivered file; `--web`
+   `--preview` renders one sharp sample a frame for a quick look; `--resume` skips finished steps in the same
+   output folder (a copied or moved folder runs every step again). `--res N` sets each output's short side (720
+   makes 1280x720 and 720x1280; an odd side is refused with a `--res` that works), and the preflight judges type at
+   that size. A loop (`loop: true` in the spec, or `--loop`) gets its seam measured on every delivered file, the
+   WebM included; `--web`
    adds a VP9 WebM encoded from a lossless render and a poster from frame 0, for a landing page. A template
    inside the kit (`assets/kit/films/atlasfold`) can be made directly: it is copied with the kit to `OUT/project/`.
 8. **Look, then people:** read the sheets in `qa/`, write the weakest point into the report, and ask a person to watch
@@ -83,10 +86,10 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
 |---|---|---|
 | Facts mismatches, digits in unbound text | each registered text against `facts.json` | whether the picture implies more than the words ([claims-and-rights](claims-and-rights.md) §3) |
 | Reading windows (`in`, `readStart`, `readEnd`, `out`) against a reading rule | opacity, scale, blur, safe area and cover per frame | whether a first-time viewer reads it in time |
-| WCAG contrast of every text against its ground | known colours | contrast over a busy picture beyond its plate |
-| Predicted flashing and red flashing | the ground timeline, flashes and plates | flashing in a picture or clip inside the film; `flash_scan.py` screens the rendered file |
+| WCAG contrast of every text against its ground, judged at the delivered size | known colours | contrast over a busy picture beyond its plate |
+| Predicted flashing and red flashing | the ground timeline, flashes, plates, the type and every tracked node as its element paints | flashing in a clip or in drawing nobody tracked; a tracked node it cannot draw (an SVG, a video) marks the prediction incomplete; `flash_scan.py` screens the rendered file |
 | Regular-pattern risk (the regulator's criteria) | the kit's own textures and dither | patterns inside supplied images |
-| Jumps, strobing speed, competing onsets, invalid geometry | each tracked element's position, size and opacity | whether the motion feels right at speed |
+| Jumps, strobing speed, competing onsets, invalid geometry, a loop seam | each tracked element's position, size, orientation and opacity | whether the motion feels right at speed |
 | Determinism and network use | a lint of the film and blocks; requests after ready | impurity in code it cannot see |
 
 The rendered file is the film: `make_film.py` runs the delivered-file battery ([qc](qc.md)) and checks that every
