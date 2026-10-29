@@ -15,8 +15,17 @@ window, including its quiet samples; levels include any final linear gain. Prese
 uses the isolated effect versus the ducked music over 150 ms after its sync.
 Bands are broad FFT power bands; they locate masking candidates, not audibility.
 No gain normalisation by default. --gain-to-lufs applies one linear gain to all
-stems only if the measured true peak would remain <= -1 dBTP. No limiter.
-Writes stereo 24-bit effects.wav, music.wav, mix.wav and mix-report.json. Needs
+stems only if the measured true peak would remain <= -1 dBTP. No limiter on that legacy path.
+
+Version 2 supports non-recursive role/event layers, a looping bed, and --master
+none|social|web|broadcast (palette master.preset is used unless overridden).
+Absent a preset, no mastering is applied, including for version 1 palettes.
+Master targets are -14/-16/-23 LUFS: plain gain followed by a 5 ms look-ahead
+safety limiter (-1.5 dBTP, 100 ms release), using 4x windowed-sinc true-peak
+estimates. More than 4 dB reduction is refused: rebalance the mix. The written
+mix is checked after AAC 128k; > -1 dBTP fails. Stems share the same gain
+envelope and reconstruct the mix. Disabled spotted events are withheld.
+Writes stereo 24-bit effects.wav, music.wav, bed.wav, mix.wav and mix-report.json. Needs
 numpy and FFmpeg. Exit 0 required cues placed and no new takes in silent windows; 1 missing
 required events, broken silence, clipping or refused gain; 2 could not run.
 Measurements do not decide what sounds right. Every output is unheard.
@@ -25,6 +34,7 @@ import argparse
 import importlib.util
 import math
 import sys
+import tempfile
 from pathlib import Path
 import numpy as np
 
@@ -84,6 +94,99 @@ def band_powers(x, rate):
     return np.array([power[(f >= lo) & (f < hi)].sum() for lo, hi in bands]), bands
 
 
+
+def loop_bed(ffmpeg, palette, root, duration, rate):
+    """Overlap-add a loop with equal-power seams; preserve the film's sample count."""
+    length = round(duration * rate)
+    out = np.zeros((length, 2), np.float32)
+    bs = palette.get('bed')
+    if bs is None:
+        return out, {'enabled': False}
+    if not isinstance(bs, dict) or bs.get('role') not in palette['roles']:
+        raise ValueError('bed needs a role present in the palette')
+    rs = palette['roles'][bs['role']]
+    if not isinstance(rs, dict) or rs.get('loop') is not True or not rs.get('takes'):
+        raise ValueError('bed role needs loop: true and at least one take')
+    start = numeric(bs, 'from_s', 0, 0)
+    stop = duration if bs.get('to_s') is None else numeric(bs, 'to_s', minimum=0)
+    if not start < stop <= duration or start >= duration:
+        raise ValueError('bed must satisfy 0 <= from_s < to_s <= film duration')
+    x = io.decode(ffmpeg, root / rs['takes'][0], rate)
+    cross = round(numeric(rs, 'crossfade_ms', 400, 0) * rate / 1000)
+    if cross < 2 or cross * 2 > len(x):
+        raise ValueError('bed crossfade must be >= 2 samples and <= half the take')
+    x *= 10 ** ((numeric(rs, 'gain_db') + numeric(bs, 'gain_db')) / 20)
+    a, b = round(start * rate), round(stop * rate)
+    bed = np.zeros((b - a, 2), np.float32)
+    step, joins = len(x) - cross, []
+    u = np.linspace(0, np.pi / 2, cross)
+    # The first take begins unfaded; subsequent takes fade in while the previous
+    # one fades out. Only fades needed by a real successor are applied.
+    for pos in range(0, len(bed), step):
+        take = x.copy()
+        if pos:
+            take[:cross] *= np.sin(u)[:, None]
+            joins.append((a + pos) / rate)
+        if pos + step < len(bed):
+            take[-cross:] *= np.cos(u)[:, None]
+        n = min(len(take), len(bed) - pos)
+        bed[pos:pos + n] += take[:n]
+    for key, reverse, default in (('fade_in_ms', False, 300), ('fade_out_ms', True, 600)):
+        n = min(len(bed), round(numeric(bs, key, default, 0) * rate / 1000))
+        if n:
+            env = np.sin(np.linspace(0, np.pi / 2, n)) ** 2
+            if reverse:
+                bed[-n:] *= env[::-1, None]
+            else:
+                bed[:n] *= env[:, None]
+    out[a:b] = bed
+    return out, {'enabled': True, 'role': bs['role'], 'from_s': start, 'to_s': stop,
+                 'crossfade_ms': cross / rate * 1000, 'loop_starts_s': joins,
+                 'take': str(root / rs['takes'][0])}
+
+
+def true_peak_estimates(x):
+    """Per-sample maximum over 4 sinc-interpolated phases, linked across channels.
+
+    65-tap Hann-windowed sinc, normalised at DC; zero padding at file edges.
+    No FFT periodic boundary and no scipy dependency. Final FFmpeg/AAC metering
+    is independent of this safety estimate.
+    """
+    peaks = np.max(np.abs(x), axis=1).astype(np.float64)
+    k = np.arange(-32, 33, dtype=np.float64)
+    for phase in (.25, .5, .75):
+        h = np.sinc(k + phase) * (.5 + .5 * np.cos(np.pi * (k + phase) / 33))
+        h /= h.sum()
+        for channel in range(x.shape[1]):
+            y = np.convolve(np.pad(x[:, channel], (32, 32)), h, mode='valid')
+            np.maximum(peaks, np.abs(y), out=peaks)
+    return peaks
+
+
+def safety_limiter(x, rate):
+    """Linked gain: 1 ms controls, 5 ms anticipatory ramp, 100 ms release."""
+    hop = max(1, round(rate * .001))
+    peaks = true_peak_estimates(x)
+    count = (len(x) + hop - 1) // hop
+    blocks = np.pad(peaks, (0, count * hop - len(x))).reshape(count, hop).max(axis=1)
+    required = np.minimum(0., 20 * np.log10(10 ** (-1.5 / 20) / np.maximum(blocks, 1e-12)))
+    # Include both neighbouring blocks so interpolation can never release above
+    # either block's requirement. Anticipate each reduction over five controls.
+    controls = np.minimum(required, np.r_[required[1:], required[-1]])
+    for shift in range(1, 6):
+        controls[:-shift] = np.minimum(controls[:-shift], required[shift:] * (1 - shift / 6))
+    release = math.exp(-hop / (rate * .100))
+    for i in range(1, count):
+        controls[i] = min(controls[i], controls[i - 1] * release)
+    envelope = 10 ** (np.interp(np.arange(len(x)), np.arange(count) * hop, controls) / 20)
+    # Re-estimate after modulation. This small static safety correction also
+    # covers interpolation-filter ringing caused by the changing envelope.
+    peak = float(true_peak_estimates(x * envelope[:, None]).max())
+    correction = min(1., 10 ** (-1.5 / 20) / max(peak, 1e-12))
+    envelope *= correction
+    return envelope.astype(np.float32), float(-20 * np.log10(max(float(envelope.min()), 1e-12)))
+
+
 def mix(a):
     ffmpeg = io.find_tool('ffmpeg', a.ffmpeg)
     if not ffmpeg:
@@ -100,10 +203,48 @@ def mix(a):
     roles = palette.get('roles', {})
     if not isinstance(roles, dict):
         raise ValueError('palette roles must be an object')
+    version = palette.get('version', 1)
+    if isinstance(version, bool) or version not in (1, 2):
+        raise ValueError('palette version must be 1 or 2')
+    master_spec = palette.get('master', {}) if version == 2 else {}
+    if not isinstance(master_spec, dict):
+        raise ValueError('palette master must be an object')
+    preset = a.master if a.master is not None else master_spec.get('preset', 'none')
+    if preset not in ('none', 'social', 'web', 'broadcast'):
+        raise ValueError('unknown master preset')
+    if preset != 'none' and a.gain_to_lufs is not None:
+        raise ValueError('--gain-to-lufs and mastering cannot be combined')
     root = Path(a.palette).resolve().parent
     placed, missing, silence, dips, warnings = [], [], [], [], []
     cache, rotation, timed = {}, {}, []
+    expanded = []
     for i, ev in enumerate(events):
+        if not isinstance(ev, dict):
+            raise ValueError(f'event {i} is not an object')
+        if not isinstance(ev.get('enabled', True), bool):
+            raise ValueError('event enabled must be boolean')
+        if not ev.get('enabled', True) and ev.get('sound') != 'silent':
+            continue
+        expanded.append((i, ev))
+        if version != 2 or ev.get('sound') == 'silent':
+            continue
+        rs = roles.get(ev.get('role'), {})
+        if not isinstance(rs, dict):
+            raise ValueError('role must be an object')
+        if not isinstance(rs.get('layers', []), list) or not isinstance(ev.get('layers', []), list):
+            raise ValueError('layers must be a list')
+        layers = rs.get('layers', []) + ev.get('layers', [])
+        for k, layer in enumerate(layers):
+            if not isinstance(layer, dict) or not isinstance(layer.get('role'), str):
+                raise ValueError('each layer needs a role')
+            child = {key: ev[key] for key in ('t', 'frame', 'sound') if key in ev}
+            child.update(id=ev.get('id', i), role=layer['role'],
+                         gain_db=numeric(ev, 'gain_db') + numeric(layer, 'gain_db'),
+                         _layer=k, _parent=ev.get('id', i))
+            if 'variant' in layer:
+                child['variant'] = layer['variant']
+            expanded.append((i, child))
+    for i, ev in expanded:
         if not isinstance(ev, dict):
             raise ValueError(f'event {i} is not an object')
         if 't' in ev:
@@ -122,6 +263,8 @@ def mix(a):
             continue
         role = ev.get('role')
         row = {'id': ev.get('id', i), 'role': role, 't': t, 'sound': kind}
+        if '_layer' in ev:
+            row.update(parent_id=ev['_parent'], layer_index=ev['_layer'])
         if not isinstance(role, str) or role not in roles:
             missing.append(dict(row, reason='role missing from palette'))
             continue
@@ -206,6 +349,8 @@ def mix(a):
             if hi > lo and np.max(np.abs(x[lo - start:hi - start])) > .001:
                 detail = {'silent_id': ev.get('id'), 'take_event_id': row['id'],
                           'overlap_s': [lo / a.rate, hi / a.rate]}
+                if 'layer_index' in row:
+                    detail['layer_index'] = row['layer_index']
                 if a0 <= start < b0:
                     silent_violations.append(detail)
                 else:
@@ -239,6 +384,8 @@ def mix(a):
         if no:
             x[-no:] *= np.linspace(1, 0, no)[:, None]
         music[lo:lo + count] = x
+    bed, bed_report = loop_bed(ffmpeg, palette, root, duration, a.rate) if version == 2 else (
+        np.zeros_like(effects), {'enabled': False})
     duck = duck_envelope(length, a.rate, dips)
     music *= duck[:, None]
     presence, listening = [], []
@@ -265,9 +412,10 @@ def mix(a):
         presence.append(pr)
         if pr['listening_check']:
             listening.append(row['id'])
-    mix_audio = effects + music
+    mix_audio = effects + music + bed
     before = io.meter(ffmpeg, mix_audio, a.rate)
     applied_gain, refused = 0., None
+    mastering = {'preset': preset, 'max_gain_reduction_db': 0., 'refused': None}
     if a.gain_to_lufs is not None:
         if before['integrated_lufs'] is None or before['true_peak_dbtp'] is None or np.max(np.abs(mix_audio)) < 1e-10:
             refused = 'cannot normalise silence or unmeasurable audio'
@@ -278,26 +426,72 @@ def mix(a):
             else:
                 applied_gain = requested
                 gain = 10 ** (applied_gain / 20)
-                effects *= gain; music *= gain; mix_audio *= gain
+                effects *= gain; music *= gain; bed *= gain; mix_audio *= gain
+    if preset != 'none':
+        target = {'social': -14., 'web': -16., 'broadcast': -23.}[preset]
+        mastering['target_lufs'] = target
+        if before['integrated_lufs'] is None or np.max(np.abs(mix_audio)) < 1e-10:
+            refused = 'cannot master silence or unmeasurable audio; rebalance the mix'
+        else:
+            requested = target - before['integrated_lufs']
+            candidate = mix_audio * 10 ** (requested / 20)
+            envelope, reduction = safety_limiter(candidate, a.rate)
+            mastering.update(max_gain_reduction_db=reduction, ceiling_dbtp=-1.5,
+                             lookahead_ms=5, release_ms=100, oversample=4)
+            if reduction > 4. + 1e-6:
+                refused = f'{reduction:.3f} dB limiting exceeds 4 dB; rebalance the mix before mastering'
+            else:
+                applied_gain = requested
+                shared = envelope[:, None] * 10 ** (requested / 20)
+                effects *= shared; music *= shared; bed *= shared
+                mix_audio = effects + music + bed
+        mastering['refused'] = refused
     for tail in silent_tails:
-        tail['peak_dbfs'] += applied_gain
-        tail['rms_dbfs'] += applied_gain
+        # Recompute from the isolated take through the same master envelope;
+        # adding plain gain alone would overstate a tail under the limiter.
+        a0, b0 = [round(t * a.rate) for t in tail['window_s']]
+        for row, audio, start in placed:
+            if row['id'] == tail['take_event_id'] and row.get('layer_index') == tail.get('layer_index'):
+                lo, hi = max(a0, start), min(b0, start + len(audio))
+                segment = audio[lo - start:hi - start] * 10 ** (applied_gain / 20)
+                if preset != 'none' and mastering['refused'] is None:
+                    segment = segment * envelope[lo:hi, None]
+                tail['peak_dbfs'] = io.db(np.max(np.abs(segment)))
+                tail['rms_dbfs'] = io.db(np.sqrt(np.sum(segment.astype(np.float64) ** 2) / ((b0 - a0) * 2)))
+                break
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    for name, x in (('effects', effects), ('music', music), ('mix', mix_audio)):
+    for name, x in (('effects', effects), ('music', music), ('bed', bed), ('mix', mix_audio)):
         io.write_wav(ffmpeg, out / (name + '.wav'), x, a.rate)
     measured = io.meter(ffmpeg, out / 'mix.wav')
+    if preset != 'none' and not refused:
+        with tempfile.TemporaryDirectory(prefix='lf-master-', dir=str(out)) as tmp:
+            encoded = Path(tmp) / 'reencode.m4a'
+            io.run([ffmpeg, '-v', 'error', '-nostdin', '-y', '-i', str(out / 'mix.wav'),
+                    '-map', '0:a:0', '-c:a', 'aac', '-b:a', '128k', str(encoded)])
+            lossy = io.meter(ffmpeg, encoded)
+        mastering['aac_128k'] = lossy
+        mastering['aac_pass'] = lossy['true_peak_dbtp'] is not None and lossy['true_peak_dbtp'] <= -1.
+        mastering['target_error_lu'] = measured['integrated_lufs'] - mastering['target_lufs']
+        if not mastering['aac_pass']:
+            refused = 'AAC 128k true peak exceeds -1 dBTP; rebalance the mix and rebuild'
+        elif abs(mastering['target_error_lu']) > .5:
+            refused = 'limiting moved loudness more than 0.5 LU from target; rebalance the mix'
+        mastering['refused'] = refused
     # A stem can clip even when cancelled by another stem in the mix.
-    clipping = any(float(np.max(np.abs(x))) >= 1 for x in (effects, music, mix_audio))
+    clipping = any(float(np.max(np.abs(x))) >= 1 for x in (effects, music, bed, mix_audio))
     if clipping:
         warnings.append('float sum or stem reaches 0 dBFS; 24-bit output may clip; lower gains and rebuild')
-    sorted_events = sorted((r for r, _, _ in placed), key=lambda r: r['t'])
+    sorted_events = sorted((r for r, _, _ in placed if 'parent_id' not in r), key=lambda r: r['t'])
     stacked = [{'ids': [r['id'], s['id']], 'distance_ms': (s['t'] - r['t']) * 1000}
                for i, r in enumerate(sorted_events) for s in sorted_events[i + 1:] if (s['t'] - r['t']) < .015]
     failed = [r['id'] for r, _, _ in placed if r['sound'] == 'required' and not r['sync_in_output']]
     bad = (any(r['sound'] == 'required' for r in missing) or bool(silent_violations) or bool(silent_outside)
            or bool(failed) or bool(refused) or clipping)
-    report = {'rate': a.rate, 'duration_s': duration, 'events_placed': [r for r, _, _ in placed],
+    event_rows = [r for r, _, _ in placed if 'parent_id' not in r]
+    for row in event_rows:
+        row['layers'] = [r for r, _, _ in placed if r.get('parent_id') == row['id']]
+    report = {'mastering': mastering, 'bed': bed_report, 'rate': a.rate, 'duration_s': duration, 'events_placed': event_rows,
               'missing_roles': missing, 'required_sync_outside_output': failed, 'silent_window_violations': silent_violations,
               'stacked_events': stacked, 'presence': presence, 'listening_check_candidates': listening,
               'silent_windows_outside_output': silent_outside,
@@ -336,13 +530,14 @@ def main():
     p.add_argument('--rate', type=int, default=48000)
     p.add_argument('--duck-default-db', type=io.finite, default=0)
     p.add_argument('--gain-to-lufs', type=io.finite)
+    p.add_argument('--master', choices=('none', 'social', 'web', 'broadcast'))
     p.add_argument('--json'); p.add_argument('--ffmpeg')
     a = p.parse_args()
     try:
         if a.duck_default_db < 0:
             raise ValueError('duck-default-db must be >= 0')
         return mix(a)
-    except (OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
+    except (OSError, ValueError, TypeError, KeyError, OverflowError, UnicodeError) as exc:
         print('mix_cues.py: ' + str(exc), file=sys.stderr)
         return 2
 

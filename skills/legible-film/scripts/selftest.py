@@ -23,7 +23,7 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 RESULTS = []
-CASE_MODULES = ('sound', 'render', 'make', 'gaps', 'library')
+CASE_MODULES = ('sound', 'render', 'make', 'gaps', 'library', 'chain')
 
 
 def record(name, ok, detail=''):

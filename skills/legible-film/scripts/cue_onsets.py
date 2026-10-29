@@ -2,7 +2,8 @@
 """Measure where sounds start against the cue list: the clock, checked on audio.
 
 For each cue in cues.json, find the strongest sound onset near the cue time and report the offset
-in milliseconds. Cues marked "silent" are checked for unexpected new sounds instead. The cue list
+in milliseconds. Cues marked "silent" are checked for unexpected new sounds instead. Disabled spotted events (enabled: false) are withheld; silent cues remain checked.
+The cue list
 itself is linted first (sounds stacked on one instant, required cues inside a silent window).
 
   python cue_onsets.py audio/effects_stem.wav cues.json
@@ -180,6 +181,8 @@ def validate(spec):
             problems.append(f'event {i}: id must be text or a number, not {cue_id!r}')
             continue
         name = f'cue {cue_id!r}'
+        if not isinstance(ev.get('enabled', True), bool):
+            problems.append(f'{name}: enabled must be boolean')
         if ev.get('sound', 'required') not in ('required', 'silent', 'optional'):
             problems.append(f"{name}: sound must be required, silent or optional, not {ev.get('sound')!r}")
         if ev.get('sync', 'attack') not in ('attack', 'apex', 'end'):
@@ -262,6 +265,7 @@ def main():
         for problem in problems:
             print(f'  {problem}', file=sys.stderr)
         return 2
+    events = [ev for ev in events if ev.get('enabled', True) or ev.get('sound') == 'silent']
     r = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-i', a.audio, '-map', '0:a:0', '-ac', '1', '-ar', str(RATE),
                         '-f', 'f32le', '-'], capture_output=True, check=False)
     if r.returncode:
