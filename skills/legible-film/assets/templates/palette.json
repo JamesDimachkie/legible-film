@@ -10,9 +10,9 @@
         "sfx/impact_3.wav"
       ],
       "sha256": [
-        "462e870b646b136c8437e1e0883fe0625e80ab27bf8a21a3629ddf7098b1efac",
-        "99dbf5c5b7f79253d3ee02bc3d767d7eb5d00f180b5a080e4d81d2c523e7649f",
-        "3febbdaf971cc1fadc9e95055cbd8a984448b6c5f42a7723478bce00b48f075d"
+        "96f0ff44b08b6b2c29fe8163558ef16dbb5d261339b56a398b930510b5b4c14d",
+        "62e81f3d556ddbed7b79c6a9f3cfbfee57c935c4aeff570c4be1124adc24b751",
+        "1d956e91090f9acb973b4ebe75ae3bf5a4ab5a13fc545c13e8c5a8e69d334b5f"
       ],
       "sync": "attack",
       "points_s": [
@@ -32,9 +32,9 @@
         "sfx/impact_big_3.wav"
       ],
       "sha256": [
-        "429d8374c997581e4ef5df9e4535e293a0f0475fd7d62bfcec0254e69e076964",
-        "28e64cbd7e6d39c47bf8026c6d28dfcbb6784647bf1ba205cc4e4d0fae472bcc",
-        "38458f110d747d7d794b00bf5e763f6e447ef84a1f1e0396b6cbe1b3f073a4d6"
+        "a438d9e02a73f5554845d43005fcc83e9d4d0245ab274a1140db5a20776702d9",
+        "9e2fd354f1006b33b0591d90a9fd62fd4f66b4a4996a8751f4923a40f68a00d4",
+        "3831cd0de65ec4507cfdd69fb9ebe426ca1f31e1a706834417b3453ed67aaab1"
       ],
       "sync": "attack",
       "points_s": [
@@ -54,9 +54,9 @@
         "sfx/hit_3.wav"
       ],
       "sha256": [
-        "b2a9eb310137839bbf1764fa968d8896c7abfa216ef750ab0f02df5e372a39aa",
-        "1e9bc2e6a187b3d3901006c1f04dbc80387b42e41d1999a5a011ced90118d97e",
-        "eb7dab2476fc83ff48f07c918b393cf0b7318e9029da4766c263f906ca409fb2"
+        "374015b6da79c9cdb6fe70094b218d87e3f35a1d89ea666b00c6671dc393d70d",
+        "d76570927ed0a8afc184056584c440ee17faa2abaae735ae14b9a23f97c98e2d",
+        "0566ea7191891b30bd4885831f6cffe74b316c7953481332179dab95210fa080"
       ],
       "sync": "attack",
       "points_s": [
@@ -76,9 +76,9 @@
         "sfx/whoosh_3.wav"
       ],
       "sha256": [
-        "d9e0e938c3835ce5c92132346c8d54ceb0881d678c813715783441dcef371d03",
-        "3b3ae6ac27a9276acfa90fa04dee415b51e3d128ee8249daad0cb8d3c0c29c7d",
-        "eccd484cb3e9ef13ab598bedab374af42e79cee9facc7d2a2ae9d18f41f02804"
+        "4a7dae516aa323f706b30e4e2a1bc75ef13faa044853fdce0b3d3ada83f73e74",
+        "62c0c89e85c0f3b45bce05a80ace3b0bbbd34dc48ff6a2187e73693a5c041d54",
+        "f628ecec6ff4ea2f2e9d6d2835f1bc2e4b3bfb2a21c39a0701b79f6cf046b10f"
       ],
       "sync": "apex",
       "points_s": [
@@ -98,9 +98,9 @@
         "sfx/whoosh_big_3.wav"
       ],
       "sha256": [
-        "29250fdefca922f6e5d0d6b4313ab962adb035eeb67d21841bde3b1281f14e5b",
-        "7d6faa44f570a5036ab7ad2a684b85bad3d46169f896531b1150bcb8e5070ca1",
-        "8b0c1ed8e33daa3eb1e837dc3eca1444c895e3c1849185a999818deff577b7f8"
+        "c801d26d0ab585857d43ddf8445b52b40675a7f9546fe5cf30989d91019d05cb",
+        "73078fd2a2a2062f34acebf79de635024c76ec531fb51200c7b726f0163a9f9b",
+        "df6dc591c1aaf326baeb2bbd59960e1a3bf01ed034c538870a55db1e3448bb0b"
       ],
       "sync": "apex",
       "points_s": [
@@ -120,9 +120,9 @@
         "sfx/tick_3.wav"
       ],
       "sha256": [
-        "01f728534846da4ab11be99556fbd33171636b63988a6ab59268b81b16a3e5ba",
-        "59065d61f9299e4c989a43918e91145489d036a6090d4ccc10143f0079ebf933",
-        "6645eca030bbd9df7ead7eb50240fec6de2c09c437015b080cfc58c2a3d4e8f3"
+        "009ed0652b4c9faf2e35a5c1fa1c274ccda0abf71495d9d17a340621d04afc66",
+        "cbd4efdf7ea2ca3df7fa2ce6af85ff0e0eeb313d86166838007b9486c3877109",
+        "9cc05baa540e258a039a3863a22f20adaebde8db5e18c33b357e28869e845f4f"
       ],
       "sync": "attack",
       "points_s": [
@@ -142,9 +142,9 @@
         "sfx/pop_3.wav"
       ],
       "sha256": [
-        "f4a9e0c3a49d436ae5f9cb9fe9d5b830649e992c0b726e3f06d03b9bc18d3a90",
-        "82b328d393b36b6d93f373c93a1f9c09e3b95be75024bed6eaf5152985f38062",
-        "054ff54f537fdc9955c87ee67d13327d5add5d99de6dd8de7878f72b0ac553ec"
+        "90d22771ec54fb592874c799c228f8395d636408b518e7f8f5951584cc938844",
+        "6be96313b8017d7be864754106b660d5bc952716a2fe0f4876807485022da8ec",
+        "2393d742afd5fb4462bbe0400a7c40e1ac90b725b0a21ed55b74e316b7041bee"
       ],
       "sync": "attack",
       "points_s": [
@@ -164,9 +164,9 @@
         "sfx/key_3.wav"
       ],
       "sha256": [
-        "290fd43e15e79a72e7ce6a29e5b313a3c62334fb34f708655fc97c47c46fb08a",
-        "6b0673dee542f3607be7334a6803e3218e1ad2dc88a666ec54d648ff022622e3",
-        "21be9e974dda12600899d53e01390bd7af298a16d382fd98456717005f6fd02c"
+        "a666705dbc406b7ed53fd42b1b9dc7179c0a6c4cedff12daaae9627df583a68c",
+        "5d3f3dd54401d03fabb58317d4bf2c7939e277e2da2b265c5250a11a68869a05",
+        "19420cbcedca7437edbde05ba36f2a9aea2bd44f29359e0574f876361a334203"
       ],
       "sync": "attack",
       "points_s": [
@@ -186,9 +186,9 @@
         "sfx/riser_3.wav"
       ],
       "sha256": [
-        "78c895c831df702518f73830023f85e2e8c23a9276fbaeef3470d4c5167a8a48",
-        "2750a77560381d65d688256bef109ce9d2c7fa83a62f57ab6f7fb017950f6006",
-        "7b514ab924acefe58bea79d59e3b1a0cec2558db275f56f2e7d1fbf9a22ae246"
+        "097e5eb179573d882ce92c40c3b7af3a782bf1c8e45f639b77c1d04441ae3a5b",
+        "0b0830b11f6b6e84707acc40ff5ef5464d84471d366a5b5a9fde9f01c23a53c6",
+        "291ea0c22a7b2ef310d70949afb39e5fe693702ffc9ab2067d32b7ebb0b4de98"
       ],
       "sync": "end",
       "points_s": [
@@ -208,9 +208,9 @@
         "sfx/logo_hit_3.wav"
       ],
       "sha256": [
-        "babd833a3ebd7f5996a88249da29dd2cfde5117a7c32b9b186f7a0e0b4edafab",
-        "a7783441d997a8dd1b42a88459ced6a46010ffd1e704edc34de175d6dbd806b1",
-        "36df97314cf6dfa7a7d43d44cfcbdfd3e4c0f4167b2745822069466580f0f931"
+        "1662ffd20881cd21ccf87ab4207d5314d9eed1e64b9f74ecad7c0c348896d23f",
+        "8e2c19dd42bdd9775b9de122f79c0964dba3c832e28c716c2967a1ec0f174b08",
+        "50fd00ff174abc0aef498907794c45fb4d4172ded51cc1e91375efe80d4e2fde"
       ],
       "sync": "attack",
       "points_s": [
@@ -230,9 +230,9 @@
         "sfx/glitch_3.wav"
       ],
       "sha256": [
-        "b0dd7dd61413cdcaf02e5fe3350c05577c896e446ee11461c723cb908bd3293a",
-        "43f216f23e4d95a6206b10545f9c707c0cdd78368bfc5bec07b6b21fc91fe312",
-        "f9d5d4c0779609e22f687ff6c1a31f6ffd186edeca08d08b5be7b741ca684547"
+        "16251f5f31ccef3e53d7274cd32b55131244abf3275bca1ca5a08c366cb86614",
+        "201ddabf3de03bca857f662c1bb0ae94495eda69d93b2a9da76130cc199ff47c",
+        "9fe03fc00816f146432b817fead1c16e57708e11fe7f9535f7fb939ecb0e8c58"
       ],
       "sync": "attack",
       "points_s": [
@@ -255,7 +255,7 @@
     "fade_in_ms": 0,
     "fade_out_ms": 20,
     "gain_db": -6,
-    "sha256": "daadaec92c135f50353afd4f1d1f42713c4b7b0a23a2d1addc3e7b42478cb8ca",
+    "sha256": "9d3c5b84ec5cd5783c581791b143b30d8d469770c0104dda91f0391c6a456a59",
     "source": "make_sound_kit.py (synthesised; no third-party material)",
     "licence": "generated for this project",
     "label": "Temp track for timing and animatics; unheard; a person decides whether it can ship."

@@ -6,7 +6,8 @@
 
 --bpm is a narrow tempo prior, not a forced result. Times are seconds in the input
 track; film beats are zero-based from offset_s. A suggested offset is a track trim:
-drop_time - N * period, snapped to the closest measured downbeat. Negative means
+drop_time - N * period, snapped to the closest measured downbeat when N is a
+bar multiple, or the closest measured beat otherwise. Negative means
 pre-roll/silence is needed. Drops are loudness rises, not musical interpretation.
 This measures timing, not whether music fits a film. Swing and tempo changes are
 reported as residual and drift, not modelled. A constant grid is only a local fit.
@@ -263,16 +264,24 @@ def analyse(x, start=0, bpm=None, beats_per_bar=4, drop_at_beat=None, tolerance_
         suggested = None
         if drops:
             target = drops[0]['music_s'] - drop_at_beat * period
-            extrapolated = target < start + offset or target > start + float(down[-1])
+            snap, step, snap_kind = down, bar, 'downbeat'
+            if drop_at_beat % beats_per_bar:
+                measured_beats = []
+                for t in grid:
+                    near = np.flatnonzero((np.abs(times - t) < period / 4) & (weights > .10))
+                    if near.size:
+                        measured_beats.append(float(times[near[np.argmin(np.abs(times[near] - t))]]))
+                snap, step, snap_kind = np.array(measured_beats), period, 'beat'
+            extrapolated = target < start + float(snap[0]) or target > start + float(snap[-1])
             if extrapolated:
-                index = round((target - (start + offset)) / bar)
-                suggested = start + offset + index * bar
+                index = round((target - (start + offset)) / step)
+                suggested = start + offset + index * step
             else:
-                suggested = start + float(down[np.argmin(np.abs(start + down - target))])
+                suggested = start + float(snap[np.argmin(np.abs(start + snap - target))])
             result['suggested_offset_extrapolated'] = extrapolated
             result['drop_alignment_error_ms'] = (drops[0]['music_s'] - suggested - drop_at_beat * period) * 1000
             if abs(result['drop_alignment_error_ms']) > tolerance_ms:
-                reasons.append('requested drop beat cannot align after downbeat snapping')
+                reasons.append(f'requested drop beat cannot align after {snap_kind} snapping')
         result['suggested_offset_s'] = suggested
         result['suggested_offset_negative'] = suggested is not None and suggested < 0
         if not drops:

@@ -106,24 +106,28 @@ class Signal:
 
         Search the corresponding forward-window indices. An end needs audible
         energy before the fall; silence throughout cannot count as a found end.
-        A gradual decay has a threshold-dependent audible end and can be weak.
+        A gradual decay has a threshold-dependent audible end.
         """
-        a, b = max(3, lo + LAG), min(len(self.env) - 1, hi + LAG)
+        env = np.pad(self.env, (0, LAG + 8), constant_values=-240.0)
+        a, b = max(3, lo + LAG), min(len(env) - 1, hi + LAG)
         if b < a:
             return False, lo, 0.0
-        fall = self.env[a - 3:b - 2] - self.env[a:b + 1]
-        audible = self.env[a - 3:b - 2] >= self.floor_db
+        fall = env[a - 3:b - 2] - env[a:b + 1]
+        audible = env[a - 3:b - 2] >= self.floor_db
         # A temporary notch inside a sound is not its audible end. Require a
         # quiet run after the candidate (at least 5 ms where available).
-        quiet_after = np.array([len(self.env[k:min(len(self.env), k + 8)]) >= 5 and
-                                np.max(self.env[k:min(len(self.env), k + 8)]) < self.floor_db
+        quiet_after = np.array([len(env[k:min(len(env), k + 8)]) >= 5 and
+                                np.max(env[k:min(len(env), k + 8)]) < self.floor_db
                                 for k in range(a, b + 1)])
         hits = np.flatnonzero((fall >= self.rise_db) & audible & quiet_after)
         if not hits.size:
             k = int(np.argmax(fall))
             return False, a + k - LAG, float(fall[k])
         k = int(hits[np.argmax(fall[hits])])
-        return True, a + k - LAG, float(fall[k])
+        # A fall into padding is the file endpoint: stamp the last original
+        # window's right edge and keep the index valid for level reporting.
+        frame = len(self.env) - 1 if a + k >= len(self.env) else a + k - LAG
+        return True, frame, float(fall[k])
 
 
 def cue_time(ev, fps):
@@ -179,7 +183,7 @@ def validate(spec):
         if ev.get('sound', 'required') not in ('required', 'silent', 'optional'):
             problems.append(f"{name}: sound must be required, silent or optional, not {ev.get('sound')!r}")
         if ev.get('sync', 'attack') not in ('attack', 'apex', 'end'):
-            problems.append(f"{name}: sync must be attack or apex, not {ev.get('sync')!r}")
+            problems.append(f"{name}: sync must be attack, apex or end, not {ev.get('sync')!r}")
         if 't' in ev:
             if not number(ev['t']):
                 problems.append(f"{name}: t must be a time in seconds, 0 or more, not {ev['t']!r}")

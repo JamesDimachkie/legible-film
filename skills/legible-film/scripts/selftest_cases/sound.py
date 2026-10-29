@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Known-answer sound cases, standalone or pasteable into selftest.py.
+"""Known-answer sound cases loaded by selftest.py, or runnable standalone.
 
-Integration: paste run_sound_cases and its imports above main(), then call
-run_sound_cases(tool, record, j, HERE) inside main() before counting RESULTS.
-Copy the four tools plus sound_io.py to HERE. The runner uses existing tool(),
-record() and j(); it neither changes their results nor replaces the old cases.
+selftest.py loads selftest_cases/sound.py and calls
+run_sound_cases(tool, record, j, HERE), using its existing helpers and results.
+Run this module from the skill directory with:
 
-  python selftest_sound_cases.py --scripts out/scripts --keep work/sound-tests
+  python -I scripts/selftest_cases/sound.py --scripts scripts --keep work/sound-tests
 
 Needs numpy and FFmpeg. These tests measure synthetic answers, never sound quality.
 Exit 0 all passed, 1 any failure, 2 could not run.
@@ -136,6 +135,31 @@ def run_sound_cases(tool, record, j, scripts_dir):
     kr = json.loads(Path(j('kit-onsets.json')).read_text())['rows']
     record('cue_onsets: generated role syncs within 2 ms', code == 0 and all(abs(row.get('offset_ms', 999)) <= 2 for row in kr),
            str([(row['id'], row.get('offset_ms'), row['status']) for row in kr]))
+    # S1: a silent window may extend past a file edge; only its in-file
+    # portion is checked. A key well inside the output leaves both edges quiet.
+    io.save_json(j('edge-silence-cues.json'), {'duration': 3, 'events': [
+        {'id': 'cold-open', 't': .05, 'sound': 'silent'},
+        {'id': 'key', 't': 1, 'role': 'key', 'sound': 'required'},
+        {'id': 'quiet-tail', 't': 2.95, 'sound': 'silent'}]})
+    code, _ = tool('mix_cues.py', j('edge-silence-cues.json'), palette_path,
+                   '--out-dir', j('edge-silence-mix'), '--no-music')
+    edge_report = json.loads(Path(j('edge-silence-mix', 'mix-report.json')).read_text())
+    record('mix_cues: silent windows crossing output edges are clamped', code == 0 and
+           not edge_report['silent_window_violations'] and not edge_report['silent_windows_outside_output'],
+           f"exit {code}; outside {edge_report['silent_windows_outside_output']}")
+    # S2: the exclusive end of the riser and the file coincide; a detector
+    # must not require real samples after the file to report this endpoint.
+    io.save_json(j('file-end-cues.json'), {'duration': 3, 'events': [
+        {'id': 'riser-at-end', 't': 3, 'role': 'riser', 'sync': 'end',
+         'sound': 'required', 'tolerance_ms': 2}]})
+    mix_code, _ = tool('mix_cues.py', j('file-end-cues.json'), palette_path,
+                       '--out-dir', j('file-end-mix'), '--no-music')
+    code, _ = tool('cue_onsets.py', j('file-end-mix', 'effects.wav'), j('file-end-cues.json'),
+                   '--json', j('file-end-onsets.json'))
+    last = json.loads(Path(j('file-end-onsets.json')).read_text())['rows'][0]
+    record('cue_onsets: end-sync at the audio endpoint is on cue', mix_code == 0 and code == 0 and
+           last['status'] == 'on cue' and abs(last.get('offset_ms', 999)) <= 2,
+           f"mix exit {mix_code}; {last['status']}, offset {last.get('offset_ms')} ms")
     io.write_wav(ffmpeg, j('silence.wav'), np.zeros((rate * 4, 2), np.float32), rate)
     code, _ = tool('beat_grid.py', j('silence.wav'), '--json', j('silence-grid.json'))
     record('beat_grid: silence is weak/inconclusive, exit 1', code == 1)

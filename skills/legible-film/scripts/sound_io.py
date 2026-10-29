@@ -59,7 +59,8 @@ def decode(ffmpeg, path, rate=48000, channels=2, start=0, duration=None):
 def write_wav(ffmpeg, path, x, rate=48000, floating=False):
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     run([ffmpeg, '-v', 'error', '-y', '-f', 'f32le', '-ar', str(rate), '-ac', str(x.shape[1]),
-         '-i', '-', '-c:a', 'pcm_f32le' if floating else 'pcm_s24le', str(path)],
+         '-i', '-', '-c:a', 'pcm_f32le' if floating else 'pcm_s24le',
+         '-map_metadata', '-1', '-bitexact', str(path)],
         np.asarray(x, dtype='<f4').tobytes())
 
 

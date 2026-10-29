@@ -147,7 +147,8 @@ def mix(a):
         if x is None:
             missing.append(dict(row, reason='no readable take', errors=errors))
             continue
-        rotation[role] = index + 1
+        if explicit is None:
+            rotation[role] = index + 1
         sync = ev.get('sync', rs.get('sync', 'attack'))
         if sync not in ('attack', 'apex', 'end'):
             raise ValueError(f"event {row['id']} has unknown sync")
@@ -170,7 +171,8 @@ def mix(a):
         placed.append((row, audio, start))
         amount = numeric(ev, 'duck_db', a.duck_default_db, minimum=0)
         if amount:
-            dips.append((t, max(t + .050, (start + len(x)) / a.rate), amount))
+            dip_start = min(t, start / a.rate) if sync == 'end' else t
+            dips.append((dip_start, max(t + .050, (start + len(x)) / a.rate), amount))
     longest = max((len(x) / a.rate for _, x, _ in placed), default=0)
     duration = a.duration if a.duration is not None else (spec.get('duration') if isinstance(spec, dict) else None)
     if duration is None:
@@ -191,9 +193,10 @@ def mix(a):
     silent_violations = []
     silent_outside = []
     for t, ev, half in silence:
-        if t + half > duration or t - half < 0:
+        if t + half <= 0 or t - half >= duration:
             silent_outside.append(ev.get('id'))
-        a0, b0 = max(0, round((t - half) * a.rate)), min(length, round((t + half) * a.rate))
+        a0 = min(length, max(0, round((t - half) * a.rate)))
+        b0 = min(length, max(0, round((t + half) * a.rate)))
         for (row, x, start), (a1, b1) in zip(placed, audible_ranges):
             lo, hi = max(a0, a1, start), min(b0, b1, start + len(x))
             if hi > lo and np.max(np.abs(x[lo - start:hi - start])) > .001:
