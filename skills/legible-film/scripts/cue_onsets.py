@@ -342,12 +342,11 @@ def main():
     if set(refs) - ids:
         p.error('--reference names an unknown cue')
     for ev in events:
-        if (ev.get('sound') == 'absent' or a.expect_absent) and not (str(ev.get('id')) in refs or ev.get('ref')):
+        if ev.get('sound') == 'absent' and not (str(ev.get('id')) in refs or ev.get('ref')):
             p.error('absence checks require a reference for every cue')
     events = [ev for ev in events if ev.get('enabled', True) or ev.get('sound') == 'silent']
     command = [ffmpeg, '-v', 'error', '-nostdin', '-i', a.audio, '-map', '0:a:0', '-ac', '1', '-ar', str(RATE)]
-    if refs or any(ev.get('ref') for ev in events):
-        command += ['-af', 'aresample=async=1:first_pts=0']
+    command += ['-af', 'aresample=async=1:first_pts=0']
     r = subprocess.run(command + ['-f', 'f32le', '-'], capture_output=True, check=False)
     if r.returncode:
         print('could not decode audio: ' + r.stderr.decode(errors='replace').strip()[-200:], file=sys.stderr)
@@ -357,8 +356,12 @@ def main():
     duration = len(x) / RATE
     notes = lint(events, fps, duration, a.stack_ms)
 
+    not_checked = []
     rows = []
     for ev in events:
+        if a.expect_absent and not (str(ev.get('id')) in refs or ev.get('ref')):
+            not_checked.append(ev.get('id'))
+            continue
         t = cue_time(ev, fps)
         kind, sync = ev.get('sound', 'required'), ev.get('sync', 'attack')
         tol = float(ev.get('tolerance_ms', a.tolerance_ms))
@@ -447,6 +450,7 @@ def main():
         failures = ('missing', 'LATE', 'EARLY', 'UNEXPECTED SOUND', 'outside audio', 'RESIDUAL', 'inconclusive')
         summary['failures'] = sum(1 for r in rows if r.get('status') in failures and r['sound'] != 'optional')
     out = {'audio': a.audio, 'cues': a.cues, 'lint': notes, 'summary': summary, 'rows': rows,
+           'not_checked': not_checked,
            'limit': 'Audio timing against the cue list; not a judgement of picture sync or of the sound.'}
     if a.json:
         with open(a.json, 'w', encoding='utf-8') as fh:

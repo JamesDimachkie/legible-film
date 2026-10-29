@@ -90,6 +90,6 @@ def run_qcfix_cases(tool, record, j, scripts_dir):
     code, out = tool('motion_scan.py', j('q_dots.mkv'), '--max-still-share', '0.1',
                      '--json', j('q_dots.json'))
     pace = read(j('q_dots.json'))['pace']
-    record('qcfix: small moving area reports regional pace and inconclusive contract', code == 0
+    record('qcfix: small moving area reports regional pace and inconclusive contract', code == 1
            and 0 < pace['moving_area_fraction'] < 0.05 and pace['moving_region']['still_share'] < 1
            and pace['gates']['max_still_share']['pass'] is None, out[-240:])

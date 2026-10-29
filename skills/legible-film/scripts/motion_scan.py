@@ -83,8 +83,8 @@ def passthrough(ffmpeg):
 class Frames:
     """Each decoded frame of the first video stream, once and in order, with its presentation time."""
 
-    def __init__(self, ffmpeg, path, vf, frame_bytes):
-        cmd = [ffmpeg, '-hide_banner', '-nostdin', '-nostats', '-i', path, '-map', '0:v:0',
+    def __init__(self, ffmpeg, path, vf, frame_bytes, input_options=None):
+        cmd = [ffmpeg, '-hide_banner', '-nostdin', '-nostats', *(input_options or []), '-i', path, '-map', '0:v:0',
                '-vf', vf + ',showinfo', *passthrough(ffmpeg), '-f', 'rawvideo', 'pipe:1']
         self.size, self.pts, self.dur, self.log = frame_bytes, [], [], []
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -472,12 +472,12 @@ def main():
         passed = None if small else pace['gate_still_share'] <= a.max_still_share + 1e-6
         pace['gates']['max_still_share'] = {'pass': passed, 'limit': a.max_still_share,
                                           'actual': pace['gate_still_share']}
-        failed = failed or passed is False
+        failed = failed or passed is not True
     if a.max_still is not None:
         passed = None if small else pace['gate_longest_still_s'] <= a.max_still + 1e-6
         pace['gates']['max_still'] = {'pass': passed, 'limit': a.max_still,
                                     'actual': pace['gate_longest_still_s']}
-        failed = failed or passed is False
+        failed = failed or passed is not True
     if a.loop:
         seam = float(np.abs(first - last).mean())
         ends = np.concatenate([d[1:11], d[-10:]])

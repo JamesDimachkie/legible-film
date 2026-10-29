@@ -7,7 +7,9 @@
 Snaps are measured on source presentation timestamps and audio sample clocks. The
 spool limit bounds temporary RGB storage. Output measurements do not prove a film
 has been watched, heard, approved, or cleared for use. Needs numpy, Pillow, FFmpeg
-and ffprobe. Exit 0 on completion, 1 when review notes remain, 2 on error.
+and ffprobe. declared.json contains an ignore string of designed holds and dips
+for blank_scan.py and motion_scan.py --ignore, never flash_scan.py. Exit 0 on
+completion, 1 when review notes remain, 2 on error.
 """
 import argparse
 import bisect
@@ -98,41 +100,42 @@ def colour_filter(stream, width, height):
 
 def probe_source(ffprobe, filename):
     """Read stream metadata and count decoded frames before reserving disk."""
-    command = [ffprobe, '-v', 'error', '-count_frames', '-select_streams', 'v:0',
+    command = [ffprobe, '-v', 'error', '-select_streams', 'v:0',
                '-show_streams', '-of', 'json', filename]
     stream = json.loads(run(command).stdout)['streams'][0]
-    count = int(stream.get('nb_read_frames', 0))
-    if count <= 0:
-        raise ValueError('cannot count decoded frames: ' + filename)
+    count = 0
     width, height = probe(ffprobe, filename)
     return stream, count, width, height
 
 
-def conform(ffmpeg, ffprobe, paths, temp, spool_limit):
-    """Preflight disk, then spool colour-converted frames with decoded timestamps."""
+def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit):
+    """Seek and spool only each requested picture range, with a one-second handle."""
     cache = {}
     properties = {}
-    metadata = {}
     required = 0
-    for filename in paths:
-        stream, count, width, height = probe_source(ffprobe, filename)
-        metadata[filename] = stream, count, width, height
-        required += count * width * height * 3
-    if required > spool_limit:
-        raise ValueError(f'RGB spool needs {required} bytes; limit is {spool_limit} bytes')
-    if shutil.disk_usage(temp).free < required + 256 * 1024 * 1024:
-        raise ValueError(f'RGB spool needs {required} bytes plus 256 MiB reserve')
-    for filename, (stream, expected, width, height) in metadata.items():
+    for number, item in enumerate(edit['picture']):
+        filename = source_path(root, edit['sources'], item['src'])
+        stream, _, width, height = probe_source(ffprobe, filename)
         vf, assumptions, conversion = colour_filter(stream, width, height)
-        rawpath = os.path.join(temp, f'source-{len(cache)}.rgb')
-        reader = Frames(ffmpeg, filename, vf, width * height * 3)
+        start = max(0.0, float(item['in']) - 1.0)
+        stop = float(item['out']) + 1.0
+        if stop <= start:
+            raise ValueError('invalid picture range')
+        rawpath = os.path.join(temp, f'source-{number}.rgb')
+        reader = Frames(ffmpeg, filename, f'trim=start={start}:end={stop},' + vf,
+                        width * height * 3, ['-ss', str(start), '-copyts'])
         count = 0
         with open(rawpath, 'wb') as output:
             for raw in reader:
+                required += len(raw)
+                if required > spool_limit or shutil.disk_usage(temp).free < len(raw) + 256 * 1024 * 1024:
+                    reader.proc.kill()
+                    reader.proc.wait()
+                    reader.reader.join()
+                    reader.proc.stdout.close()
+                    raise ValueError('RGB spool exceeds limit or disk reserve')
                 output.write(raw)
                 count += 1
-                if count > expected:
-                    raise RuntimeError('decoded frame count exceeds disk reservation')
         times = reader.times(count)
         end = reader.end()
         if end <= times[-1]:
@@ -147,9 +150,11 @@ def conform(ffmpeg, ffprobe, paths, temp, spool_limit):
                                 'source_primaries': stream.get('color_primaries'),
                                 'field_order': stream.get('field_order'), 'variable_timing': variable,
                                 'rotation_degrees': rotation, 'rotation_conversion': 'FFmpeg autorotation',
-                                'conversion': conversion,
-                                'assumptions': assumptions, 'filter': vf}
-        cache[filename] = (rawpath, width, height, times, end)
+                                'conversion': conversion, 'assumptions': assumptions, 'filter': vf,
+                                'time_base': stream.get('time_base', '0/1')}
+        numerator, denominator = stream.get('time_base', '0/1').split('/')
+        tick = float(numerator) / float(denominator)
+        cache[number] = (rawpath, width, height, times, end, tick)
     return cache, properties, required
 
 
@@ -161,10 +166,10 @@ def plan_picture(edit, root, cache, ffmpeg, ffprobe, temp):
     cuts = []
     dissolves = []
     width, height = edit['size']
-    for item in edit['picture']:
+    for number, item in enumerate(edit['picture']):
         name = item['src']
         filename = source_path(root, edit['sources'], name)
-        rawpath, sw, sh, times, end = cache[filename]
+        rawpath, sw, sh, times, end, tick = cache[number]
         boundaries = times + [end]
         first = nearest(boundaries, float(item['in']))
         last = nearest(boundaries, float(item['out']))
@@ -203,7 +208,8 @@ def plan_picture(edit, root, cache, ffmpeg, ffprobe, temp):
             analysis_width = 320
             analysis_height = max(2, round(sh / sw * analysis_width / 2) * 2)
             crop_width, crop_height = bounds(sw, sh, width / height, float(crop.get('zoom', 1)))
-            clock, subjects, _ = analyse(ffmpeg, filename, analysis_width, analysis_height)
+            clock, subjects, _ = analyse(ffmpeg, filename, analysis_width, analysis_height,
+                                         boundaries[first], boundaries[last])
             selected = [(t, box) for t, box in zip(clock, subjects) if boundaries[first] <= t < boundaries[last]]
             if not selected:
                 raise ValueError('no frames for automatic crop')
@@ -221,22 +227,57 @@ def plan_picture(edit, root, cache, ffmpeg, ffprobe, temp):
                       'start': boundaries[first], 'stop': boundaries[last], 'duration': duration, 'at': at,
                       'speed': speed, 'mode': mode, 'kind': kind, 'overlap': overlap,
                       'colour': join.get('color', 'black'), 'crop': path, 'zoom': float(crop.get('zoom', 1)),
-                      'fit': fit, 'background': item.get('background', 'black')})
+                      'fit': fit, 'background': item.get('background', 'black'), 'time_tick': tick})
     return clips, snaps, cues, cuts, dissolves
 
 
+def audio_packet_end(ffprobe, filename):
+    """Find the last audio packet's end without retaining the packet list."""
+    command = [ffprobe, '-v', 'error', '-select_streams', 'a:0', '-show_packets',
+               '-show_entries', 'packet=pts_time,duration_time', '-of', 'csv=p=0', filename]
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding='utf-8', errors='replace')
+    end = None
+    for line in proc.stdout:
+        values = line.strip().split(',')
+        try:
+            timestamp, duration = float(values[0]), float(values[1])
+        except (ValueError, IndexError):
+            continue
+        if math.isfinite(timestamp) and math.isfinite(duration) and duration > 0:
+            end = max(end if end is not None else -math.inf, timestamp + duration)
+    proc.stdout.close()
+    error = proc.stderr.read()
+    if proc.wait() or end is None:
+        raise ValueError('cannot determine audio stream end: ' + (error.strip() or filename))
+    return end
+
+
 def audio_rate(ffprobe, filename):
-    """Find the decoded audio sample rate used as the source edit clock."""
+    """Find the rate and audio stream bounds on FFmpeg's source presentation clock."""
     command = [ffprobe, '-v', 'error', '-select_streams', 'a:0', '-show_entries',
-               'stream=sample_rate', '-of', 'json', filename]
-    stream = json.loads(run(command).stdout)['streams'][0]
+               'stream=sample_rate,start_time,duration:stream_tags=DURATION:format=start_time',
+               '-of', 'json', filename]
+    probe_data = json.loads(run(command).stdout)
+    stream = probe_data['streams'][0]
     rate = int(stream['sample_rate'])
     if rate <= 0:
         raise ValueError('invalid sample rate: ' + filename)
-    return rate
+    origin = float(probe_data.get('format', {}).get('start_time', 0))
+    start = float(stream.get('start_time', origin))
+    duration = stream.get('duration')
+    tag = stream.get('tags', {}).get('DURATION')
+    if duration is not None:
+        end = start + float(duration)
+    elif tag:
+        hours, minutes, seconds = tag.split(':')
+        end = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    else:
+        end = audio_packet_end(ffprobe, filename)
+    return rate, start - origin, end - origin
 
 
-def render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, output_dir):
+def render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, output_dir, notes):
     """Render faded audio edits on independent sample clocks into track stems."""
     tracks = {}
     snaps = []
@@ -245,23 +286,28 @@ def render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, output_dir):
         name = item['src']
         filename = source_path(root, edit['sources'], name)
         at = float(item.get('at', 0))
-        rate = audio_rate(ffprobe, filename)
+        rate, stream_start, source_end = audio_rate(ffprobe, filename)
         start = round(float(item['in']) * rate) / rate
-        end = round(float(item['out']) * rate) / rate
+        requested_end = round(float(item['out']) * rate) / rate
+        end = min(requested_end, round(source_end * rate) / rate)
+        if end < requested_end:
+            notes.append(f'Audio {name} out clamped from {requested_end:.6f} to {end:.6f} s.')
         fade = float(item.get('fade_ms', 15)) / 1000
         if not track or any(char in track for char in ('/', '\\', ':')) or end <= start or fade < 0:
             raise ValueError('invalid audio item')
         for point, actual in (('in', start), ('out', end)):
             requested = float(item[point])
             snaps.append({'src': name, 'point': point, 'requested': requested, 'snapped': actual,
-                          'delta': actual - requested, 'clock': 'audio sample', 'sample_rate': rate})
+                          'delta': actual - requested, 'clock': 'audio sample', 'sample_rate': rate,
+                          'stream_start_s': stream_start})
         speeds = {clip['speed'] for clip in clips if clip['src'] == name and start < clip['stop']
                   and end > clip['start']}
         if len(speeds) > 1:
             raise ValueError('ambiguous audio retime speed for ' + name)
         speed = next(iter(speeds), 1.0)
         duration = (end - start) / speed
-        filters = [f'atrim=start_sample={round(start * rate)}:end_sample={round(end * rate)}',
+        filters = ['aresample=async=1:first_pts=0',
+                   f'atrim=start_sample={round(start * rate)}:end_sample={round(end * rate)}',
                    'asetpts=PTS-STARTPTS']
         remaining = speed
         while remaining > 2:
@@ -311,7 +357,8 @@ def motion_retimes(ffmpeg, clips, properties, fps, temp, spool_limit, already_us
               f"setpts=(PTS-STARTPTS)/{clip['speed']},tpad=stop_mode=clone:stop_duration=1,"
               f"minterpolate=fps={fps}:mi_mode=mci,trim=duration={clip['duration']},"
               + properties[clip['file']]['filter'])
-        reader = Frames(ffmpeg, clip['file'], vf, clip['sw'] * clip['sh'] * 3)
+        reader = Frames(ffmpeg, clip['file'], vf, clip['sw'] * clip['sh'] * 3,
+                        ['-ss', str(max(0.0, clip['start'] - 1.0)), '-copyts'])
         count = 0
         with open(path, 'wb') as output:
             for raw in reader:
@@ -370,7 +417,10 @@ def render_clip(clip, time, handles, width, height):
         sample_time = clip['start'] + max(0, time - clip['at']) * clip['speed']
         times = clip['times']
         rawpath = clip['raw']
-    index = max(0, min(len(times) - 1, bisect.bisect_right(times, sample_time) - 1))
+    precision = 0.5 * 10 ** (math.floor(math.log10(max(abs(sample_time), 1))) - 5)
+    interval = times[1] - times[0] if len(times) > 1 else 1.0
+    tolerance = min(interval * .1, max(1e-6, precision, clip['time_tick'] * .50001))
+    index = max(0, min(len(times) - 1, bisect.bisect_right(times, sample_time + tolerance) - 1))
 
     def get_frame(frame_index):
         """Read a spooled frame by its PTS-selected index."""
@@ -494,7 +544,13 @@ def export(edit, out, report_path, temp, stage, picture, cues, cuts, dissolves, 
     """Write sidecars in staging and move them to their final names after success."""
     write_json(stage / 'edit-cues.json', {'fps': edit['fps'],
                                          'events': sorted(cues + edit.get('cues', []), key=lambda cue: cue['t'])})
-    write_json(stage / 'declared.json', {'cuts': cuts, 'holds': edit.get('holds', []), 'dissolves': dissolves})
+    holds = edit.get('holds', [])
+    dips = [{'start': clip['at'], 'end': clip['at'] + clip['overlap']}
+            for clip in report.pop('_clips') if clip['kind'] == 'dip']
+    ranges = sorted((float(x['start']), float(x['end'])) if isinstance(x, dict)
+                    else (float(x[0]), float(x[1])) for x in holds + dips)
+    ignore = ','.join(f'{start:.3f}-{end:.3f}' for start, end in ranges)
+    write_json(stage / 'declared.json', {'cuts': cuts, 'holds': holds, 'dissolves': dissolves, 'ignore': ignore})
     write_json(stage / 'assemble-report.json', report)
     pairs = [(Path(picture), out)]
     for path in stage.iterdir():
@@ -565,7 +621,7 @@ def main():
             stage = Path(temp) / 'stage'
             stage.mkdir()
             limit = int(args.spool_gib * 1024 ** 3)
-            cache, properties, used = conform(ffmpeg, ffprobe, picture_sources, temp, limit)
+            cache, properties, used = conform(ffmpeg, ffprobe, edit, root, temp, limit)
             clips, snaps, cues, cuts, dissolves = plan_picture(edit, root, cache, ffmpeg, ffprobe, temp)
             total = clips[-1]['at'] + clips[-1]['duration']
             if total <= 0:
@@ -579,9 +635,9 @@ def main():
                 picture = Path(temp) / 'caption-capped.mp4'
                 cap_caption_encode(ffmpeg, captioned, picture, width, height, fps)
                 notes.append('Caption burn was encoded again with the shared level-capped encoder; review legibility.')
-            snaps.extend(render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, stage))
+            snaps.extend(render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, stage, notes))
             report = {'duration_s': total, 'frames': count, 'snaps': snaps, 'sources': properties,
-                      'spool_budget_bytes': limit, 'source_spool_bytes': used,
+                      'spool_budget_bytes': limit, 'source_spool_bytes': used, '_clips': clips,
                       'retimes': [{'src': clip['src'], 'in': clip['start'], 'out': clip['stop'],
                                    'speed': clip['speed'], 'mode': clip['mode']}
                                   for clip in clips if clip['speed'] != 1],

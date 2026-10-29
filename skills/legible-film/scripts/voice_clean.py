@@ -7,7 +7,8 @@ Uses FFmpeg highpass 80 Hz, afftdn (noise floor from the 10th percentile of
 20 ms RMS windows, clamped to -80..-20 dBFS; reduction at most 6 dB), a mild
 5-9 kHz de-esser, light compression, then level to -20 LUFS with gain limited
 to +/-6 dB. Each step reports before and after noise floor, integrated LUFS,
-true peak and 5-9 kHz to 200 Hz-5 kHz energy ratio. Noise-floor estimates can
+true peak and 5-9 kHz to 200 Hz-5 kHz energy ratio. Spectral measurements use
+overlapping windows, so they differ from the earlier whole-file FFT. Noise-floor estimates can
 contain speech; inspect the source. Each candidate is refused if its 200 Hz-5
 kHz energy falls by over --max-speech-loss-db (default 3 dB), relative to the
 previous step; this energy guard cannot detect all speech damage. Refusal keeps
@@ -19,6 +20,8 @@ Needs numpy and FFmpeg. Exit 0 processed, 1 refused, 2 could not run.
 import argparse
 import importlib.util
 import math
+import subprocess
+import tempfile
 import sys
 from pathlib import Path
 import numpy as np
@@ -36,52 +39,60 @@ io, dialogue = load("sound_io"), load("dialogue_io")
 RATE = 48000
 
 
-def speech_power(x):
-    """Measure total energy in the speech band."""
-    f = np.fft.rfftfreq(len(x), 1 / RATE)
-    y = np.fft.rfft(x.astype(np.float64) * np.hanning(len(x))[:, None], axis=0)
-    return float(np.sum(np.abs(y[(f >= 200) & (f < 5000)]) ** 2))
+def measure_file(ffmpeg, path):
+    """Measure fixed overlapping spectral windows and 20 ms RMS without loading the file."""
+    command = [ffmpeg, '-v', 'error', '-nostdin', '-i', str(path), '-ac', '2', '-ar', str(RATE),
+               '-f', 'f32le', '-']
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    hop = RATE // 2
+    block_bytes = hop * 2 * 4
+    previous = np.empty((0, 2), dtype=np.float32)
+    powers = np.zeros(2, dtype=np.float64)
+    rms = []
+    peak = 0.0
+    total = 0
+    while True:
+        raw = proc.stdout.read(block_bytes)
+        if not raw:
+            break
+        if len(raw) % 8:
+            raise ValueError('invalid decoded audio')
+        block = np.frombuffer(raw, dtype='<f4').reshape(-1, 2)
+        if not np.isfinite(block).all():
+            raise ValueError('non-finite audio')
+        total += len(block)
+        peak = max(peak, float(np.max(np.abs(block))))
+        env, _ = dialogue.frames(block, RATE)
+        rms.extend(env.tolist())
+        window = np.concatenate((previous, block))
+        if len(window) >= 2:
+            frequencies = np.fft.rfftfreq(len(window), 1 / RATE)
+            spectrum = np.fft.rfft(window.astype(np.float64) * np.hanning(len(window))[:, None], axis=0)
+            energy = np.sum(np.abs(spectrum) ** 2, axis=1)
+            powers[0] += energy[(frequencies >= 200) & (frequencies < 5000)].sum()
+            powers[1] += energy[(frequencies >= 5000) & (frequencies < 9000)].sum()
+        previous = block.copy()
+    proc.stdout.close()
+    stderr = proc.stderr.read()
+    code = proc.wait()
+    if code or not total:
+        raise ValueError('cannot decode audio: ' + stderr.decode(errors='replace')[-600:])
+    return {'noise_floor_p10_dbfs': io.db(np.percentile(rms, 10)),
+            'loudness': io.meter(ffmpeg, path, RATE),
+            'sample_peak_dbfs': io.db(peak),
+            'sibilance_to_body_db': float(10 * np.log10(max(powers[1], 1e-24) / max(powers[0], 1e-24))),
+            'speech_power': float(powers[0]), 'peak': peak, 'samples': total}
 
 
-def metrics(ffmpeg, x):
-    """Measure the cleanup step before or after processing."""
-    env, _ = dialogue.frames(x, RATE)
-    return {
-        "noise_floor_p10_dbfs": io.db(np.percentile(env, 10)),
-        "loudness": io.meter(ffmpeg, x, RATE),
-        "sample_peak_dbfs": io.db(np.max(np.abs(x))),
-        "sibilance_to_body_db": dialogue.bands(x, RATE),
-    }
+def apply_file(ffmpeg, source, destination, graph):
+    """Run one continuous FFmpeg filter to a temporary floating-point WAV."""
+    io.run([ffmpeg, '-v', 'error', '-nostdin', '-y', '-i', str(source), '-ac', '2', '-ar', str(RATE),
+            '-af', graph, '-c:a', 'pcm_f32le', str(destination)])
 
 
-def apply(ffmpeg, x, graph):
-    """Apply one FFmpeg filter to the decoded samples."""
-    data = io.run(
-        [
-            ffmpeg,
-            "-v",
-            "error",
-            "-nostdin",
-            "-f",
-            "f32le",
-            "-ar",
-            str(RATE),
-            "-ac",
-            "2",
-            "-i",
-            "-",
-            "-af",
-            graph,
-            "-f",
-            "f32le",
-            "-",
-        ],
-        np.asarray(x, dtype="<f4").tobytes(),
-    ).stdout
-    y = np.frombuffer(data, dtype="<f4").reshape(-1, 2).copy()
-    if len(y) != len(x) or not np.isfinite(y).all():
-        raise ValueError("filter returned invalid audio length or samples")
-    return y
+def public_metrics(metrics):
+    """Remove internal guards from the report's measurements."""
+    return {key: value for key, value in metrics.items() if key not in ('speech_power', 'peak', 'samples')}
 
 
 def main():
@@ -100,47 +111,48 @@ def main():
         src, dst = Path(a.input).resolve(), Path(a.out).resolve()
         if src == dst or dst.exists() or (a.json and Path(a.json).resolve() in (src, dst)):
             raise ValueError("output must be a new file distinct from input and report")
-        x = io.decode(ffmpeg, src, RATE)
-        initial = metrics(ffmpeg, x)
-        nf = max(-80.0, min(-20.0, initial["noise_floor_p10_dbfs"]))
-        filters = [
-            ("highpass", "highpass=f=80:p=2"),
-            ("noise_reduction", "afftdn=nr=6:nf=%.3f:tn=0" % nf),
-            ("de_ess", "deesser=i=0.1:m=0.2:f=0.5:s=o"),
-            ("compression", "acompressor=threshold=0.125:ratio=1.5:attack=20:release=150:makeup=1"),
-        ]
-        rows = []
-        refused = None
-        for name, graph in filters + [("final_level", None)]:
-            before = metrics(ffmpeg, x)
-            if graph is None:
-                loud = before["loudness"]["integrated_lufs"]
-                if loud is None or loud <= -70:
-                    refused = "final level cannot be determined for silence"
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='voice-clean-', dir=dst.parent) as temp:
+            current = Path(temp) / 'source.wav'
+            io.run([ffmpeg, '-v', 'error', '-nostdin', '-y', '-i', str(src), '-ac', '2', '-ar', str(RATE),
+                    '-c:a', 'pcm_f32le', str(current)])
+            initial = measure_file(ffmpeg, current)
+            nf = max(-80.0, min(-20.0, initial['noise_floor_p10_dbfs']))
+            filters = [
+                ('highpass', 'highpass=f=80:p=2'),
+                ('noise_reduction', 'afftdn=nr=6:nf=%.3f:tn=0' % nf),
+                ('de_ess', 'deesser=i=0.1:m=0.2:f=0.5:s=o'),
+                ('compression', 'acompressor=threshold=0.125:ratio=1.5:attack=20:release=150:makeup=1'),
+            ]
+            rows = []
+            refused = None
+            before = initial
+            for index, (name, graph) in enumerate(filters + [('final_level', None)]):
+                if graph is None:
+                    loud = before['loudness']['integrated_lufs']
+                    if loud is None or loud <= -70:
+                        refused = 'final level cannot be determined for silence'
+                        break
+                    gain = max(-6.0, min(6.0, -20.0 - loud))
+                    graph = 'volume=%.6fdB' % gain
+                candidate = Path(temp) / f'step-{index}.wav'
+                apply_file(ffmpeg, current, candidate, graph)
+                after = measure_file(ffmpeg, candidate)
+                if after['samples'] != before['samples']:
+                    raise ValueError('filter returned invalid audio length')
+                loss = 10 * math.log10(max(before['speech_power'], 1e-30) / max(after['speech_power'], 1e-30))
+                accepted = loss <= a.max_speech_loss_db
+                rows.append({'step': name, 'filter': graph, 'before': public_metrics(before),
+                             'after': public_metrics(after), 'speech_band_loss_db': loss, 'accepted': accepted})
+                if not accepted:
+                    refused = name + ' exceeded speech-band loss limit'
                     break
-                gain = max(-6.0, min(6.0, -20.0 - loud))
-                graph = "volume=%.6fdB" % gain
-            y = apply(ffmpeg, x, graph)
-            loss = 10 * math.log10(max(speech_power(x), 1e-30) / max(speech_power(y), 1e-30))
-            after = metrics(ffmpeg, y)
-            accepted = loss <= a.max_speech_loss_db
-            rows.append(
-                {
-                    "step": name,
-                    "filter": graph,
-                    "before": before,
-                    "after": after,
-                    "speech_band_loss_db": loss,
-                    "accepted": accepted,
-                }
-            )
-            if not accepted:
-                refused = name + " exceeded speech-band loss limit"
-                break
-            x = y
-        if np.max(np.abs(x)) >= 1:
-            refused = refused or "output reaches 0 dBFS; lower the level and listen"
-        io.write_wav(ffmpeg, dst, x, RATE)
+                current = candidate
+                before = after
+            if before['peak'] >= 1:
+                refused = refused or 'output reaches 0 dBFS; lower the level and listen'
+            io.run([ffmpeg, '-v', 'error', '-nostdin', '-y', '-i', str(current), '-c:a', 'pcm_s24le',
+                    '-map_metadata', '-1', '-bitexact', str(dst)])
         report = {
             "input": str(src),
             "output": str(dst),

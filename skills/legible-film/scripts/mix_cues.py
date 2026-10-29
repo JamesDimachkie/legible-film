@@ -304,14 +304,10 @@ def voice_duck_gain(ffmpeg, voice, music, bed, phrases, env, hop, a):
     length = len(voice)
     target = np.zeros(len(env), dtype=np.float64)
     combined = music + bed if a.voice_duck_bed else music
-    benv, _ = dialogue.frames(combined, a.rate)
     for lo, hi in phrases:
         measured_sep, _ = dialogue.separation(io, ffmpeg, voice[lo:hi], combined[lo:hi], a.rate)
-        rms_sep = dialogue.level(voice[lo:hi]) - dialogue.level(combined[lo:hi])
-        correction = measured_sep - rms_sep
-        for k in range(lo // hop, min(len(env), (hi + hop - 1) // hop)):
-            if env[k] > 1e-12:
-                target[k] = max(0.0, 20 * math.log10(max(benv[k], 1e-12) / env[k]) + a.voice_separation_lu - correction)
+        depth = max(0.0, a.voice_separation_lu - measured_sep)
+        target[lo // hop:min(len(env), (hi + hop - 1) // hop)] = depth
     # Smooth over future attack and past release, in dB; interpolate samples.
     attack = max(1, round(a.voice_attack_ms / 20))
     release = max(1, round(a.voice_release_ms / 20))
@@ -329,7 +325,7 @@ def voice_duck_gain(ffmpeg, voice, music, bed, phrases, env, hop, a):
     return voice_gain
 
 
-def voice_phrase_rows(ffmpeg, voice, music, bed, phrases, a):
+def voice_phrase_rows(ffmpeg, voice, music, bed, phrases, a, voice_gain):
     """Measure voice against the combined bed for each detected phrase."""
     phrase_rows = []
     actual_bed = music + bed
@@ -345,6 +341,7 @@ def voice_phrase_rows(ffmpeg, voice, music, bed, phrases, a):
                 "separation_lu": sep,
                 "method": method,
                 "starting_point_lu": a.voice_separation_lu,
+                "duck_gain_db": 20 * math.log10(max(1e-12, float(np.sqrt(np.mean(voice_gain[lo:hi] ** 2))))),
                 "listening_check": sep < a.voice_separation_lu,
             }
         )
@@ -362,7 +359,7 @@ def mix_voice(ffmpeg, voice_spec, root, music, bed, a, warnings):
     music *= voice_gain[:, None]
     if a.voice_duck_bed:
         bed *= voice_gain[:, None]
-    phrase_rows = voice_phrase_rows(ffmpeg, voice, music, bed, phrases, a)
+    phrase_rows = voice_phrase_rows(ffmpeg, voice, music, bed, phrases, a, voice_gain)
     report = {
         "phrases": phrase_rows,
         "method": "BS.1770 integrated per phrase when measurable, otherwise RMS dB fallback; before mastering",

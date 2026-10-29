@@ -216,7 +216,7 @@ def segment(words, args, diagnose=True):
     """Find the highest-scoring feasible layout using a Pareto frontier of end times."""
     count = len(words)
     frontiers = [[] for _ in range(count + 1)]
-    frontiers[0] = [(0.0, 0, [])]
+    frontiers[0] = [(0.0, 0, None)]
     blockers = set()
     for start_index in range(count):
         for prior_end, score, previous in frontiers[start_index]:
@@ -225,6 +225,8 @@ def segment(words, args, diagnose=True):
                 text = line_layout(group, args.line_length)
                 if not text:
                     blockers.add('line length or two-line limit')
+                    if sum(len(word['text']) for word in group) + len(group) - 1 > 2 * args.line_length + 1:
+                        break
                     continue
                 if len(group) == 1 and count > 1:
                     blockers.add('orphan word')
@@ -247,9 +249,11 @@ def segment(words, args, diagnose=True):
                     continue
                 if end - start > args.max_duration + 1e-9:
                     blockers.add('maximum duration')
+                    if group[-1]['end'] - first_speech > args.max_duration + 1e-9:
+                        break
                     continue
                 cue = {'start': start, 'end': end, 'text': text, 'words': group}
-                candidate = (end, score + break_score(words, end_index) - 1, previous + [cue])
+                candidate = (end, score + break_score(words, end_index) - 1, (cue, previous))
                 frontier = frontiers[end_index]
                 if any(old_end <= end + 1e-9 and old_score >= candidate[1]
                        for old_end, old_score, _ in frontier):
@@ -277,7 +281,12 @@ def segment(words, args, diagnose=True):
             if decisive:
                 raise SegmentationError('constraint preventing segmentation: ' + ', '.join(decisive), text)
         raise SegmentationError('interacting constraints: ' + ', '.join(sorted(blockers)), text)
-    return max(frontiers[count], key=lambda state: (state[1], -state[0]))[2]
+    node = max(frontiers[count], key=lambda state: (state[1], -state[0]))[2]
+    cues = []
+    while node is not None:
+        cue, node = node
+        cues.append(cue)
+    return list(reversed(cues))
 
 
 class SegmentationError(Exception):
@@ -601,24 +610,41 @@ def burn_video(args):
     findings = []
     boxes = []
     with tempfile.TemporaryDirectory(prefix='caption-burn-') as temp:
-        command = [ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-i', os.path.abspath(args.video)]
-        graph = ['[0:v]scale=%d:%d:flags=lanczos[base]' % (width, height)]
+        rendered = []
         for index, (start, end, cue, active) in enumerate(states):
             image, box = render_caption(width, height, safe, cue, active, font, args.font_size, args.plate)
             image, box, conflict = position_overlay(image, safe, avoids)
             if conflict:
                 findings.append({'rule': 'avoid conflict', 'start': start, 'end': end, 'chosen_box': box})
-            path = os.path.join(temp, 'caption%05d.png' % index)
-            image.save(path)
-            command.extend(['-loop', '1', '-i', path])
-            previous = 'base' if not index else 'v%d' % (index - 1)
-            graph.append("[%s][%d:v]overlay=0:0:enable='gte(t,%.9f)*lt(t,%.9f)':eof_action=repeat:shortest=1[v%d]"
-                         % (previous, index + 1, start, end, index))
+            state_path = os.path.join(temp, 'state%05d.png' % index)
+            image.save(state_path)
+            rendered.append((start, end, state_path))
             boxes.append({'start': start, 'end': end, 'box': box, 'active_word_index': active})
-        graph.append('[v%d]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,'
-                     'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv[out]'
-                     % (len(states) - 1))
-        command.extend(['-filter_complex', ';'.join(graph), '-map', '[out]', '-map', '0:a?',
+        boundaries = sorted({0.0, duration} | {max(0.0, min(duration, t))
+                                               for start, end, _ in rendered for t in (start, end)})
+        entries = []
+        for index, (start, end) in enumerate(zip(boundaries, boundaries[1:])):
+            if end <= start:
+                continue
+            image = Image.new('RGBA', (width, height))
+            for left, right, state_path in rendered:
+                if left <= start and right > start:
+                    with Image.open(state_path) as overlay:
+                        image.alpha_composite(overlay.convert('RGBA'))
+            name = 'caption%05d.png' % index
+            image.save(os.path.join(temp, name))
+            entries.extend(["file '%s'" % name, 'option framerate 1000', 'duration %.9f' % (end - start)])
+        entries.extend(["file '%s'" % name, 'option framerate 1000'])
+        manifest = os.path.join(temp, 'captions.ffconcat')
+        with open(manifest, 'w', encoding='utf-8') as file:
+            file.write('ffconcat version 1.0\n' + '\n'.join(entries) + '\n')
+        command = [ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-i', os.path.abspath(args.video),
+                   '-f', 'concat', '-safe', '0', '-i', manifest]
+        graph = ('[0:v]scale=%d:%d:flags=lanczos[base];'
+                 '[base][1:v]overlay=0:0:eof_action=repeat:shortest=0,'
+                 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,'
+                 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv[out]') % (width, height)
+        command.extend(['-filter_complex', graph, '-map', '[out]', '-map', '0:a?',
                         '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-fps_mode', 'passthrough',
                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
                         '-color_range', 'tv', '-c:a', 'aac', os.path.abspath(args.out)])

@@ -71,9 +71,14 @@ def region(score):
             float((np.searchsorted(x, .98) + 1) / width), float((np.searchsorted(y, .98) + 1) / height)]
 
 
-def analyse(ffmpeg, source, width, height):
-    """Decode each frame once and retain only bounded sheet samples."""
-    reader = Frames(ffmpeg, source, f'scale={width}:{height},format=rgb24', width * height * 3)
+def analyse(ffmpeg, source, width, height, start=None, end=None):
+    """Decode the requested frames and retain only bounded sheet samples."""
+    filters = f'scale={width}:{height},format=rgb24'
+    options = None
+    if start is not None and end is not None:
+        filters = f'trim=start={start}:end={end},' + filters
+        options = ['-ss', str(max(0.0, start - 1.0)), '-copyts']
+    reader = Frames(ffmpeg, source, filters, width * height * 3, options)
     subjects = []
     samples = []
     stride = 1
