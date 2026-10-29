@@ -49,7 +49,7 @@ Steps, in order, each logged to OUT/logs and recorded in OUT/make-state.json:
   5. mux: video copied, AAC-LC 48 kHz 256 kbps, apad and -t at the picture's exact
      duration, fast start; never -shortest. A silent deliverable is the render itself.
   6. QC per size into OUT/qa/WxH/: qc_file.py, flash_scan.py, blank_scan.py and
-     motion_scan.py with the declared ranges (and info.pace as gates when declared:
+     motion_scan.py with the declared ranges (and info.pace as taste guides when declared:
      max_still_share, max_still, start, end; with --loop or info.loop, --loop, so the
      last-to-first seam is measured on every deliverable, each WebM included), cue_onsets.py on the effects stem,
      sync_check.py against mix.wav, sound_check.py with the spotted cue list (each warning
@@ -85,7 +85,7 @@ A cut between two similar shots can fall below the change measures and be listed
 not found: declare it in info.seams if it is seamless, else inspect its joins sheet. Needs Python 3.9+, numpy, Pillow, FFmpeg and
 ffprobe with libx264 and the AAC encoder, Node 18+, Playwright, Chromium, and the
 skill's scripts beside this one (film_check.py, film_render.py, the QC tools).
-Exit 0 every check passed; 1 something needs inspection (each item listed) or the
+Exit 0 no gate or inspection finding; 1 something needs inspection (each item listed) or the
 doctor found something missing (--doctor alone); 2 could not run.
 """
 import argparse
@@ -105,7 +105,7 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
-VERSION = '1.2.1'
+VERSION = '1.2.2'
 EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
 SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
 SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
@@ -516,21 +516,49 @@ def cut_sheets(py, video, cuts, size, fps, folder, span=1.6):
     return ('could not run' if failed else 'pass'), summary + failed, failed, [str(s) for s in sheets]
 
 
+def cue_digest(path):
+    """Hash a cue list's content, ignoring the note of which size exported it (the events are the same)."""
+    data = load_json(path, None)
+    if not isinstance(data, dict):
+        return None
+    data = {k: v for k, v in data.items() if k != 'exported_from'}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
+
+
+def same_cues(provenance, cues_path):
+    """Whether the current cue list is the one the reused picture was rendered against."""
+    if provenance.get('cues_digest'):
+        return provenance['cues_digest'] == cue_digest(cues_path)
+    recorded = provenance.get('cues_sha256')
+    if recorded == sha256(cues_path):
+        return True
+    # A 1.2.1 make recorded the frozen film folder's cues.json (the last size exported). The film folder holds the
+    # same export again when its cue content still matches the delivered cue list.
+    film_file = Path(provenance.get('cues_film_file', ''))
+    return (film_file.is_file() and recorded == sha256(film_file)
+            and cue_digest(film_file) == cue_digest(cues_path))
+
+
 class Make:
     def __init__(self, a, film, out, sizes):
         self.a, self.film, self.out, self.sizes = a, film, out, sizes
         self.name = a.name or film.name
         self.root = Path(out).resolve()
         self.state_path = out / 'make-state.json'
-        old = load_json(self.state_path, {}) if a.resume else {}
+        sound_only = bool(getattr(a, 'sound_only', False))
+        old = load_json(self.state_path, {}) if a.resume or sound_only else {}
         old = old if isinstance(old, dict) else {}
         # The state belongs to the folder it was written in: its paths name that folder's files. A copied or
         # moved output folder (or a state from before roots were recorded) resumes nothing.
         same = old.get('root') == str(self.root)
         self.old_steps = old.get('steps', {}) if same else {}
         self.rebound = None if same or not old.get('steps') else (old.get('root') or 'an unrecorded folder')
-        self.state = {'version': 2, 'film': str(film), 'root': str(self.root), 'steps': {}}
+        # --sound-only keeps the earlier render and QC steps, so a refused or partial run never erases the
+        # record a later --sound-only or --resume depends on; the steps it reruns overwrite their own entries.
+        self.state = {'version': 2, 'film': str(film), 'root': str(self.root),
+                      'steps': dict(self.old_steps) if sound_only else {}}
         self.findings, self.not_checked, self.notes, self.log = [], [], [], []
+        self.taste = []
         self.size_notes = {}
         self.loop, self.webs = bool(a.loop), {}
         self.stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -650,10 +678,45 @@ class Make:
             dirs[:] = sorted(d for d in dirs if not (rel == Path('.') and d in SKIP_TOP))
             for n in sorted(names):
                 r = (rel / n).as_posix()
-                if rel == Path('.') and (n in EXPORTS or n == 'palette.json'):
+                if rel == Path('.') and (n in EXPORTS or n in ('palette.json', 'sound-edits.json')):
                     continue
                 files[r] = sha256(Path(root) / n)
         return {'sha256': digest(files), 'files': len(files)}
+
+    def prior_provenance(self):
+        """Recover verified render and QC records from a 1.2.1 make-state.json (1.2.1 wrote no
+        picture-provenance.json). Only a state written in this output folder counts: old_steps is empty otherwise."""
+        steps = self.old_steps
+        renders = {}
+        source_hash = None
+        cue_hash = None
+        for size in self.sizes:
+            label = self.label(size)
+            render_step = steps.get(f'render {label}', {})
+            result = render_step.get('result', {})
+            frozen = result.get('frozen_sha256') or {}
+            picture_files = {name: value for name, value in frozen.items()
+                             if name.split('/')[0] not in SKIP_TOP and
+                             name not in EXPORTS and name not in ('palette.json', 'sound-edits.json')}
+            path = result.get('path')
+            expected = render_step.get('outputs', {}).get(self.rel(path)) if path else None
+            qc = steps.get(f'qc {label}', {}).get('result')
+            if not picture_files or not path or not expected or not qc or not frozen.get('cues.json'):
+                return {}
+            this_source = digest(picture_files)
+            if source_hash not in (None, this_source) or cue_hash not in (None, frozen['cues.json']):
+                return {}
+            source_hash, cue_hash = this_source, frozen['cues.json']
+            master = result.get('master')
+            output = render_step.get('inputs', {}).get('output', '')
+            if not re.fullmatch(r'\d+x\d+', output):
+                return {}
+            renders[label] = {'path': path, 'sha256': expected, 'output_size': [int(n) for n in output.split('x')],
+                              'master': master,
+                              'master_sha256': render_step.get('outputs', {}).get(self.rel(master)) if master else None,
+                              'result': result, 'qc': qc}
+        return {'root': str(self.root), 'source_sha256': source_hash, 'cues_sha256': cue_hash,
+                'cues_film_file': str(self.film / 'cues.json'), 'renders': renders}
 
     def out_dims(self, size):
         """The encoded size for a CSS size (film_render.py's rule: --res is the short side)."""
@@ -795,7 +858,8 @@ class Make:
         for role in sorted(set(draft.get('roles', {})) | set(picked)):
             if role in picked and role not in LAYER_ROLES:
                 take = dict(picked[role], takes=[moved(t, library_path) for t in picked[role]['takes']])
-                take.pop('take_records', None)
+                take['take_records'] = [dict(record, file=moved(record['file'], library_path))
+                                        for record in picked[role].get('take_records', [])]
                 if draft.get('roles', {}).get(role, {}).get('layers'):
                     take['layers'] = draft['roles'][role]['layers']   # recorded transient over synthesised weight
                 palette['roles'][role] = take
@@ -1125,6 +1189,12 @@ class Make:
         deliver = self.out / 'deliver'
         webm = deliver / f'{self.name}_{w}x{h}.webm'
         poster = deliver / f'{self.name}_{w}x{h}-poster.png'
+        if getattr(self.a, 'sound_only', False):
+            n = 2
+            while webm.exists() or poster.exists():
+                webm = deliver / f'{self.name}_{w}x{h}-{n}.webm'
+                poster = deliver / f'{self.name}_{w}x{h}-{n}-poster.png'
+                n += 1
         frames = render.get('frames') or info['frames']
         duration = frames / info['fps']
         mix = self.out / 'sound' / 'mix.wav'
@@ -1135,6 +1205,16 @@ class Make:
         def go():
             ffmpeg = find_tool('ffmpeg', self.a.ffmpeg)
             deliver.mkdir(parents=True, exist_ok=True)
+            if getattr(self.a, 'sound_only', False):
+                prior = self.picture_provenance['renders'][label]['web']
+                audio = ['-an'] if silent else ['-i', mix, '-map', '0:v:0', '-map', '1:a:0', '-af', 'apad',
+                                               '-c:a', 'libopus', '-b:a', '128k', '-ar', '48000']
+                code, text = self.run(f'webm-{label}', [ffmpeg, '-v', 'error', '-nostdin', '-n', '-i',
+                                      prior['webm'], *audio, '-c:v', 'copy', '-t', f'{duration:.6f}', webm])
+                if code:
+                    raise CouldNotRun(f'WebM mux failed ({label}): ' + text.strip()[-600:])
+                shutil.copyfile(prior['poster'], poster)
+                return self.web_check(label, webm, poster, frames, (w, h), silent), [webm, poster]
             for x in (webm, poster):
                 self.set_aside(x)
             audio = ['-an'] if silent else ['-i', mix, '-map', '0:v:0', '-map', '1:a:0', '-af', 'apad',
@@ -1201,6 +1281,11 @@ class Make:
         w, h = self.out_dims(size)
         deliver = self.out / 'deliver'
         target = deliver / f'{self.name}_{w}x{h}.mp4'
+        if getattr(self.a, 'sound_only', False):
+            n = 2
+            while target.exists() or Path(str(target) + '.manifest.json').exists():
+                target = deliver / f'{self.name}_{w}x{h}-{n}.mp4'
+                n += 1
         frames = render.get('frames') or info['frames']
         duration = frames / info['fps']
         mix = self.out / 'sound' / 'mix.wav'
@@ -1394,7 +1479,8 @@ class Make:
                 checks['loop_seam_webm'] = self.loop_seam(qa / 'motion-webm.json', Path(web['webm']).name)
                 outputs += [x for x in (qa / 'motion-webm.json', qa / 'motion-webm.csv') if x.is_file()]
             pace = info.get('pace') or info.get('pace_contract')
-            if isinstance(pace, dict) and any(pace.get(k) is not None for k in ('max_still_share', 'max_still')):
+            if isinstance(pace, dict) and any(pace.get(k) is not None for k in
+                                              ('max_still_share', 'max_still', 'start', 'end')):
                 args = []
                 for key, flag in (('start', '--start'), ('end', '--end'), ('max_still_share', '--max-still-share'),
                                   ('max_still', '--max-still')):
@@ -1405,8 +1491,10 @@ class Make:
                 # This run exists for its gates; intrusions and stutter are motion_scan's to report.
                 gates = ((load_json(qa / 'pace.json', {}) or {}).get('pace') or {}).get('gates', {})
                 if checks['pace']['status'] != 'could not run':
-                    failed = [f"pace {k}: {g['actual']} > {g['limit']}" for k, g in gates.items() if not g['pass']]
-                    checks['pace'].update(status='inspect' if failed else 'pass', flags=failed,
+                    failed = [f"pace {k}: measured {g['actual']}, target {g['limit']} "
+                              f"(interval {pace.get('start', 0)} to {pace.get('end', 'film end')} s)"
+                              for k, g in gates.items() if g['pass'] is not True]
+                    checks['pace'].update(status='look at' if failed else 'pass', flags=failed,
                                           summary=[f"pace {k}: {g['actual']} <= {g['limit']}: "
                                                    f"{'pass' if g['pass'] else 'FAIL'}" for k, g in gates.items()])
             cut = self.cut_check(qa, info)
@@ -1450,9 +1538,11 @@ class Make:
             return {'checks': checks, 'sheets': made, 'ignore': ignore}, outputs
         result = self.step(f'qc {label}', inputs, go)
         if 'pace' not in result['checks']:
-            self.not_checked.append(f'{label}: pace gates (the film declares no pace contract in info.pace)')
+            self.not_checked.append(f'{label}: pace guides (the film declares no pace contract in info.pace)')
         for name, c in result['checks'].items():
-            if c.get('status') == 'inspect':
+            if c.get('status') == 'look at':
+                self.taste.extend(f'{label}: {detail}' for detail in c.get('flags', []))
+            elif c.get('status') == 'inspect':
                 for detail in (c.get('details') or c.get('flags') or c.get('summary', [])[-3:])[:8]:
                     self.finding(label, name, detail[:300])
             elif c.get('status') == 'could not run':
@@ -1562,6 +1652,53 @@ class Make:
                           'large changes within one frame of a cut or seam, or inside a smear, flash or '
                           'info.changes range (one frame either side), are declared'}
 
+    def sound_only_qc(self, size, delivered, sound, info, previous):
+        """Reuse picture checks and rerun the delivered file's specification and audio checks."""
+        label = self.label(size)
+        qa = self.out / 'qa' / label
+        checks = dict(previous['checks'])
+        w, h = self.out_dims(size)
+        fps = info['fps']
+        duration = info['frames'] / fps
+        spec = ['--spec', f'{w}x{h}@{fps:g}', '--duration', f'{duration:.6f}', '--frames', info['frames'],
+                '--vcodec', 'h264', '--pix-fmt', 'yuv420p', '--color', 'bt709', '--faststart', '--detect',
+                '--max-level', self.C.auto_level(w, h, fps)]
+        if sound['mode'] == 'none':
+            spec += ['--audio', 'none']
+        else:
+            spec += ['--audio', 'required', '--acodec', 'aac', '--sample-rate', 48000, '--lossy-check',
+                     '--av-length-tolerance', f'{0.5 / fps:.6f}']
+        commands = [('qc_file', 'qc_file.py', [delivered['path'], *spec], 'qc.json')]
+        if sound['mode'] != 'none':
+            commands += [('sync_check', 'sync_check.py', [delivered['path'], self.out / 'sound' / 'mix.wav',
+                         '--window', f'{min(3.0, 0.4 * duration):.3f}', '--max-lag-ms',
+                         f'{min(500.0, 50.0 * duration):.1f}'], 'sync.json'),
+                         ('sound_check', 'sound_check.py', [delivered['path'], '--cues', sound['spotted'],
+                          '--palette', sound['palette']], 'sound-check.json')]
+        else:
+            checks.pop('sync_check', None)
+            checks.pop('sound_check', None)
+        for name, script, args, filename in commands:
+            path = qa / filename
+            code, text = self.py(f'{name}-{label}', script, *args, '--json', path)
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            checks[name] = {'tool': script, 'exit': code, 'status': {0: 'pass', 1: 'inspect'}.get(code,
+                            'could not run'), 'summary': lines[:12], 'flags': [], 'json': str(path)}
+            if name == 'sound_check' and code != 2:
+                report = load_json(path, {}) or {}
+                checks[name]['flags'] = [listen_for(n, report) for n in report.get('warnings', [])]
+                checks[name]['summary'] = sound_check_summary(report)
+            elif code:
+                checks[name]['flags'] = [line for line in lines if FLAG.search(line)][:8]
+        for name, check in checks.items():
+            if check.get('status') == 'look at':
+                self.taste.extend(f'{label}: {detail}' for detail in check.get('flags', []))
+            elif check.get('status') in ('inspect', 'could not run'):
+                details = check.get('details') or check.get('flags') or check.get('summary', [])[-3:]
+                for detail in details[:8]:
+                    self.finding(label, name, detail[:300])
+        return {'checks': checks, 'sheets': previous.get('sheets', []), 'ignore': previous.get('ignore', [])}
+
     def cue_onsets(self, sound, cues_path):
         if sound['mode'] == 'none':
             return None
@@ -1580,8 +1717,28 @@ class Make:
                     'summary': [x for x in text.strip().splitlines() if x.strip()][:12]}, [path]
         result = self.step('cue onsets', {'effects': sha256(self.out / 'sound' / 'effects.wav'),
                                           'cues': sha256(spotted), 'tool': self.tool_hashes('cue_onsets.py')}, go)
-        if result['status'] != 'pass':
+        if result['status'] == 'could not run':
             self.finding('sound', 'cue_onsets', ' '.join(result['summary'][:3])[:300])
+        else:
+            report = load_json(result['json'], {}) or {}
+            if not isinstance(report.get('rows'), list):
+                self.finding('sound', 'cue_onsets', 'could not read the cue-onset results')
+                result['status'] = 'could not run'
+                return result
+            findings_before = len(self.findings)
+            taste_before = len(self.taste)
+            self.taste.extend('cue spacing: ' + note for note in report.get('lint', []) if ' ms apart:' in note)
+            for row in report.get('rows', []):
+                status = row.get('status')
+                if status in ('EARLY', 'LATE'):
+                    self.taste.append(f"cue {row.get('id')}: offset {row.get('offset_ms')} ms; "
+                                      f"target within {row.get('tolerance_ms')} ms")
+                elif row.get('sound') == 'required' and status in ('missing', 'outside audio', 'inconclusive'):
+                    self.finding('sound', 'cue_onsets', f"cue {row.get('id')}: {status}")
+                elif status in ('UNEXPECTED SOUND', 'RESIDUAL'):
+                    self.finding('sound', 'cue_onsets', f"cue {row.get('id')}: {status}")
+            result['status'] = ('inspect' if len(self.findings) > findings_before else
+                                'look at' if len(self.taste) > taste_before else 'pass')
         return result
 
     # --- delivery -------------------------------------------------------------------------
@@ -1605,9 +1762,10 @@ class Make:
         keep |= {n + '.manifest.json' for n in keep} | {'delivery-report.md'}
         if sound.get('listen'):
             keep.add('listen')
-        for p in deliver.iterdir():
-            if p.name not in keep:
-                self.set_aside(p)
+        if not getattr(self.a, 'sound_only', False):
+            for p in deliver.iterdir():
+                if p.name not in keep:
+                    self.set_aside(p)
         manifests = {}
         draft = sound['mode'] == 'draft'
         for label, d in delivered.items():
@@ -1626,6 +1784,7 @@ class Make:
                               'video stream copied; AAC-LC 48 kHz 256 kbps; apad; -t ' + f"{d['duration']:.6f} s; +faststart"},
                  'sources': {'picture_source_sha256': source['sha256'], 'render': r['path'],
                              'render_sha256': sha256(r['path']) if Path(r['path']).is_file() else None,
+                             'picture_reused': bool(getattr(self.a, 'sound_only', False)),
                              'frozen_copy_sha256': r.get('frozen_sha256', {}),
                              'cues_sha256': sha256(cues_path), 'mix_sha256': sound.get('mix_sha256'),
                              'palette': sound.get('palette')},
@@ -1641,7 +1800,8 @@ class Make:
                     save_json(str(f) + '.manifest.json', {
                         'file': f.name, 'bytes': f.stat().st_size, 'sha256': sha256(f),
                         'made_by': f'make_film.py (Legible Film {VERSION})',
-                        'from': {'lossless_render': r.get('master'), 'sha256': sha256(r['master'])},
+                        'from': {'lossless_render': r.get('master'), 'sha256': sha256(r['master']),
+                                 'picture_reused': bool(getattr(self.a, 'sound_only', False))},
                         'settings': {'size': label, 'output_size': m['settings']['output_size'],
                                      'encode': 'VP9 CRF 32, BT.709 matrix and tags, Opus 128 kbps when there is sound'
                                      if kind == 'webm' else 'frame 0 of the lossless render, RGB PNG'},
@@ -1822,7 +1982,9 @@ class Make:
         text = re.sub(r'\n{3,}', '\n\n', '\n'.join(out)).rstrip() + '\n'
         chain = [] if silent else ['', '## Sound chain', ''] + [
             (f'  - {x.strip()}' if x.startswith('  ') else f'- {x}') for x in self.sound_chain(sound, qcs)]
-        head = chain + ['', '## Items to inspect', ''] + ([f'- {x}' for x in inspect] or
+        taste = ['', "## Taste checks (numbers to look and listen at; a person's approval overrides them)", '']
+        taste += [f'- {x}' for x in self.taste] or ['- No taste checks flagged.']
+        head = chain + taste + ['', '## Items to inspect', ''] + ([f'- {x}' for x in inspect] or
                                                   ['- None from the automated checks. The checks measure files; they '
                                                    'do not watch or listen.']) + ['']
         anchor = '\n## Not checked, and why'
@@ -1883,6 +2045,11 @@ class Make:
         return lines
 
     def previous_note(self):
+        if getattr(self.a, 'sound_only', False):
+            return ('Sound only: the picture is the earlier make\'s render (its hashes verified, the video stream '
+                    'copied), and its flash, blank, motion, pace, cut and sheet checks are carried over; the spec, '
+                    'sync and sound checks ran on these files. The earlier deliverables stay beside them in deliver/; '
+                    'describe what changed in the sound (make_film.py cannot know the intent of a change).')
         prev = self.out / 'previous' / self.stamp
         if prev.exists():
             return (f'A previous delivery in this folder was set aside in `previous/{self.stamp}/`. Describe what '
@@ -1909,6 +2076,7 @@ def main():
     p.add_argument('--out', help='output folder; default FILM-make beside the film folder')
     p.add_argument('--name', help='deliverable base name; default the film folder name')
     p.add_argument('--resume', action='store_true', help='skip steps whose outputs and inputs are unchanged')
+    p.add_argument('--sound-only', action='store_true', help='reuse verified renders from the previous make')
     p.add_argument('--force', action='store_true', help='continue past preflight errors')
     p.add_argument('--doctor', action='store_true', help='check the environment only; exit 0 ready, 1 missing')
     p.add_argument('--json', help='write the run summary here')
@@ -1918,6 +2086,8 @@ def main():
     p.add_argument('--ffmpeg')
     p.add_argument('--ffprobe')
     a = p.parse_args()
+    if a.sound_only:
+        a.resume = False
     try:
         sizes = [parse_size(s) for s in a.sizes.split(',') if s.strip()]
         if not sizes or len(set(sizes)) != len(sizes):
@@ -1994,7 +2164,19 @@ def main():
         out.mkdir(parents=True, exist_ok=True)
         m = Make(a, film, out, sizes)
         m.sound_mode = sound_mode
-        if not a.resume:
+        provenance_path = out / 'picture-provenance.json'
+        provenance = {}
+        if a.sound_only:
+            # Like make-state.json, the record belongs to the folder it was written in: its paths name that folder's
+            # renders, so a copied or moved folder reuses nothing.
+            provenance = load_json(provenance_path, {}) or {}
+            if not isinstance(provenance, dict) or provenance.get('root') != str(m.root):
+                provenance = m.prior_provenance()
+        m.picture_provenance = provenance
+        if a.sound_only and not provenance:
+            raise CouldNotRun('sound-only needs verified picture and QC records from a previous make in this --out '
+                              'folder (a copied or moved folder has none); run a full make')
+        if not a.resume and not a.sound_only:
             for name in ('deliver', 'sound', 'qa', 'cues.json'):
                 m.set_aside(out / name)
         print(f'make_film.py: {film.name} -> {out}', flush=True)
@@ -2002,6 +2184,8 @@ def main():
             print(f'  resume: make-state.json was written for {m.rebound}, not this folder; every step runs again',
                   flush=True)
         source = m.picture_source()
+        if a.sound_only and provenance.get('source_sha256') != source['sha256']:
+            raise CouldNotRun('sound-only refused: picture source hash changed since the render')
         cue_lists, declared_cuts, stopped = {}, {}, []
         for size in sizes:
             r = m.preflight(size, source)
@@ -2030,6 +2214,27 @@ def main():
         if not cues_path.is_file() or sha256(cues_path) != sha256(first):
             shutil.copyfile(first, cues_path)
         info = m.capture_info(sizes[0], source)
+        if a.sound_only:
+            if not same_cues(provenance, cues_path):
+                raise CouldNotRun('sound-only refused: the cue list changed since the render; run a full make')
+            for size in sizes:
+                label = m.label(size)
+                r = provenance.get('renders', {}).get(label, {})
+                path = Path(r.get('path', ''))
+                if (not path.is_file() or sha256(path) != r.get('sha256') or
+                        r.get('output_size') != list(m.out_dims(size))):
+                    raise CouldNotRun(f'sound-only refused: render missing or changed for {label}')
+                if a.web:
+                    master = Path(r.get('master') or '')
+                    if not master.is_file() or sha256(master) != r.get('master_sha256'):
+                        raise CouldNotRun(f'sound-only refused: lossless render missing or changed for {label}')
+                    for kind in ('webm', 'poster'):
+                        web = r.get('web') or {}
+                        path = Path(web.get(kind) or '')
+                        if not path.is_file() or sha256(path) != web.get(kind + '_sha256'):
+                            raise CouldNotRun(f'sound-only refused: previous {kind} missing or changed for {label}')
+                if not r.get('qc'):
+                    raise CouldNotRun(f'sound-only refused: picture QC is missing for {label}')
         m.loop = bool(a.loop or info.get('loop'))
         if m.loop:
             print('  loop: the seam is measured on every deliverable (motion_scan.py --loop)', flush=True)
@@ -2039,7 +2244,7 @@ def main():
         renders, delivered, qcs = {}, {}, {}
         for size in sizes:
             label = m.label(size)
-            r = m.render(size, info, source)
+            r = provenance['renders'][label]['result'] if a.sound_only else m.render(size, info, source)
             if not r:
                 continue
             renders[label] = r
@@ -2057,7 +2262,11 @@ def main():
             label = m.label(size)
             if label in delivered:
                 own = dict(info, **{k: renders[label].get('info', {}).get(k) for k in PER_SIZE})
-                qcs[label] = m.qc(size, delivered[label], sound, own, cues_path, m.webs.get(label))
+                if a.sound_only:
+                    # The WebM's video is a stream copy of the checked one, so its carried-over seam still holds.
+                    qcs[label] = m.sound_only_qc(size, delivered[label], sound, own, provenance['renders'][label]['qc'])
+                else:
+                    qcs[label] = m.qc(size, delivered[label], sound, own, cues_path, m.webs.get(label))
                 web = m.webs.get(label)
                 if web and m.loop:
                     seam = qcs[label]['checks'].get('loop_seam_webm') or {'status': 'not run'}
@@ -2067,6 +2276,25 @@ def main():
                 print(f'  qc {label}: {states}', flush=True)
         if not delivered:
             raise Stopped('no size rendered; nothing to deliver')
+        if not a.sound_only:
+            provenance = {'root': str(m.root), 'source_sha256': source['sha256'], 'cues_sha256': sha256(cues_path),
+                          'cues_digest': cue_digest(cues_path), 'renders': {}}
+            for size in sizes:
+                label = m.label(size)
+                if label in renders:
+                    r = renders[label]
+                    provenance['renders'][label] = {'path': r['path'], 'sha256': sha256(r['path']),
+                                                     'output_size': list(m.out_dims(size)),
+                                                     'master': r.get('master'),
+                                                     'master_sha256': sha256(r['master']) if r.get('master') else None,
+                                                     'result': r, 'qc': qcs[label]}
+                    if label in m.webs:
+                        web = m.webs[label]
+                        provenance['renders'][label]['web'] = {
+                            kind: web[kind] for kind in ('webm', 'poster')}
+                        provenance['renders'][label]['web'].update({
+                            kind + '_sha256': sha256(web[kind]) for kind in ('webm', 'poster')})
+            save_json(provenance_path, provenance)
         manifests = m.deliver(info, source, sound, renders, delivered, qcs, onsets, cues_path)
         code = 1 if m.findings else 0
         status = 'unwatched; ' + ('audio intentionally absent' if sound['mode'] == 'none' else
@@ -2076,7 +2304,7 @@ def main():
               'looking at the sheets in qa/.')
         for f in m.findings:
             print(f"  INSPECT {f['size']}: {f['check']}: {f['detail']}")
-        print(f'exit {code}: ' + (f'{len(m.findings)} item(s) need inspection' if code else 'every automated check passed'))
+        print(f'exit {code}: ' + (f'{len(m.findings)} item(s) need inspection' if code else 'no gate findings'))
         m.save_state()
         return finish(code, {'film': str(film), 'out': str(out), 'sound': sound['mode'], 'preview': a.preview,
                              'status': status, 'deliverables': manifests, 'findings': m.findings,

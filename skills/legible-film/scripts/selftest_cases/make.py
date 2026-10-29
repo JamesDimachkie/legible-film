@@ -383,6 +383,71 @@ def run_make_cases(tool, record, j, scripts_dir):
            '**unwatched**' in text and 'audio intentionally absent' in text and 'unheard' not in text
            and 'Nothing has been posted' in text and 'WEAKEST POINT' in text)
 
+    def video_hash(path):
+        result = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), '-map', '0:v:0', '-c:v', 'copy',
+                                 '-f', 'hash', '-hash', 'sha256', '-'], capture_output=True, text=True)
+        return result.stdout.strip() if result.returncode == 0 else None
+
+    old_hash = video_hash(deliverable)
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--sound', 'draft', '--master', 'broadcast',
+                     '--preview',
+                     '--out', j('make-out', 'silent'), '--sound-only', '--json', j('make-sound-only.json'))
+    revised = Path(j('make-out', 'silent', 'deliver', 'clean_320x180-2.mp4'))
+    manifest = load(str(revised) + '.manifest.json')
+    record('make_film: sound-only copies the encoded picture and versions the delivery',
+           code == 0 and old_hash and old_hash == video_hash(revised) and deliverable.is_file()
+           and manifest.get('sources', {}).get('picture_reused') is True, out[-300:])
+    page = clean / 'index.html'
+    original = page.read_bytes()
+    try:
+        page.write_bytes(original.replace(b"id:'swing',t:.8", b"id:'swing',t:.9"))
+        code, out = tool('make_film.py', clean, '--sizes', '320x180', '--sound', 'draft', '--preview',
+                         '--out', j('make-out', 'silent'), '--sound-only')
+        record('make_film: sound-only refuses a changed cue source',
+               code == 2 and 'picture source hash changed' in out, out[-300:])
+        state = load(j('make-out', 'silent', 'make-state.json'))
+        record('make_film: a refused sound-only run keeps the earlier render steps in make-state.json',
+               'render 320x180' in state.get('steps', {}), sorted(state.get('steps', {}))[:6])
+    finally:
+        page.write_bytes(original)
+    # Like --resume, --sound-only trusts only records written in its own output folder: a copy's records name the
+    # original's renders, so the copy refuses and the original is left as it was.
+    import shutil
+    silent_copy = Path(j('make-out', 'silent-copy'))
+    shutil.rmtree(silent_copy, ignore_errors=True)
+    shutil.copytree(j('make-out', 'silent'), silent_copy)
+    before = sorted(p.name for p in Path(j('make-out', 'silent', 'deliver')).iterdir())
+    code, out = tool('make_film.py', clean, '--sizes', '320x180', '--sound', 'draft', '--preview',
+                     '--out', silent_copy, '--sound-only')
+    after = sorted(p.name for p in Path(j('make-out', 'silent', 'deliver')).iterdir())
+    record('make_film: sound-only in a copied output folder refuses instead of reusing the original renders',
+           code == 2 and 'copied or moved folder' in out and before == after, out[-300:])
+    import importlib.util
+    spec_mf = importlib.util.spec_from_file_location('lf_make_film_cues', os.path.join(scripts_dir, 'make_film.py'))
+    mf = importlib.util.module_from_spec(spec_mf)
+    spec_mf.loader.exec_module(mf)
+    base_cues = {'fps': 30, 'exported_from': 'film_check.py at 320x180',
+                 'events': [{'id': 'a', 't': 1.0, 'sound': 'required'}]}
+    for name, data in (('cues-a.json', base_cues), ('cues-b.json', dict(base_cues, exported_from='at 180x320')),
+                       ('cues-c.json', dict(base_cues, events=[{'id': 'a', 't': 1.1, 'sound': 'required'}]))):
+        Path(j(name)).write_text(json.dumps(data), encoding='utf-8')
+    record('make_film: sound-only compares cue content, not the note of which size exported it',
+           mf.cue_digest(Path(j('cues-a.json'))) == mf.cue_digest(Path(j('cues-b.json')))
+           and mf.cue_digest(Path(j('cues-a.json'))) != mf.cue_digest(Path(j('cues-c.json'))))
+
+    pace_film = film('pace-miss', [1.5])
+    pace_page = pace_film / 'index.html'
+    pace_html = pace_page.read_text(encoding='utf-8').replace('max_still_share:.9', 'max_still_share:.001')
+    pace_html = pace_html.replace('(10+t*90)', '(10+Math.min(t,.6)*90)')
+    pace_page.write_text(pace_html, encoding='utf-8')
+    code, out = tool('make_film.py', pace_film, '--sizes', '320x180', '--sound', 'none', '--preview',
+                     '--out', j('make-out', 'pace-miss'), '--json', j('make-pace.json'))
+    pace_report = Path(j('make-out', 'pace-miss', 'deliver', 'delivery-report.md'))
+    pace_text = pace_report.read_text(encoding='utf-8') if pace_report.is_file() else ''
+    record('make_film: pace miss is a taste note and does not fail',
+           code == 0 and 'Taste checks (numbers to look and listen at' in pace_text
+           and 'pace max_still_share: measured' in pace_text, out[-300:])
+
     # 4. A draft soundtrack in two aspect ratios: audio exactly as long as the picture, labelled draft.
     code, out = tool('make_film.py', clean, '--sizes', '320x180,180x320', '--samples', 2, '--master', 'broadcast',
                      '--out', j('make-out', 'draft'), '--json', j('make-draft.json'))

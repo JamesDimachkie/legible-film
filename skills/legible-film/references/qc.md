@@ -147,3 +147,5 @@ Report what was produced and what was checked, with numbers (duration, frame cou
 and after re-encode, file size, bitrate), every check not run and why, confirmed and unresolved findings, the
 weakest remaining point, and who has watched and listened to which version under which conditions. Do not
 grade the film.
+
+Pace and cue-spacing targets are guides. Review the measured numbers in context; the reviewer's verdict decides.

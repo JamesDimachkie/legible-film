@@ -95,6 +95,10 @@ None of this yields a tempo, a cue density, a silence length, a loudness or a ra
 
 ## 6. Effects and the palette
 
+`sound_library.py pick` can trim a take to the available room, preserving its attack and minimum body and applying
+a short fade. The palette and attribution record the change and its licence. Takes recorded as no-derivatives are
+refused when trimming is needed; check the supplied licence evidence for the intended use.
+
 - Define a world before generating assets: material family, attack, tonal or noisy, apparent distance, room,
   how much variation is allowed. Give each sound family one meaning (selection, completion, error) and keep it.
 - For each cue, ask what it adds (attention, weight, character, structure, expectation, release), then compare

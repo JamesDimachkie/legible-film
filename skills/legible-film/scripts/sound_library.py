@@ -341,7 +341,7 @@ def cue_roles(spec):
         role = ev.get('role')
         if not isinstance(role, str) or not role.strip():
             raise ValueError('every non-silent cue needs a role')
-        following = next((s - t for s, e in timed[i + 1:] if s > t), 3.)
+        following = next((s - t for s, e in timed[i + 1:] if s > t and e.get('role') == role), None)
         previous = next((t - s for s, e in reversed(timed[:i]) if s < t), max(t, .1))
         roles.setdefault(role, []).append({'sync': ev.get('sync', 'attack'), 'next_s': following,
                                            'previous_s': previous, 't': t})
@@ -363,16 +363,12 @@ def candidate_score(row, role, cues):
     before = row['points_s']
     for cue in cues:
         sync = cue['sync']
-        if not row['sync_found'].get(sync):
+        if not row['sync_found'].get(sync) and sync != 'end':
             return None, sync + ' point is not detectable'
         # Allow designed overlap, but exclude files that swamp the cue spacing.
-        if d - before[sync] > max(.25, 2 * cue['next_s']):
-            return None, 'tail exceeds cue spacing'
         if sync != 'attack' and before[sync] > max(.4, 2 * cue['previous_s']):
             return None, 'lead exceeds cue spacing'
     cap = {'impact': 3., 'whoosh': 4., 'riser': 12., 'tick': .35, 'pop': .45, 'key': .35, 'glitch': 1.2}.get(family, 6.)
-    if d > cap:
-        return None, 'duration exceeds role limit'
     sharp = math.exp(-row['attack_rise_s'] / .012)
     central = max(0., 1 - abs(row['apex_fraction'] - .5) * 2)
     decay = max(0., min(1., 1 - row['tail_energy_ratio']))
@@ -393,6 +389,30 @@ def candidate_score(row, role, cues):
     for cue in cues:
         score += (central if cue['sync'] == 'apex' else rising if cue['sync'] == 'end' else sharp) / len(cues)
     return score, 'tags and measured shape'
+
+
+def trim_length(row, role, cues, maximum=None, body=.12, fade=.03):
+    """Find a safe end point; the attack and minimum body must precede the fade."""
+    family = next((x for x in ('impact', 'whoosh', 'riser', 'tick', 'pop', 'key', 'glitch')
+                   if x in set(tags(role))), None)
+    cap = {'impact': 3., 'whoosh': 4., 'riser': 12., 'tick': .35, 'pop': .45,
+           'key': .35, 'glitch': 1.2}.get(family, 6.)
+    limits = [cap]
+    if maximum is not None:
+        limits.append(maximum)
+    for cue in cues:
+        if cue['next_s'] is not None:
+            limits.append(row['points_s'][cue['sync']] + cue['next_s'])
+    length = min(row['duration_s'], *limits)
+    if length < row['duration_s']:
+        licence = str(row.get('licence', '')) + ' ' + str(row.get('licence_url', ''))
+        if re.search(r'(?i)(?:^|[^a-z])nd(?:[^a-z]|$)|no[ -]derivatives', licence):
+            raise ValueError('licence forbids derivatives (ND); cannot trim')
+        if length < row['points_s']['attack'] + row['attack_rise_s'] + body + fade:
+            raise ValueError('room too short to preserve attack and minimum body')
+        if any(c['sync'] == 'apex' and row['points_s']['apex'] >= length - fade for c in cues):
+            raise ValueError('trim would remove apex sync point')
+    return length
 
 
 def pick_palette(a):
@@ -440,6 +460,17 @@ def pick_palette(a):
                 if sha256(source) != row['sha256']:
                     raise ValueError('source hash changed since index; reindex')
                 x = io.decode(ffmpeg, source, RATE, 2)
+                length = trim_length(row, role, cues, getattr(a, 'max_duration', None),
+                                     getattr(a, 'min_body', .12), getattr(a, 'fade_ms', 30) / 1000)
+                trim = None
+                if length < row['duration_s']:
+                    samples = min(len(x), int(length * RATE))
+                    fade_samples = min(samples, round(getattr(a, 'fade_ms', 30) * RATE / 1000))
+                    x = x[:samples].copy()
+                    if fade_samples:
+                        x[-fade_samples:] *= np.linspace(1, 0, fade_samples)[:, None]
+                    trim = {'original_s': row['duration_s'], 'used_s': samples / RATE,
+                            'fade_ms': fade_samples * 1000 / RATE}
                 # Use active RMS for sub-3-second one-shots; full ST for long effects.
                 loudness = row['short_term_lufs']['max']
                 method = 'short_term_lufs_max' if loudness is not None else 'active_rms_dbfs'
@@ -468,12 +499,17 @@ def pick_palette(a):
                       'source_file': str(source), 'source_sha256': row['sha256'],
                       'source': row.get('source', ''), 'licence': row['licence'],
                       'attribution': row.get('attribution', ''), 'licence_evidence': row.get('evidence', ''),
-                      'score': score}
+                      'score': score, 'trim': trim}
             rs['takes'].append(relative); rs['sha256'].append(record['sha256'])
             rs['points_s'].append(points[rs['sync']]); rs['take_records'].append(record)
             for key in ('source', 'licence', 'attribution'):
                 rs[key].append(record[key])
             credit = record['attribution']
+            if trim:
+                credit = (f"{credit} Trimmed from {trim['original_s']:.3f} s to {trim['used_s']:.3f} s "
+                          f"with a {trim['fade_ms']:.1f} ms fade; licence: {row['licence']}.").strip()
+                record['attribution'] = credit
+                rs['attribution'][-1] = credit
             if credit and credit not in result['attributions']:
                 result['attributions'].append(credit)
             if not row.get('licensed'):
@@ -633,6 +669,9 @@ def main():
     pick.add_argument('cues'); pick.add_argument('library'); pick.add_argument('--out')
     pick.add_argument('--takes', type=positive_int, default=3); pick.add_argument('--seed', type=int, default=7)
     pick.add_argument('--allow-unlicensed', action='store_true')
+    pick.add_argument('--max-duration', type=float, help='maximum take length in seconds')
+    pick.add_argument('--min-body', type=float, default=.12, help='minimum body after the attack in seconds')
+    pick.add_argument('--fade-ms', type=float, default=30, help='trim fade in milliseconds')
     search = sub.add_parser('search', help='fetch only CC0 or CC BY Openverse effects')
     search.add_argument('query'); search.add_argument('--openverse', action='store_true')
     search.add_argument('--licence', choices=('cc0', 'by')); search.add_argument('--max', type=positive_int, default=6)
@@ -644,6 +683,10 @@ def main():
     try:
         if getattr(a, 'seed', 0) < 0:
             raise ValueError('--seed must be non-negative')
+        for value in (getattr(a, 'max_duration', None), getattr(a, 'min_body', None),
+                      getattr(a, 'fade_ms', None)):
+            if value is not None and (not math.isfinite(value) or value <= 0):
+                raise ValueError('trim limits and fade must be positive finite numbers')
         result = {'index': index_library, 'pick': pick_palette, 'search': search_openverse}[a.command](a)
         if a.json:
             io.save_json(a.json, result)

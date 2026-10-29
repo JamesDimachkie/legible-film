@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.2 (2026-10-29)
+
+Sound iterations without re-rendering the picture, taste reported as numbers, and library takes that fit their cues.
+
+- **make_film.py --sound-only** reuses the previous make's renders and picture checks when the picture source and
+  the cue list are unchanged (cue content is compared, not the note of which size exported it), muxes the new sound
+  into versioned deliverables beside the earlier ones (`_1920x1080-2.mp4`), and reruns the spec, sync and sound
+  checks on them. On the Atlasfold showcase at two sizes, a remix with a new master took 82 s against 39 minutes for
+  the full make, and both video streams came out bit-identical. Any change to the picture, the cue list, a render or
+  a lossless master is refused with the reason; a refused run keeps the earlier `make-state.json`; like `--resume`,
+  it trusts only records written in its own output folder; manifests record `picture_reused`.
+- **Taste checks:** a missed pace target and a cue a few milliseconds early or late are reported as measured numbers
+  against their targets under their own heading in the delivery report, for a person to look and listen at, and no
+  longer set the exit status. Safety and specification gates (flashing, spec, sync, a required cue missing) still
+  do.
+- **sound_library.py pick** trims a take that is longer than its cue spacing or role allows: the attack and at least
+  120 ms of body are kept, a 30 ms fade ends it, and the palette and attribution record the original and used
+  lengths. A take licensed no-derivatives, or one with too little room for its attack, is skipped with the reason.
+  `--max-duration`, `--min-body` and `--fade-ms` tune it.
+
 ## 1.2.1 (2026-10-29)
 
 The film kit's own vocabulary, loops, and web deliverables. Films written for 1.2.0 still run unchanged: the old
