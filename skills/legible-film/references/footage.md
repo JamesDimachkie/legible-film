@@ -206,7 +206,10 @@ order of `picture`.
   `captions.py check captions.srt --words current-words.json`. It names caption words no longer spoken under the
   caption (cut from the audio but left on screen) and captions over no matching speech; fix both. Music symbols,
   bracketed sound descriptions and speaker labels are left for a listener. Spelling differences such as
-  numbers written as digits can show as stale words, so read each one.
+  numbers written as digits can show as stale words, so read each one. Against a transcript (rather than a
+  listening pass), a flagged word is a candidate: on one real two-revision case, about one in four led to an edit
+  and most of the rest were transcript variants the editor kept. Styling tags, empty transcript rows and word
+  times the transcript marks as estimated are allowed for.
 - Entrances, exits, short captions and reading speed come back as review prompts with their numbers. Short captions
   are often intentional; a person listens and decides, and nothing is merged or retimed to satisfy a number.
 - Fix a caption at the change, or rebuild captions that came from a timed source; never shift an old caption file by

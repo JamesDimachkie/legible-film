@@ -197,6 +197,30 @@ def run_captions_cases(tool, record, j, scripts_dir):
     elapsed = time.perf_counter() - began
     record('captions: ten thousand captions check in under five seconds', not found and elapsed < 5,
            f'{elapsed:.2f} s')
+    # Shapes from a professional's real export (synthetic text here): Premiere SRTs carry colour tags, transcripts
+    # carry empty rows where the transcriber returned no word, and some word times are marked estimated.
+    styled = root / 'styled.srt'
+    styled.write_text(srt([(1.0, 2.0, '<font color="#ffffff">It felt easy &amp; quick.</font>'),
+                           (3.0, 3.5, '<font color="#6ec8ff">Physical?</font>')]), encoding='utf-8')
+    styled_words = save('styled-words.json', {'words': [
+        {'word': 'It', 'start': 1.0, 'end': 1.15}, {'word': '', 'start': 1.15, 'end': 1.2},
+        {'word': 'felt', 'start': 1.2, 'end': 1.45}, {'word': 'easy', 'start': 1.5, 'end': 1.7},
+        {'word': 'quick.', 'start': 1.72, 'end': 1.95},
+        {'word': 'Physical?', 'start': 2.5, 'end': 3.4, 'estimated': True}]})
+    code, output = tool('captions.py', 'check', styled, '--words', styled_words, '--json', root / 'styled-report.json')
+    report = load('styled-report.json')
+    rules = {item['rule'] for item in report['findings']}
+    record('captions: styling tags and entities are neither words nor characters',
+           code == 0 and not rules and 'line length' not in report['summary']['findings'], str(report['findings']))
+    record('captions: empty transcript rows are skipped and counted',
+           report['timing_screen'].get('empty_rows_ignored') == 1, str(report['timing_screen'].get('empty_rows_ignored')))
+    prompts = [(item.get('cue'), item['rule']) for item in report['review']]
+    record('captions: an estimated word time is not measured as a caption entrance',
+           (2, 'enters after the speech starts') not in prompts and any(
+               item['rule'] == 'entrances or exits not measured: estimated word times' and item['cues'] == [2]
+               for item in report['review']), str(report['review']))
+    record('captions: the report summarises findings and review prompts by rule',
+           report['summary']['review'].get('minimum duration') == 1, str(report['summary']))
 
     cut_words = [{'word': word, 'start': start, 'end': end, 'score': .99}
                  for word, start, end in [('Hello', 1, 1.4), ('there', 1.5, 2),
