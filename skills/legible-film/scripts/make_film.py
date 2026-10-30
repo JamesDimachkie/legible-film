@@ -120,9 +120,10 @@ QC_TOOLS = ('qc_file.py', 'flash_scan.py', 'blank_scan.py', 'motion_scan.py', 'c
 # The tool builds each step's outputs depend on, as the doctor found them: upgrading one reruns the steps that use it
 # and nothing else. Steps made per size are named '<kind> WxH'; Python-only steps (spotting, the sound kit) use none.
 BROWSER = ('Node', 'Playwright', 'Chromium')
-STEP_TOOLS = {'preflight': BROWSER, 'info': BROWSER, 'render': ('FFmpeg',) + BROWSER, 'web': ('FFmpeg',),
+STEP_TOOLS = {'preflight': BROWSER, 'info': BROWSER, 'render': ('FFmpeg', 'ffprobe') + BROWSER,
+              'web': ('FFmpeg', 'ffprobe'),
               'mux': ('FFmpeg',), 'qc': ('FFmpeg', 'ffprobe'), 'sound': ('FFmpeg',), 'sound draft-only': ('FFmpeg',),
-              'sound library index': ('FFmpeg',), 'listening pair': ('FFmpeg',), 'cue onsets': ('FFmpeg',)}
+              'sound library index': ('FFmpeg', 'ffprobe'), 'listening pair': ('FFmpeg',), 'cue onsets': ('FFmpeg',)}
 SIZED_STEPS = ('preflight', 'render', 'web', 'mux', 'qc')
 NODE_PROBE = r"""
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';

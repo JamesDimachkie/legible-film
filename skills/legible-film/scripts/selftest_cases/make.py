@@ -557,9 +557,10 @@ def run_make_cases(tool, record, j, scripts_dir):
     first = {'FFmpeg': 'ffmpeg version 9.0.2', 'ffprobe': 'ffprobe version 9.0.2', 'Node': 'v24.20.0',
              'Playwright': '1.60.0', 'Chromium': 'chromium-1200'}
     upgraded = dict(first, FFmpeg='ffmpeg version 9.1')
-    ran = [env_run(False, first), env_run(True, first), env_run(True, upgraded)]
-    record('make_film: an FFmpeg upgrade reruns the render and reuses a step that does not use FFmpeg',
-           ran == [['render 320x180', 'spotting'], [], ['render 320x180']], str(ran))
+    ran = [env_run(False, first), env_run(True, first), env_run(True, upgraded),
+           env_run(True, dict(upgraded, ffprobe='ffprobe version 9.1'))]
+    record('make_film: an FFmpeg or ffprobe upgrade reruns the render and reuses a step that uses neither',
+           ran == [['render 320x180', 'spotting'], [], ['render 320x180'], ['render 320x180']], str(ran))
     record('make_film: the doctor rows give each tool its build, Chromium by path, size and time',
            make_env.environment_versions([{'name': 'FFmpeg', 'ok': True, 'detail': 'ffmpeg version 9.0.2'},
                                           {'name': 'Node', 'ok': False, 'detail': 'missing'},

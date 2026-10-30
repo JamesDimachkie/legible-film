@@ -194,20 +194,29 @@ NTSC_BASES = (24, 30, 48, 60, 120)
 
 
 def exact_rate(value):
-    """A frame rate as an exact fraction. "30000/1001", 29.97 and 29.97002997 all give 30000/1001: a decimal within
-    0.005 of an NTSC rate (23.976 or 23.98, 29.97, 47.952, 59.94, 119.88) means that rate, never the decimal itself,
-    whose stream rate (2997/100) an editing application reads as non-standard. Other rates keep their value."""
+    """A frame rate as an exact fraction. A fraction ("30000/1001", or a Fraction) or an integer is kept as given. A
+    decimal (29.97, "29.97" or 29.97002997) within 0.005 of an NTSC rate (23.976 or 23.98, 29.97, 47.952, 59.94,
+    119.88) means that rate, never the decimal itself, whose stream rate (2997/100) an editing application reads as
+    non-standard; other decimals keep their value."""
     try:
-        rate = Fraction(value.strip()) if isinstance(value, str) else Fraction(value)
+        if isinstance(value, str):
+            text = value.strip()
+            rate = Fraction(text)
+            decimal = '/' not in text
+        else:
+            # A float's shortest repr is the decimal it was written as (29.97, not its binary approximation).
+            rate = Fraction(repr(float(value))) if isinstance(value, float) else Fraction(value)
+            decimal = isinstance(value, float)
     except (TypeError, ValueError, ZeroDivisionError, OverflowError):
         raise ValueError(f'not a frame rate: {value!r}')
     if not 0 < rate < 1000:
         raise ValueError(f'frame rate must be positive and below 1000: {value!r}')
-    for base in NTSC_BASES:
-        ntsc = Fraction(base * 1000, 1001)
-        if abs(rate - ntsc) < Fraction(5, 1000):
-            return ntsc
-    return rate.limit_denominator(1001)
+    if decimal:
+        for base in NTSC_BASES:
+            ntsc = Fraction(base * 1000, 1001)
+            if abs(rate - ntsc) < Fraction(5, 1000):
+                return ntsc
+    return rate
 
 
 class Encoder:

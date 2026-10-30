@@ -203,8 +203,9 @@ order of `picture`.
   renders them inside the safe area, from one conformed timed source.
 - After every edit, wherever it was made, check the captions against the current dialogue: a word-timed transcript
   of the delivered audio (a local tool, or a hosted one only with the person's permission), then
-  `captions.py check captions.srt --words current-words.json`. It names caption words no longer spoken nearby (cut
-  from the audio but left on screen) and captions over no matching speech; fix both. Spelling differences such as
+  `captions.py check captions.srt --words current-words.json`. It names caption words no longer spoken under the
+  caption (cut from the audio but left on screen) and captions over no matching speech; fix both. Music symbols,
+  bracketed sound descriptions and speaker labels are left for a listener. Spelling differences such as
   numbers written as digits can show as stale words, so read each one.
 - Entrances, exits, short captions and reading speed come back as review prompts with their numbers. Short captions
   are often intentional; a person listens and decides, and nothing is merged or retimed to satisfy a number.

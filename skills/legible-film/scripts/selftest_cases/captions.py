@@ -151,6 +151,52 @@ def run_captions_cases(tool, record, j, scripts_dir):
     record('captions: an intentional one-word caption exits 0 with its duration as a review prompt',
            code == 0 and not report['findings']
            and [item['rule'] for item in report['review']] == ['minimum duration'], str(report))
+    # Cases from an independent review: nearby speech never clears a caption over silence; repeated words match
+    # one to one, in order; intentional lead-ins are prompts, not a file offset; sound descriptions and speaker
+    # labels are not dialogue; overlapping speakers load; a long file stays fast.
+    import importlib.util
+    import time
+    spec = importlib.util.spec_from_file_location('lf_captions_review', Path(scripts_dir) / 'captions.py')
+    cap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cap)
+
+    def word(text, start, end):
+        return {'text': text, 'start': start, 'end': end}
+
+    def caption(start, end, text):
+        return {'start': start, 'end': end, 'text': text}
+    found, _, _ = cap.check_word_timing([caption(1, 1.3, 'right')], [word('right', 0, .3)], .1)
+    record('captions: a caption over silence is flagged though the same word is spoken nearby',
+           [item['rule'] for item in found] == ['caption over no matching speech'], str(found))
+    found, prompts, regions = cap.check_word_timing([caption(0, .4, 'right'), caption(2, 2.4, 'right')],
+                                                    [word('right', 0, .3), word('right', 2, 2.3)], .1)
+    record('captions: repeated words match one to one, in order', not found and regions == [(0, .3), (2, 2.3)],
+           str(regions))
+    speech = [word('one', 2, 2.5), word('two', 5, 5.5), word('three', 8, 8.5)]
+    found, prompts, _ = cap.check_word_timing([caption(1, 2.5, 'one'), caption(4, 5.5, 'two'),
+                                               caption(7, 8.5, 'three')], speech, .1)
+    record('captions: intentional lead-ins are entrance prompts, not a file offset',
+           not found and [item['rule'] for item in prompts] == ['enters before the speech'] * 3, str(prompts))
+    found, prompts, _ = cap.check_word_timing(
+        [caption(0, 1, '\u266a'), caption(2, 3, '[laughs]'), caption(4, 5, '[laughs] Yes'),
+         caption(6, 7, 'DR. LEE: It works.')], [word('Yes', 4.2, 4.5), word('It', 6.1, 6.2), word('works.', 6.3, 6.7)],
+        .5)
+    record('captions: music, sound descriptions and speaker labels are not dialogue',
+           not found and [(item['cue'], item['rule']) for item in prompts]
+           == [(1, 'not dialogue: check by listening'), (2, 'not dialogue: check by listening')], str(prompts))
+    overlapping = save('overlapping.json', [{'word': 'Hello', 'start': 1.0, 'end': 1.5},
+                                            {'word': 'Hi', 'start': 1.2, 'end': 1.6}])
+    both = root / 'overlapping.srt'
+    both.write_text(srt([(1.0, 1.7, 'Hello'), (1.8, 2.2, 'Hi')]), encoding='utf-8')
+    code, output = tool('captions.py', 'check', both, '--words', overlapping, '--json', root / 'overlap-report.json')
+    report = load('overlap-report.json')
+    record('captions: overlapping speakers load and match', code == 0 and not report['findings'], str(report))
+    many = [word('right', k * 1.0, k * 1.0 + .3) for k in range(10000)]
+    began = time.perf_counter()
+    found, prompts, _ = cap.check_word_timing([caption(k * 1.0, k * 1.0 + .4, 'right') for k in range(10000)], many, .1)
+    elapsed = time.perf_counter() - began
+    record('captions: ten thousand captions check in under five seconds', not found and elapsed < 5,
+           f'{elapsed:.2f} s')
 
     cut_words = [{'word': word, 'start': start, 'end': end, 'score': .99}
                  for word, start, end in [('Hello', 1, 1.4), ('there', 1.5, 2),

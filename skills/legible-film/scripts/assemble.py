@@ -472,7 +472,7 @@ def render_picture(ffmpeg, clips, images, width, height, fps, total, output):
     count = math.ceil(total * fps - 1e-9)
     try:
         for number in range(count):
-            time = number / fps
+            time = number / float(fps)
             active = [clip for clip in clips if clip['at'] <= time < clip['at'] + clip['duration']]
             if not active:
                 raise RuntimeError(f'gap in picture at {time:.6f}')
@@ -616,8 +616,9 @@ def main():
         if edit.get('version') != 1 or not edit.get('picture'):
             raise ValueError('version 1 and at least one picture item are required')
         width, height = map(int, edit['size'])
-        # A decimal NTSC rate (29.97) means 30000/1001 here and in the encoder, never 2997/100.
-        fps = float(exact_rate(edit['fps']))
+        # A decimal NTSC rate (29.97) means 30000/1001; the encoders get the exact rate, the arithmetic a float.
+        rate = exact_rate(edit['fps'])
+        fps = float(rate)
         if width <= 0 or height <= 0 or width % 2 or height % 2:
             raise ValueError('size must be positive and even')
         out = Path(args.out).resolve()
@@ -644,11 +645,11 @@ def main():
             motion_retimes(ffmpeg, clips, properties, fps, temp, limit, used)
             images, captions = prepare_overlays(edit, root, width, cues, notes)
             picture = Path(temp) / 'picture.mp4'
-            count = render_picture(ffmpeg, clips, images, width, height, fps, total, picture)
+            count = render_picture(ffmpeg, clips, images, width, height, rate, total, picture)
             if captions:
                 captioned = burn_captions(captions, root, picture, temp)
                 picture = Path(temp) / 'caption-capped.mp4'
-                cap_caption_encode(ffmpeg, captioned, picture, width, height, fps)
+                cap_caption_encode(ffmpeg, captioned, picture, width, height, rate)
                 notes.append('Caption burn was encoded again with the shared level-capped encoder; review legibility.')
             snaps.extend(render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, stage, notes))
             report = {'duration_s': total, 'frames': count, 'snaps': snaps, 'sources': properties,

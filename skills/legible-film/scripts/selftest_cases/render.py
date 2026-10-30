@@ -182,8 +182,9 @@ def run_cases(scripts, work, record):
     from fractions import Fraction
     ntsc = {29.97: Fraction(30000, 1001), '30000/1001': Fraction(30000, 1001), 23.976: Fraction(24000, 1001),
             '23.98': Fraction(24000, 1001), 59.94: Fraction(60000, 1001), 25: Fraction(25), 30: Fraction(30),
-            12.5: Fraction(25, 2)}
-    record('exact_rate: decimal NTSC rates mean the exact fraction; other rates keep their value',
+            12.5: Fraction(25, 2), Fraction(2997, 100): Fraction(2997, 100), '2997/100': Fraction(2997, 100),
+            12.34567: Fraction(1234567, 100000)}
+    record('exact_rate: decimal NTSC rates mean the exact fraction; explicit fractions and other rates are kept',
            all(c.exact_rate(value) == want for value, want in ntsc.items()),
            str({str(value): str(c.exact_rate(value)) for value in ntsc}))
     refused = []

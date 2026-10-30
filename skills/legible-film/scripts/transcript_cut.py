@@ -213,8 +213,8 @@ def frame_rate(text):
         value = Fraction(text.strip())
     except (ValueError, ZeroDivisionError):
         raise argparse.ArgumentTypeError(f'not a frame rate: {text}')
-    if value <= 0:
-        raise argparse.ArgumentTypeError('fps must be positive')
+    if not 0 < value < 1000:
+        raise argparse.ArgumentTypeError('fps must be positive and below 1000')
     if '/' in text:
         return text.strip()
     return int(value) if value.denominator == 1 else float(text)
