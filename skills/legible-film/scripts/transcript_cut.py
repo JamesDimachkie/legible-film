@@ -14,6 +14,7 @@ snap does not enter a word. Exit 0 clean, 1 findings, 2 unable to run.
 """
 import argparse
 import bisect
+from fractions import Fraction
 import json
 import math
 import os
@@ -206,6 +207,19 @@ def make_edit(words, selected, args, duration, silences, shots):
     return edit, joins, findings, cursor
 
 
+def frame_rate(text):
+    """Keep a frame rate as written (30, 29.97 or 30000/1001) for edit.json; assemble.py reads it exactly."""
+    try:
+        value = Fraction(text.strip())
+    except (ValueError, ZeroDivisionError):
+        raise argparse.ArgumentTypeError(f'not a frame rate: {text}')
+    if not 0 < value < 1000:
+        raise argparse.ArgumentTypeError('fps must be positive and below 1000')
+    if '/' in text:
+        return text.strip()
+    return int(value) if value.denominator == 1 else float(text)
+
+
 def main():
     """Parse inputs, remove a stale output, and write a bounded edit and report."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -218,7 +232,7 @@ def main():
     parser.add_argument('--handle', type=float, default=.15, help='desired seconds outside selected speech')
     parser.add_argument('--target', type=float, help='target duration in seconds')
     parser.add_argument('--size', default='1920x1080')
-    parser.add_argument('--fps', type=float, default=30)
+    parser.add_argument('--fps', type=frame_rate, default=30, help='30, 29.97 or 30000/1001')
     parser.add_argument('--silence-db', type=float, default=-35)
     parser.add_argument('--silence-duration', type=float, default=.02)
     parser.add_argument('--json', help='write report here')
@@ -232,9 +246,9 @@ def main():
             raise ValueError('output must differ from input and report paths')
         if output.exists():
             output.unlink()
-        if (not math.isfinite(args.handle) or args.handle < 0 or not math.isfinite(args.fps) or args.fps <= 0
+        if (not math.isfinite(args.handle) or args.handle < 0
                 or not math.isfinite(args.silence_duration) or args.silence_duration <= 0):
-            raise ValueError('handle must be nonnegative; fps and silence duration must be positive')
+            raise ValueError('handle must be nonnegative; silence duration must be positive')
         args.output_size = [int(value) for value in args.size.lower().split('x')]
         if len(args.output_size) != 2 or min(args.output_size) <= 0:
             raise ValueError('size must be WIDTHxHEIGHT')

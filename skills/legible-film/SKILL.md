@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: "Scripts need Python 3.9+ and FFmpeg/ffprobe on PATH; most also need numpy, and the sheet tools need Pillow. The film kit's checks and renders also need Node 18+ with Playwright and a Chromium. No accounts or paid services required."
 metadata:
   author: "James Dimachkie"
-  version: "1.2.3"
+  version: "1.2.4"
 ---
 
 # Legible Film
@@ -312,7 +312,7 @@ after an update or with `--force`), and `python scripts/kit_selftest.py` before 
 | `transcript_cut.py` | Turn selects from a word-timed transcript into edit items, with cuts proposed in the gaps between words; which joins lack measured silence, and which are same-shot jump cuts? |
 | `assemble.py` | Render an `edit.json` frame-accurately: cuts, J and L cuts, dissolves, retimes, crop paths, overlays, colour conversion; stems, cue list and declarations. |
 | `reframe.py` | Propose or check a crop path that keeps the subject in a tall or square frame; flag frames where it leaves. |
-| `captions.py` | Build SRT and WebVTT under reading rules, check a caption file (or a burned-in one) against them, and burn captions clear of faces and platform overlays. |
+| `captions.py` | Build SRT and WebVTT under reading rules; check a caption file against them and against the current dialogue (words no longer spoken, captions over no speech; timing and reading speed as review prompts), or a burned-in one; burn captions clear of faces and platform overlays. |
 | **Sound** | |
 | `tempo_map.py` | What are a track's tempo, phase, downbeats and drops, how steady is it, and what offset lands its drop on a chosen beat? |
 | `make_sound_kit.py` | Synthesise a rights-clean draft palette and temp track with exactly known sync points. |

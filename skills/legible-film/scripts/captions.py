@@ -12,12 +12,24 @@ reviewed against speech. The burned screen estimates text edges and contrast fro
 can confound it and results need inspection. The timing screen uses word timings
 when supplied or a
 band-limited audio envelope otherwise. Neither identifies speech or proves alignment.
+
+Check sorts what it finds into two lists. Findings are errors: invalid or overlapping
+times, too many or too long lines, and, given --words (a word-timed transcript of the
+current audio), caption words no longer spoken under the caption (cut from the dialogue but left
+on screen), a caption over no matching speech, and a whole file offset from the
+dialogue. Review prompts are measurements for a person to judge, never reasons to merge
+or retime automatically: reading speed, duration, single-word lines, gaps under the
+limit, words spoken but not captioned, and when a caption enters and leaves against the
+speech, in seconds. Short captions are often intentional.
+
 The default limits are 20 characters/s, 42 characters/line, two lines, 0.8-7 s,
 and 0.04 s between events. Use --cps 17 for children's captions. Exit 0 when
-no findings, 1 for rule or timing findings, 2 when unable to run.
+there are no findings (review prompts may be listed), 1 for findings, 2 when unable
+to run.
 """
 import argparse
 import bisect
+import difflib
 import json
 import math
 import os
@@ -112,13 +124,14 @@ def read_input(path):
     return cues
 
 
-def split_timed_lines(items, gap=0):
-    """Estimate word boundaries within timed lines and preserve actual word timings."""
+def split_timed_lines(items, gap=0, overlap=False):
+    """Estimate word boundaries within timed lines and preserve actual word timings. With `overlap`, words of
+    different speakers may overlap in time; they are returned in time order."""
     result = []
     estimated = False
     for item in items:
         if item.get('words'):
-            nested, was_estimated = split_timed_lines(item['words'], gap)
+            nested, was_estimated = split_timed_lines(item['words'], gap, overlap)
             result.extend(nested)
             estimated = estimated or was_estimated
             continue
@@ -141,11 +154,13 @@ def split_timed_lines(items, gap=0):
             if part_index < len(parts) - 1:
                 right -= min(gap + .002, (right - left) / 4)
             result.append({'text': part, 'start': left, 'end': right, 'estimated': True})
+    if overlap:
+        result.sort(key=lambda word: (word['start'], word['end']))
     for index, word in enumerate(result):
         start, end = word['start'], word['end']
         if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
             raise ValueError('invalid word timing')
-        if index and start < result[index - 1]['end'] - 1e-8:
+        if index and not overlap and start < result[index - 1]['end'] - 1e-8:
             raise ValueError('word timings overlap or are unordered')
     return result, estimated
 
@@ -299,8 +314,9 @@ class SegmentationError(Exception):
 
 
 def validate(cues, args):
-    """List caption timing, reading, line and gap rule breaks."""
+    """Caption rule breaks as findings (errors) and review prompts (measurements a person judges)."""
     findings = []
+    review = []
     for index, cue in enumerate(cues):
         start, end = float(cue['start']), float(cue['end'])
         text = cue['text']
@@ -310,19 +326,24 @@ def validate(cues, args):
         duration = end - start
         lines = text.split('\n')
         chars = len(' '.join(lines))
-        tests = [('minimum duration', duration < args.min_duration - 1e-6),
-                 ('maximum duration', duration > args.max_duration + 1e-6),
-                 ('cps', chars / duration > args.cps + 1e-6),
-                 ('lines', len(lines) > 2),
-                 ('line length', any(len(line) > args.line_length for line in lines)),
-                 ('orphan', len(lines) > 1 and any(len(line.split()) < 2 for line in lines))]
-        for rule, failed in tests:
+        errors = [('lines', len(lines) > 2), ('line length', any(len(line) > args.line_length for line in lines))]
+        for rule, failed in errors:
             if failed:
                 findings.append({'cue': index + 1, 'rule': rule})
-        if index and start - float(cues[index - 1]['end']) < args.gap - 1e-6:
-            findings.append({'cue': index + 1, 'rule': 'gap/overlap',
-                             'gap_s': start - float(cues[index - 1]['end'])})
-    return findings
+        prompts = [('minimum duration', duration < args.min_duration - 1e-6, {'duration_s': round(duration, 3)}),
+                   ('maximum duration', duration > args.max_duration + 1e-6, {'duration_s': round(duration, 3)}),
+                   ('cps', chars / duration > args.cps + 1e-6, {'cps': round(chars / duration, 1)}),
+                   ('orphan', len(lines) > 1 and any(len(line.split()) < 2 for line in lines), {})]
+        for rule, flagged, measured in prompts:
+            if flagged:
+                review.append({'cue': index + 1, 'rule': rule, 'text': text, **measured})
+        if index:
+            gap = start - float(cues[index - 1]['end'])
+            if gap < -1e-6:
+                findings.append({'cue': index + 1, 'rule': 'overlap', 'gap_s': round(gap, 4)})
+            elif gap < args.gap - 1e-6:
+                review.append({'cue': index + 1, 'rule': 'gap', 'gap_s': round(gap, 4)})
+    return findings, review
 
 
 def write_sidecars(cues, prefix):
@@ -366,8 +387,10 @@ def audio_regions(ffmpeg, path):
 
 
 def timing_screen(cues, regions, margin):
-    """Compare cues to overlapping or nearest candidate regions, not recognised speech."""
+    """Compare cues to overlapping candidate regions, not recognised speech: a caption over no activity is a
+    finding; its entrance and exit against the activity are review prompts."""
     findings = []
+    review = []
     matched = []
     for index, cue in enumerate(cues):
         start, end = float(cue['start']), float(cue['end'])
@@ -380,55 +403,148 @@ def timing_screen(cues, regions, margin):
         last = max(region[1] for region in overlaps)
         matched.append([first, last])
         if first - start > margin + 1e-8:
-            findings.append({'cue': index + 1, 'rule': 'starts before timing region',
-                             'difference_s': round(first - start, 4)})
+            review.append({'cue': index + 1, 'rule': 'starts before timing region',
+                           'difference_s': round(first - start, 4)})
         if end - last > margin + 1e-8:
-            findings.append({'cue': index + 1, 'rule': 'outlasts timing region',
-                             'difference_s': round(end - last, 4)})
-    return findings, matched
+            review.append({'cue': index + 1, 'rule': 'outlasts timing region',
+                           'difference_s': round(end - last, 4)})
+    return findings, review, matched
 
 
-def word_regions(cues, words):
-    """Match each cue's complete token sequence to the next transcript occurrence."""
-    def normalise(text):
-        return re.findall(r'[^\W_]+', text.casefold(), re.UNICODE)
+NON_DIALOGUE = re.compile(r'\[[^\]]*\]|\([^)]*\)|[\u266a\u266b]+')
+SPEAKER_LABEL = re.compile(r"^\s*(?:-\s*)?[A-Z][A-Z0-9 .'-]{0,30}:(?=\s)", re.MULTILINE)
+
+
+def tokens_of(text):
+    """Comparable word tokens: case-folded letters and digits."""
+    return re.findall(r'[^\W_]+', text.casefold(), re.UNICODE)
+
+
+def dialogue_tokens(text):
+    """The spoken words of a caption or transcript word: sound descriptions in brackets or parentheses, music symbols
+    and speaker labels (NAME:) removed."""
+    return tokens_of(SPEAKER_LABEL.sub(' ', NON_DIALOGUE.sub(' ', text)))
+
+
+def middle(values):
+    """The median of a non-empty list."""
+    ordered = sorted(values)
+    return ordered[len(ordered) // 2]
+
+
+def ordered_offsets(cues, words, lookahead=2000):
+    """Start and end offsets (speech minus caption) of the captions found in order as complete word sequences, each
+    searched at most `lookahead` tokens past the previous match."""
     tokens = []
     owners = []
     for index, word in enumerate(words):
-        pieces = normalise(word['text'])
-        tokens.extend(pieces)
-        owners.extend([index] * len(pieces))
+        for token in dialogue_tokens(word['text']):
+            tokens.append(token)
+            owners.append(index)
+    positions = {}
+    for position, token in enumerate(tokens):
+        positions.setdefault(token, []).append(position)
     cursor = 0
-    regions = []
+    starts = []
+    ends = []
     for cue in cues:
-        target = normalise(cue['text'])
-        match = next((i for i in range(cursor, len(tokens)) if target and tokens[i:i + len(target)] == target), None)
-        if match is None:
+        target = dialogue_tokens(cue['text'])
+        if not target:
+            continue
+        candidates = positions.get(target[0], [])
+        k = bisect.bisect_left(candidates, cursor)
+        while k < len(candidates) and candidates[k] < cursor + lookahead:
+            found = candidates[k]
+            if tokens[found:found + len(target)] == target:
+                starts.append(words[owners[found]]['start'] - float(cue['start']))
+                ends.append(words[owners[found + len(target) - 1]]['end'] - float(cue['end']))
+                cursor = found + len(target)
+                break
+            k += 1
+    return starts, ends
+
+
+def entrance_and_exit(number, cue, region, margin):
+    """Review prompts for a caption entering or leaving more than the margin away from its matched speech."""
+    first, last = region
+    start, end = float(cue['start']), float(cue['end'])
+    review = []
+    for rule, seconds in (('enters before the speech', first - start), ('enters after the speech starts', start - first),
+                          ('leaves before the speech ends', last - end), ('outlasts the speech', end - last)):
+        if seconds > margin + 1e-8:
+            review.append({'cue': number, 'rule': rule, 'difference_s': round(seconds, 4)})
+    return review
+
+
+def check_word_timing(cues, words, margin, reach=.5):
+    """Compare each caption with the words spoken under it in a word-timed transcript of the current audio.
+
+    Each caption is matched, in order and one word to one caption, against the words overlapping it (or within
+    `reach` seconds of it). A caption word not spoken there is stale (cut from the dialogue, left on screen); a
+    caption matching nothing there is false or misplaced, even when the same words are spoken further away. A whole
+    file offset (starts and ends of the captions found in order shifted together, by over 0.5 s) is reported once and
+    allowed for when matching. Sound descriptions ([laughs], music symbols) are left for review. Entrances, exits and
+    words spoken but not captioned are review prompts, measured against the actual speech."""
+    words = sorted(words, key=lambda word: (word['start'], word['end']))
+    starts = [word['start'] for word in words]
+    longest = max((word['end'] - word['start'] for word in words), default=0.0)
+
+    def around(start, end):
+        """Indexes of the words overlapping start..end, by bisection on the sorted starts."""
+        low = bisect.bisect_left(starts, start - longest)
+        high = bisect.bisect_left(starts, end)
+        return [index for index in range(low, high) if words[index]['end'] > start]
+
+    findings = []
+    review = []
+    shift = 0.0
+    head, tail = ordered_offsets(cues, words)
+    if len(head) >= 3:
+        early, late = middle(head), middle(tail)
+        if abs(early) > .5 and abs(late) > .5 and early * late > 0 and abs(early - late) <= .25:
+            shift = early
+            # Positive: the captions run late against the speech.
+            findings.append({'rule': 'captions offset from the dialogue', 'offset_s': round(-shift, 3)})
+    regions = []
+    used = set()
+    for number, cue in enumerate(cues, 1):
+        start, end = float(cue['start']) + shift, float(cue['end']) + shift
+        wanted = dialogue_tokens(cue['text'])
+        if not wanted:
+            review.append({'cue': number, 'rule': 'not dialogue: check by listening', 'caption': cue['text']})
             regions.append(None)
             continue
-        first = owners[match]
-        last = owners[match + len(target) - 1]
-        regions.append((words[first]['start'], words[last]['end']))
-        cursor = match + len(target)
-    return regions
-
-
-def check_word_timing(cues, words, margin):
-    """Compare matched caption text with its word-timed interval."""
-    regions = word_regions(cues, words)
-    findings = []
-    for index, (cue, region) in enumerate(zip(cues, regions)):
-        if region is None:
-            findings.append({'cue': index + 1, 'rule': 'caption text not found in word timings'})
+        near = [(token, index) for index in around(start - reach, end + reach) if index not in used
+                for token in dialogue_tokens(words[index]['text'])]
+        matcher = difflib.SequenceMatcher(None, wanted, [token for token, _ in near], autojunk=False)
+        hit = set()
+        matched = []
+        for block in matcher.get_matching_blocks():
+            hit.update(range(block.a, block.a + block.size))
+            matched.extend(near[block.b + k][1] for k in range(block.size))
+        if not hit:
+            spoken = [words[index]['text'] for index in around(start, end)]
+            rule = 'caption does not match the dialogue' if spoken else 'caption over no matching speech'
+            findings.append({'cue': number, 'rule': rule, 'caption': cue['text'],
+                             **({'spoken': ' '.join(spoken)} if spoken else {})})
+            regions.append(None)
             continue
-        start, end = region
-        if start - cue['start'] > margin:
-            findings.append({'cue': index + 1, 'rule': 'starts before timing region',
-                             'difference_s': round(start - cue['start'], 4)})
-        if cue['end'] - end > margin:
-            findings.append({'cue': index + 1, 'rule': 'outlasts timing region',
-                             'difference_s': round(cue['end'] - end, 4)})
-    return findings, regions
+        stale = [wanted[k] for k in range(len(wanted)) if k not in hit]
+        if stale:
+            findings.append({'cue': number, 'rule': 'caption words not in the dialogue', 'words': stale,
+                             'caption': cue['text']})
+        used.update(matched)
+        region = (min(words[index]['start'] for index in matched), max(words[index]['end'] for index in matched))
+        regions.append(region)
+        review.extend(entrance_and_exit(number, cue, region, margin))
+    for number, cue in enumerate(cues, 1):
+        start, end = float(cue['start']) + shift, float(cue['end']) + shift
+        missing = [words[index]['text'] for index in around(start, end) if index not in used
+                   and words[index]['start'] >= start and words[index]['end'] <= end
+                   and dialogue_tokens(words[index]['text'])]
+        if missing:
+            review.append({'cue': number, 'rule': 'spoken but not captioned', 'words': missing})
+    return findings, review, regions
 
 
 def probe_video(ffprobe, path):
@@ -720,10 +836,10 @@ def run_build(args):
     except SegmentationError as error:
         return {'findings': [{'rule': error.rule, 'text': error.text}], 'cues': 0,
                 'word_timings_estimated': estimated}
-    findings = validate(cues, args)
+    findings, review = validate(cues, args)
     if not findings:
         write_sidecars(cues, args.out)
-    return {'findings': findings, 'cues': len(cues), 'word_timings_estimated': estimated,
+    return {'findings': findings, 'review': review, 'cues': len(cues), 'word_timings_estimated': estimated,
             'note': 'Estimated timings require review against speech.' if estimated else None}
 
 
@@ -838,21 +954,23 @@ def check_burned(cues, args):
 def run_check(args):
     """Check rule breaks and a selected timing-screen basis."""
     cues = read_input(args.input)
-    findings = validate(cues, args)
-    report = {'findings': findings, 'cues': len(cues), 'timing_screen': {'basis': 'not requested'}}
+    findings, review = validate(cues, args)
+    report = {'findings': findings, 'review': review, 'cues': len(cues), 'timing_screen': {'basis': 'not requested'}}
     if args.words:
-        words, estimated = split_timed_lines(read_input(args.words))
-        timing_findings, regions = check_word_timing(cues, words, args.margin)
+        words, estimated = split_timed_lines(read_input(args.words), overlap=True)
+        timing_findings, timing_review, regions = check_word_timing(cues, words, args.margin)
         report['timing_screen'] = {'basis': 'word timings', 'margin_s': args.margin, 'regions': regions,
                                    'estimated_word_times': estimated}
         findings.extend(timing_findings)
+        review.extend(timing_review)
     elif args.audio:
         ffmpeg = find_tool('ffmpeg', args.ffmpeg)
         if not ffmpeg:
             raise ValueError('ffmpeg not found')
         regions, measurement = audio_regions(ffmpeg, args.audio)
-        timing_findings, matched = timing_screen(cues, regions, args.margin)
+        timing_findings, timing_review, matched = timing_screen(cues, regions, args.margin)
         findings.extend(timing_findings)
+        review.extend(timing_review)
         report['timing_screen'] = {'basis': 'speech-band envelope', 'margin_s': args.margin,
                                    'matched_regions': matched, 'measurement': measurement,
                                    'note': 'Activity is not recognised speech; inspect findings and audio.'}

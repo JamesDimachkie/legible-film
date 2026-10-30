@@ -26,26 +26,28 @@ def run_captions_cases(tool, record, j, scripts_dir):
             raise RuntimeError(result.stderr.decode(errors='replace')[-600:])
         return result.stdout
 
-    def report_check(name, text, expected):
+    def report_check(name, text, expected, kind):
         path = root / (name + '.srt')
         path.write_text(text, encoding='utf-8')
         report = root / (name + '-report.json')
         code, output = tool('captions.py', 'check', path, '--json', report)
-        rules = [item['rule'] for item in load(name + '-report.json')['findings']]
-        record('captions: detects ' + name, code == 1 and expected in rules, str(rules))
+        rules = [item['rule'] for item in load(name + '-report.json')[kind]]
+        # Findings are errors (exit 1); reading speed, duration and layout style are review prompts (exit 0).
+        record(f'captions: reports {name} as {kind}', code == (1 if kind == 'findings' else 0)
+               and expected in rules, str(rules))
 
     cases = [
-        ('cps', '1\n00:00:00,000 --> 00:00:01,000\nA rather long caption indeed\n', 'cps'),
-        ('line length', '1\n00:00:00,000 --> 00:00:05,000\n' + 'x' * 43 + '\n', 'line length'),
-        ('two lines', '1\n00:00:00,000 --> 00:00:03,000\none two\nthree four\nfive six\n', 'lines'),
-        ('minimum duration', '1\n00:00:00,000 --> 00:00:00,500\nHi\n', 'minimum duration'),
-        ('maximum duration', '1\n00:00:00,000 --> 00:00:08,000\nTwo words\n', 'maximum duration'),
+        ('cps', '1\n00:00:00,000 --> 00:00:01,000\nA rather long caption indeed\n', 'cps', 'review'),
+        ('line length', '1\n00:00:00,000 --> 00:00:05,000\n' + 'x' * 43 + '\n', 'line length', 'findings'),
+        ('two lines', '1\n00:00:00,000 --> 00:00:03,000\none two\nthree four\nfive six\n', 'lines', 'findings'),
+        ('minimum duration', '1\n00:00:00,000 --> 00:00:00,500\nHi\n', 'minimum duration', 'review'),
+        ('maximum duration', '1\n00:00:00,000 --> 00:00:08,000\nTwo words\n', 'maximum duration', 'review'),
         ('gap', '1\n00:00:00,000 --> 00:00:01,000\nFirst words\n\n'
-                '2\n00:00:00,900 --> 00:00:02,000\nNext words\n', 'gap/overlap'),
-        ('orphan', '1\n00:00:00,000 --> 00:00:03,000\nOne\ntwo words\n', 'orphan'),
+                '2\n00:00:00,900 --> 00:00:02,000\nNext words\n', 'overlap', 'findings'),
+        ('orphan', '1\n00:00:00,000 --> 00:00:03,000\nOne\ntwo words\n', 'orphan', 'review'),
     ]
-    for name, text, expected in cases:
-        report_check(name, text, expected)
+    for name, text, expected, kind in cases:
+        report_check(name, text, expected, kind)
 
     sentence = ('Ada Lovelace Institute studies 4.5 GB and 120 fps, while the plan costs '
                 '$1,200 a month and the new system supports careful research.')
@@ -90,8 +92,8 @@ def run_captions_cases(tool, record, j, scripts_dir):
     code, output = tool('captions.py', 'check', captions, '--audio', audio, '--margin', '.25',
                         '--json', root / 'audio-report.json')
     report = load('audio-report.json')
-    rules = {finding['rule'] for finding in report['findings']}
-    record('captions: noisy speech-band timing screen flags early and late', code == 1
+    rules = {finding['rule'] for finding in report['review']}
+    record('captions: noisy speech-band timing screen prompts review of early and late', code == 0
            and {'starts before timing region', 'outlasts timing region'} <= rules
            and report['timing_screen']['basis'] == 'speech-band envelope', str(report['timing_screen']))
     timings = save('timings.json', [{'word': 'Hello', 'start': 1, 'end': 1.4},
@@ -99,9 +101,102 @@ def run_captions_cases(tool, record, j, scripts_dir):
     code, output = tool('captions.py', 'check', captions, '--audio', audio, '--words', timings,
                         '--json', root / 'word-report.json')
     report = load('word-report.json')
-    record('captions: word timings take precedence over audio', code == 1
-           and report['timing_screen']['basis'] == 'word timings'
-           and len(report['findings']) == 2, str(report['findings']))
+    record('captions: word timings take precedence over audio', code == 0
+           and report['timing_screen']['basis'] == 'word timings' and not report['findings']
+           and {item['rule'] for item in report['review']} == {'enters before the speech', 'outlasts the speech'},
+           str(report['review']))
+    # Captions against the current dialogue (a word-timed transcript of the delivered audio). Shapes from a
+    # professional's revisions: words cut from the audio but left in a caption, a caption over no speech, an
+    # intentional one-word caption, and a caption entering late.
+    spoken = save('dialogue.json', [
+        {'word': 'It', 'start': 1.0, 'end': 1.15}, {'word': 'felt', 'start': 1.2, 'end': 1.45},
+        {'word': 'easy.', 'start': 1.5, 'end': 1.9}, {'word': 'Physical?', 'start': 3.0, 'end': 3.5},
+        {'word': 'Then', 'start': 6.0, 'end': 6.2}, {'word': 'we', 'start': 6.25, 'end': 6.35},
+        {'word': 'moved', 'start': 6.4, 'end': 6.7}, {'word': 'on', 'start': 6.75, 'end': 6.95},
+        {'word': 'right', 'start': 7.0, 'end': 7.3}, {'word': 'away.', 'start': 7.35, 'end': 7.8}])
+
+    def srt(rows):
+        """An SRT from (start, end, text) rows in seconds."""
+        stamp = lambda s: '00:00:%02d,%03d' % (int(s), round((s - int(s)) * 1000))  # noqa: E731
+        return ''.join('%d\n%s --> %s\n%s\n\n' % (n, stamp(a), stamp(b), text)
+                       for n, (a, b, text) in enumerate(rows, 1))
+
+    revised = root / 'revised.srt'
+    revised.write_text(srt([(1.0, 2.4, 'It felt like nothing, easy.'), (3.0, 3.5, 'Physical?'), (4.5, 5.3, 'Oh.'),
+                            (6.4, 8.0, 'Then we moved on right away.')]), encoding='utf-8')
+    code, output = tool('captions.py', 'check', revised, '--words', spoken, '--json', root / 'revised-report.json')
+    report = load('revised-report.json')
+    found = {(item.get('cue'), item['rule']): item for item in report['findings']}
+    prompts = {(item.get('cue'), item['rule']) for item in report['review']}
+    record('captions: names the words cut from the dialogue but left in a caption',
+           found.get((1, 'caption words not in the dialogue'), {}).get('words') == ['like', 'nothing'],
+           str(report['findings']))
+    record('captions: flags a caption over no matching speech', (3, 'caption over no matching speech') in found
+           and code == 1, str(report['findings']))
+    record('captions: a short caption and a late entrance are review prompts, not findings',
+           {(2, 'minimum duration'), (4, 'enters after the speech starts')} <= prompts
+           and not any(cue in (2, 4) for cue, _ in found), str(report['review']))
+    late = root / 'late.srt'
+    late.write_text(srt([(2.0, 2.9, 'It felt easy.'), (4.0, 4.5, 'Physical?'), (7.0, 8.0, 'Then we moved on'),
+                         (8.0, 8.8, 'right away.')]), encoding='utf-8')
+    code, output = tool('captions.py', 'check', late, '--words', spoken, '--json', root / 'late-report.json')
+    report = load('late-report.json')
+    record('captions: a whole file one second late is one offset finding, the words still matched',
+           code == 1 and [item['rule'] for item in report['findings']] == ['captions offset from the dialogue']
+           and report['findings'][0]['offset_s'] == 1.0, str(report['findings']))
+    short = root / 'short-only.srt'
+    short.write_text(srt([(3.0, 3.5, 'Physical?')]), encoding='utf-8')
+    code, output = tool('captions.py', 'check', short, '--words', spoken, '--json', root / 'short-report.json')
+    report = load('short-report.json')
+    record('captions: an intentional one-word caption exits 0 with its duration as a review prompt',
+           code == 0 and not report['findings']
+           and [item['rule'] for item in report['review']] == ['minimum duration'], str(report))
+    # Cases from an independent review: nearby speech never clears a caption over silence; repeated words match
+    # one to one, in order; intentional lead-ins are prompts, not a file offset; sound descriptions and speaker
+    # labels are not dialogue; overlapping speakers load; a long file stays fast.
+    import importlib.util
+    import time
+    spec = importlib.util.spec_from_file_location('lf_captions_review', Path(scripts_dir) / 'captions.py')
+    cap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cap)
+
+    def word(text, start, end):
+        return {'text': text, 'start': start, 'end': end}
+
+    def caption(start, end, text):
+        return {'start': start, 'end': end, 'text': text}
+    found, _, _ = cap.check_word_timing([caption(1, 1.3, 'right')], [word('right', 0, .3)], .1)
+    record('captions: a caption over silence is flagged though the same word is spoken nearby',
+           [item['rule'] for item in found] == ['caption over no matching speech'], str(found))
+    found, prompts, regions = cap.check_word_timing([caption(0, .4, 'right'), caption(2, 2.4, 'right')],
+                                                    [word('right', 0, .3), word('right', 2, 2.3)], .1)
+    record('captions: repeated words match one to one, in order', not found and regions == [(0, .3), (2, 2.3)],
+           str(regions))
+    speech = [word('one', 2, 2.5), word('two', 5, 5.5), word('three', 8, 8.5)]
+    found, prompts, _ = cap.check_word_timing([caption(1, 2.5, 'one'), caption(4, 5.5, 'two'),
+                                               caption(7, 8.5, 'three')], speech, .1)
+    record('captions: intentional lead-ins are entrance prompts, not a file offset',
+           not found and [item['rule'] for item in prompts] == ['enters before the speech'] * 3, str(prompts))
+    found, prompts, _ = cap.check_word_timing(
+        [caption(0, 1, '\u266a'), caption(2, 3, '[laughs]'), caption(4, 5, '[laughs] Yes'),
+         caption(6, 7, 'DR. LEE: It works.')], [word('Yes', 4.2, 4.5), word('It', 6.1, 6.2), word('works.', 6.3, 6.7)],
+        .5)
+    record('captions: music, sound descriptions and speaker labels are not dialogue',
+           not found and [(item['cue'], item['rule']) for item in prompts]
+           == [(1, 'not dialogue: check by listening'), (2, 'not dialogue: check by listening')], str(prompts))
+    overlapping = save('overlapping.json', [{'word': 'Hello', 'start': 1.0, 'end': 1.5},
+                                            {'word': 'Hi', 'start': 1.2, 'end': 1.6}])
+    both = root / 'overlapping.srt'
+    both.write_text(srt([(1.0, 1.7, 'Hello'), (1.8, 2.2, 'Hi')]), encoding='utf-8')
+    code, output = tool('captions.py', 'check', both, '--words', overlapping, '--json', root / 'overlap-report.json')
+    report = load('overlap-report.json')
+    record('captions: overlapping speakers load and match', code == 0 and not report['findings'], str(report))
+    many = [word('right', k * 1.0, k * 1.0 + .3) for k in range(10000)]
+    began = time.perf_counter()
+    found, prompts, _ = cap.check_word_timing([caption(k * 1.0, k * 1.0 + .4, 'right') for k in range(10000)], many, .1)
+    elapsed = time.perf_counter() - began
+    record('captions: ten thousand captions check in under five seconds', not found and elapsed < 5,
+           f'{elapsed:.2f} s')
 
     cut_words = [{'word': word, 'start': start, 'end': end, 'score': .99}
                  for word, start, end in [('Hello', 1, 1.4), ('there', 1.5, 2),

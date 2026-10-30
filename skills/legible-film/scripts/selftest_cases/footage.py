@@ -134,6 +134,21 @@ def run_footage_cases(tool, record, j, scripts_dir):
                f'{len(slow_frames)} frames; {frequency:.2f} Hz')
     else:
         record('footage: half-speed duration and pitch', False, output[-200:])
+    # A decimal NTSC rate means the exact one: an editing application reads 2997/100 as a non-standard rate.
+    rates = []
+    for name, value in (('footage-ntsc-decimal', 29.97), ('footage-ntsc-fraction', '30000/1001')):
+        code, output, ntsc_dir = assemble(tool, j, name, dict(base, fps=value,
+                                                               picture=[{'src': 'a', 'in': .5, 'out': 1.5}]))
+        probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+                                'stream=r_frame_rate', '-of', 'json', str(ntsc_dir / 'picture.mp4')],
+                               capture_output=True, text=True)
+        stream = (json.loads(probe.stdout or '{}').get('streams') or [{}])[0]
+        cues = ntsc_dir / 'edit-cues.json'
+        cue_fps = json.loads(cues.read_text(encoding='utf-8')).get('fps') if cues.exists() else None
+        rates.append((code, stream.get('r_frame_rate'), cue_fps))
+    record('footage: 29.97 and 30000/1001 both render at exactly 30000/1001, with a numeric cue-list rate',
+           all(code in (0, 1) and rate == '30000/1001' and isinstance(cue, float)
+               and abs(cue - 30000 / 1001) < 1e-9 for code, rate, cue in rates), str(rates))
     motion = dict(base, picture=[{'src': 'a', 'in': .2, 'out': 1.2, 'speed': .5, 'retime': 'motion'}])
     code, output, motion_dir = assemble(tool, j, 'footage-motion', motion)
     if code in (0, 1):

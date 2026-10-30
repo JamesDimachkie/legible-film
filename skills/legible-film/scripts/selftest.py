@@ -228,6 +228,11 @@ def report_summary(passed, failed, skips, json_path=None, work=None, cached=Fals
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        # A case's detail can hold any character (a caption's music symbol); a Windows console or a redirect in the
+        # legacy code page must print it escaped, not end the run.
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='backslashreplace')
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--keep', help='keep generated files in this folder')
     ap.add_argument('--json', help='write counts and skip reasons as JSON')

@@ -1,7 +1,7 @@
 {
   "name": "legible-film",
   "displayName": "Legible Film",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Plan, build, score, render, revise and quality-check short videos with a coding agent: one story on one clock, every claim sourced, and the delivered file checked before it ships.",
   "author": {
     "name": "James Dimachkie",

@@ -29,7 +29,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from motion_scan import Frames
-from render_common import Encoder, find_tool
+from render_common import Encoder, exact_rate, find_tool
 from reframe import bounds, position, probe, analyse, propose, validate_path
 
 CAPTIONS = Path(__file__).with_name('captions.py')
@@ -472,7 +472,7 @@ def render_picture(ffmpeg, clips, images, width, height, fps, total, output):
     count = math.ceil(total * fps - 1e-9)
     try:
         for number in range(count):
-            time = number / fps
+            time = number / float(fps)
             active = [clip for clip in clips if clip['at'] <= time < clip['at'] + clip['duration']]
             if not active:
                 raise RuntimeError(f'gap in picture at {time:.6f}')
@@ -555,7 +555,8 @@ def cap_caption_encode(ffmpeg, source, destination, width, height, fps):
 
 def export(edit, out, report_path, temp, stage, picture, cues, cuts, dissolves, report):
     """Write sidecars in staging and move them to their final names after success."""
-    write_json(stage / 'edit-cues.json', {'fps': edit['fps'],
+    # The cue list carries the exact rate as a number, which the sound tools read with float().
+    write_json(stage / 'edit-cues.json', {'fps': float(exact_rate(edit['fps'])),
                                          'events': sorted(cues + edit.get('cues', []), key=lambda cue: cue['t'])})
     holds = edit.get('holds', [])
     dips = [{'start': clip['at'], 'end': clip['at'] + clip['overlap']}
@@ -615,9 +616,11 @@ def main():
         if edit.get('version') != 1 or not edit.get('picture'):
             raise ValueError('version 1 and at least one picture item are required')
         width, height = map(int, edit['size'])
-        fps = float(edit['fps'])
-        if width <= 0 or height <= 0 or width % 2 or height % 2 or not math.isfinite(fps) or fps <= 0:
-            raise ValueError('size must be positive and even; fps must be positive')
+        # A decimal NTSC rate (29.97) means 30000/1001; the encoders get the exact rate, the arithmetic a float.
+        rate = exact_rate(edit['fps'])
+        fps = float(rate)
+        if width <= 0 or height <= 0 or width % 2 or height % 2:
+            raise ValueError('size must be positive and even')
         out = Path(args.out).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
         filenames = {source_path(root, edit['sources'], item['src']) for item in edit['picture']}
@@ -642,11 +645,11 @@ def main():
             motion_retimes(ffmpeg, clips, properties, fps, temp, limit, used)
             images, captions = prepare_overlays(edit, root, width, cues, notes)
             picture = Path(temp) / 'picture.mp4'
-            count = render_picture(ffmpeg, clips, images, width, height, fps, total, picture)
+            count = render_picture(ffmpeg, clips, images, width, height, rate, total, picture)
             if captions:
                 captioned = burn_captions(captions, root, picture, temp)
                 picture = Path(temp) / 'caption-capped.mp4'
-                cap_caption_encode(ffmpeg, captioned, picture, width, height, fps)
+                cap_caption_encode(ffmpeg, captioned, picture, width, height, rate)
                 notes.append('Caption burn was encoded again with the shared level-capped encoder; review legibility.')
             snaps.extend(render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, stage, notes))
             report = {'duration_s': total, 'frames': count, 'snaps': snaps, 'sources': properties,

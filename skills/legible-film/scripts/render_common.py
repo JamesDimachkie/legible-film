@@ -190,10 +190,39 @@ def even_res_near(w, h, res):
     return None
 
 
+NTSC_BASES = (24, 30, 48, 60, 120)
+
+
+def exact_rate(value):
+    """A frame rate as an exact fraction. A fraction ("30000/1001", or a Fraction) or an integer is kept as given. A
+    decimal (29.97, "29.97" or 29.97002997) within 0.005 of an NTSC rate (23.976 or 23.98, 29.97, 47.952, 59.94,
+    119.88) means that rate, never the decimal itself, whose stream rate (2997/100) an editing application reads as
+    non-standard; other decimals keep their value."""
+    try:
+        if isinstance(value, str):
+            text = value.strip()
+            rate = Fraction(text)
+            decimal = '/' not in text
+        else:
+            # A float's shortest repr is the decimal it was written as (29.97, not its binary approximation).
+            rate = Fraction(repr(float(value))) if isinstance(value, float) else Fraction(value)
+            decimal = isinstance(value, float)
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        raise ValueError(f'not a frame rate: {value!r}')
+    if not 0 < rate < 1000:
+        raise ValueError(f'frame rate must be positive and below 1000: {value!r}')
+    if decimal:
+        for base in NTSC_BASES:
+            ntsc = Fraction(base * 1000, 1001)
+            if abs(rate - ntsc) < Fraction(5, 1000):
+                return ntsc
+    return rate
+
+
 class Encoder:
     def __init__(self, ffmpeg, path, w, h, fps, crf=14, level=None, preview=False, lossless=False):
         self.log = tempfile.TemporaryFile()
-        rate = Fraction(fps).limit_denominator(1001)
+        rate = exact_rate(fps)
         cmd = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24',
                '-s', f'{w}x{h}', '-r', f'{rate.numerator}/{rate.denominator}', '-i', 'pipe:0', '-an']
         if lossless:
