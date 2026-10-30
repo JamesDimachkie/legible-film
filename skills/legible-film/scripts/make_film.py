@@ -73,7 +73,9 @@ folder). Without --resume a previous run's
 deliver/, sound/ and qa/ move to OUT/previous/<stamp>/ (nothing is deleted). --resume
 skips any step whose outputs exist with their recorded hashes and whose inputs are
 unchanged: the picture source (the film folder except qa/, audio/, palette.json and the
-preflight exports), the cue list, the mix, the settings and the tools' own hashes.
+preflight exports), the cue list, the mix, the settings, the scripts' own hashes, and the
+builds of FFmpeg, ffprobe, Node, Playwright and Chromium for the steps that use them (an
+FFmpeg upgrade reruns the renders, muxes and QC; spotting and the sound kit are reused).
 make-state.json is bound to the output folder it was written in: resuming in a copied or
 moved folder runs every step again, a cached step whose outputs or results point outside
 the output folder (or the film folder) runs again, and nothing is written outside OUT.
@@ -105,7 +107,7 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
-VERSION = '1.2.3'
+VERSION = '1.2.4'
 EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
 SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
 SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
@@ -115,6 +117,13 @@ SHEET_TILE = 480   # long side of a cut-sheet tile; one frame_sheet.py call per 
 FLAG = re.compile(r'FAIL|INSPECT|flag|inconclusive|drift|offset|miss|near-empty|look at|outside', re.I)
 QC_TOOLS = ('qc_file.py', 'flash_scan.py', 'blank_scan.py', 'motion_scan.py', 'cue_onsets.py', 'sync_check.py',
             'frame_sheet.py', 'sound_check.py')
+# The tool builds each step's outputs depend on, as the doctor found them: upgrading one reruns the steps that use it
+# and nothing else. Steps made per size are named '<kind> WxH'; Python-only steps (spotting, the sound kit) use none.
+BROWSER = ('Node', 'Playwright', 'Chromium')
+STEP_TOOLS = {'preflight': BROWSER, 'info': BROWSER, 'render': ('FFmpeg',) + BROWSER, 'web': ('FFmpeg',),
+              'mux': ('FFmpeg',), 'qc': ('FFmpeg', 'ffprobe'), 'sound': ('FFmpeg',), 'sound draft-only': ('FFmpeg',),
+              'sound library index': ('FFmpeg',), 'listening pair': ('FFmpeg',), 'cue onsets': ('FFmpeg',)}
+SIZED_STEPS = ('preflight', 'render', 'web', 'mux', 'qc')
 NODE_PROBE = r"""
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
 import {createRequire} from 'node:module';
@@ -290,6 +299,23 @@ def stage_template(film, kit, out):
         else:
             shutil.copy2(src, project / src.name)
     return project
+
+
+def step_tools(name):
+    """The doctor's tool names whose builds a step's outputs depend on."""
+    kind = name.split(' ')[0]
+    return STEP_TOOLS.get(kind if kind in SIZED_STEPS else name, ())
+
+
+def environment_versions(rows):
+    """Each tool's build from the doctor's rows; Chromium by its path, size and modification time, since an update
+    in place keeps the path."""
+    found = {r['name']: r['detail'] for r in rows if r['ok'] and r['name'] in ('FFmpeg', 'ffprobe') + BROWSER}
+    chromium = Path(found.get('Chromium', '').replace(' (found, not launched)', ''))
+    if found.get('Chromium') and chromium.is_file():
+        stat = chromium.stat()
+        found['Chromium'] = f'{chromium} ({stat.st_size} bytes, modified {stat.st_mtime_ns})'
+    return found
 
 
 def doctor(a, sizes, need_aac=True):
@@ -559,6 +585,7 @@ class Make:
                       'steps': dict(self.old_steps) if sound_only else {}}
         self.findings, self.not_checked, self.notes, self.log = [], [], [], []
         self.taste = []
+        self.versions = {}
         self.size_notes = {}
         self.loop, self.webs = bool(a.loop), {}
         self.stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
@@ -593,6 +620,9 @@ class Make:
 
     def step(self, name, inputs, run):
         """Run a step unless --resume finds its outputs intact and its inputs unchanged."""
+        tools = step_tools(name)
+        if tools:
+            inputs = dict(inputs, environment={tool: self.versions.get(tool) for tool in tools})
         key = digest(inputs)
         prev = self.old_steps.get(name)
         if self.a.resume and prev and prev.get('key') == key and self.cached(prev):
@@ -2163,6 +2193,7 @@ def main():
     try:
         out.mkdir(parents=True, exist_ok=True)
         m = Make(a, film, out, sizes)
+        m.versions = environment_versions(rows)
         m.sound_mode = sound_mode
         provenance_path = out / 'picture-provenance.json'
         provenance = {}

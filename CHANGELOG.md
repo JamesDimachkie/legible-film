@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.2.4 (2026-10-29)
+
+Fixes from a video professional's questions: exact NTSC frame rates, resumes that notice a tool upgrade, and caption
+checks against the current dialogue.
+
+- **Frame rates:** `"fps": 29.97` encoded at 2997/100, a rate editing applications read as non-standard. A decimal
+  NTSC rate (23.976 or 23.98, 29.97, 47.952, 59.94, 119.88) now means the exact fraction (30000/1001 and its
+  family) in every encode, and `edit.json`, `transcript_cut.py --fps` and `motion_blur.py --fps` accept
+  `"30000/1001"`. The cue list `assemble.py` writes carries the exact rate as a number.
+- **make_film.py --resume** keys each step on the builds of the tools it uses, as the doctor finds them (FFmpeg,
+  ffprobe, Node, Playwright, and Chromium by path, size and time): an FFmpeg upgrade reruns the renders, muxes and
+  QC and reuses spotting and the sound kit. New cases show what a change reruns: a picture-only edit re-renders both
+  sizes and reuses the sound; a new master remixes and re-muxes and reuses both renders; an FFmpeg upgrade reruns a
+  render and reuses a Python-only step.
+- **captions.py check** compares captions with a word-timed transcript of the current audio. It names caption words
+  no longer spoken nearby (words cut from the audio but left on screen), flags a caption over no matching speech,
+  and reports a whole file offset once. Reading speed, duration, single-word lines, small gaps, words spoken but not
+  captioned, and when each caption enters and leaves against the speech are now review prompts with their numbers
+  (exit 0): short captions are often intentional, and a person decides. Overlaps, too many or too long lines, and
+  the dialogue findings still exit 1. `build` writes its files when only review prompts remain.
+
 ## 1.2.3 (2026-10-29)
 
 Commands: a named way into each kind of video work.

@@ -179,6 +179,20 @@ def run_cases(scripts, work, record):
     spec = importlib.util.spec_from_file_location('render_primitives',scripts/'render_common.py')
     c = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(c)
+    from fractions import Fraction
+    ntsc = {29.97: Fraction(30000, 1001), '30000/1001': Fraction(30000, 1001), 23.976: Fraction(24000, 1001),
+            '23.98': Fraction(24000, 1001), 59.94: Fraction(60000, 1001), 25: Fraction(25), 30: Fraction(30),
+            12.5: Fraction(25, 2)}
+    record('exact_rate: decimal NTSC rates mean the exact fraction; other rates keep their value',
+           all(c.exact_rate(value) == want for value, want in ntsc.items()),
+           str({str(value): str(c.exact_rate(value)) for value in ntsc}))
+    refused = []
+    for value in (0, -30, 'abc', '1/0', float('nan'), float('inf'), None):
+        try:
+            c.exact_rate(value)
+        except ValueError:
+            refused.append(value)
+    record('exact_rate: refuses zero, negative, non-numeric and non-finite rates', len(refused) == 7, str(refused))
     if sys.platform != 'darwin':
         available = c.free_memory()
         record('memory guard: measured free memory is a positive int',type(available) is int and available > 0,
@@ -246,8 +260,9 @@ def run_cases(scripts, work, record):
            stream['height'] == 1080 and stream['avg_frame_rate'] == '30/1' and len(packets) == 30 and
            monotonic and minimum >= 0,
            f'min buffer {float(minimum):.0f}/{capacity} bits; peak 1s {peak} bits (information only)')
-    for fps,expected in [(29.97,'2997/100'),(30000/1001,'30000/1001')]:
-        path = j(f'fraction-{expected.replace("/","-")}.mp4')
+    # A decimal NTSC rate means the exact one; 2997/100 would read as a non-standard rate in an editing application.
+    for index,(fps,expected) in enumerate([(29.97,'30000/1001'),(30000/1001,'30000/1001'),(25,'25/1')]):
+        path = j(f'fraction-{index}-{expected.replace("/","-")}.mp4')
         encoder = c.Encoder('ffmpeg',path,32,32,fps)
         for _ in range(3):
             encoder.write(np.zeros((32,32,3),np.uint8))

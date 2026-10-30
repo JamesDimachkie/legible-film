@@ -265,7 +265,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('input')
     p.add_argument('--out', required=True)
-    p.add_argument('--fps', type=float, required=True)
+    p.add_argument('--fps', type=lambda v: float(C.exact_rate(v)), required=True,
+                   help='output frame rate: 60, 29.97 or 30000/1001 (a decimal NTSC rate means the exact one)')
     p.add_argument('--input-fps', type=float, help='required for PNG sequences')
     p.add_argument('--start-number', type=int, default=0)
     p.add_argument('--cuts', help='comma-separated cut times in seconds')

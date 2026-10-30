@@ -509,6 +509,66 @@ def run_make_cases(tool, record, j, scripts_dir):
            all(Path(renders, n).stat().st_mtime_ns == t for n, t in before.items()) and
            (renders / 'clean_320x180-preview.mp4').is_file(), f"exit {code}")
 
+    # 5b. What a change reruns. A picture-only edit (the cue list unchanged) re-renders both sizes and reuses the
+    #     sound; a new master remixes and re-muxes and reuses both renders.
+    base = ('--sizes', '320x180,180x320', '--samples', 2, '--out', j('make-out', 'draft'), '--resume')
+    tool('make_film.py', clean, *base, '--master', 'broadcast')
+    page = clean / 'index.html'
+    original_page = page.read_bytes()
+    try:
+        page.write_bytes(original_page + b'<!-- a picture-only edit: the timeline and its cues are unchanged -->')
+        code, out = tool('make_film.py', clean, *base, '--master', 'broadcast', '--json', j('make-resume-edit.json'))
+        resumed = set(load(j('make-resume-edit.json')).get('resumed', []))
+        record('make_film: --resume after a picture-only edit re-renders both sizes and reuses the sound',
+               code == 0 and not {'render 320x180', 'render 180x320'} & resumed
+               and {'spotting', 'sound kit', 'sound'} <= resumed, f'exit {code}; resumed {sorted(resumed)}')
+        code, out = tool('make_film.py', clean, *base, '--master', 'web', '--json', j('make-resume-master.json'))
+        resumed = set(load(j('make-resume-master.json')).get('resumed', []))
+        record('make_film: --resume with a new master remixes and re-muxes, reusing both renders',
+               code in (0, 1) and {'render 320x180', 'render 180x320'} <= resumed
+               and not {'sound', 'mux 320x180', 'mux 180x320'} & resumed, f'exit {code}; resumed {sorted(resumed)}')
+    finally:
+        page.write_bytes(original_page)
+
+    # 5c. A tool upgrade reruns the steps that use the tool and nothing else (in process, with stand-in outputs).
+    import importlib.util
+    from types import SimpleNamespace
+    spec_env = importlib.util.spec_from_file_location('lf_make_film_env', os.path.join(scripts_dir, 'make_film.py'))
+    make_env = importlib.util.module_from_spec(spec_env)
+    spec_env.loader.exec_module(make_env)
+    env_out = Path(j('make-env'))
+    shutil.rmtree(env_out, ignore_errors=True)
+    built = env_out / 'renders' / 'stand-in.bin'
+    built.parent.mkdir(parents=True)
+    built.write_bytes(b'stand-in output')
+    runs = []
+
+    def env_run(resume, versions):
+        """One make over two steps, a render (FFmpeg and the browser) and spotting (Python only)."""
+        a = SimpleNamespace(name=None, res=None, loop=False, web=False, resume=resume, ffmpeg=None, ffprobe=None,
+                            node=None, playwright=None, browser=None, drop_beat=None)
+        m = make_env.Make(a, clean, env_out, [(320, 180)])
+        m.versions = versions
+        runs.clear()
+        for name in ('render 320x180', 'spotting'):
+            m.step(name, {'source': 'unchanged'}, lambda name=name: (runs.append(name) or {'path': str(built)},
+                                                                     [built]))
+        return list(runs)
+    first = {'FFmpeg': 'ffmpeg version 9.0.2', 'ffprobe': 'ffprobe version 9.0.2', 'Node': 'v24.20.0',
+             'Playwright': '1.60.0', 'Chromium': 'chromium-1200'}
+    upgraded = dict(first, FFmpeg='ffmpeg version 9.1')
+    ran = [env_run(False, first), env_run(True, first), env_run(True, upgraded)]
+    record('make_film: an FFmpeg upgrade reruns the render and reuses a step that does not use FFmpeg',
+           ran == [['render 320x180', 'spotting'], [], ['render 320x180']], str(ran))
+    record('make_film: the doctor rows give each tool its build, Chromium by path, size and time',
+           make_env.environment_versions([{'name': 'FFmpeg', 'ok': True, 'detail': 'ffmpeg version 9.0.2'},
+                                          {'name': 'Node', 'ok': False, 'detail': 'missing'},
+                                          {'name': 'Chromium', 'ok': True,
+                                           'detail': f'{built} (found, not launched)'}])
+           == {'FFmpeg': 'ffmpeg version 9.0.2',
+               'Chromium': f'{built} ({built.stat().st_size} bytes, modified {built.stat().st_mtime_ns})'}
+           and make_env.step_tools('qc 180x320') == ('FFmpeg', 'ffprobe') and make_env.step_tools('sound kit') == ())
+
     # 5a. Review finding 1: --resume in a copy of an output folder must not trust the original's paths. The copy
     #     loses its deliverable; resuming there rebuilds it in the copy and never writes into the original.
     import hashlib
