@@ -29,7 +29,9 @@ to run.
 """
 import argparse
 import bisect
+import collections
 import difflib
+import html
 import json
 import math
 import os
@@ -96,6 +98,16 @@ def read_json_items(data):
     raise ValueError('expected timed items')
 
 
+MARKUP = re.compile(r'<[^<>\n]{1,200}>|\{\\[^{}\n]{0,200}\}')
+
+
+def plain_text(text):
+    """Caption text as a viewer reads it: SRT and WebVTT styling and voice tags (<font color=...>, <i>, <v Name>,
+    <00:00:01.000>), ASS overrides ({\\an8}) and HTML entities removed, so they count neither as words nor as
+    characters."""
+    return html.unescape(MARKUP.sub('', text)).strip()
+
+
 def read_input(path):
     """Read a JSON transcript or SRT/WebVTT events."""
     content = Path(path).read_text(encoding='utf-8-sig').replace('\r\n', '\n').replace('\r', '\n')
@@ -105,7 +117,7 @@ def read_input(path):
             cue = dict(item)
             cue['start'] = float(item['start'])
             cue['end'] = float(item['end'])
-            cue['text'] = str(item.get('word', item.get('text', ''))).strip()
+            cue['text'] = plain_text(str(item.get('word', item.get('text', ''))))
             result.append(cue)
         return result
     cues = []
@@ -118,7 +130,7 @@ def read_input(path):
             raise ValueError('caption block has no timing line')
         start, end = lines[index].split('-->', 1)
         cues.append({'start': parse_timestamp(start), 'end': parse_timestamp(end.strip().split()[0]),
-                     'text': '\n'.join(lines[index + 1:])})
+                     'text': plain_text('\n'.join(lines[index + 1:]))})
     if not cues:
         raise ValueError('no caption events')
     return cues
@@ -138,11 +150,14 @@ def split_timed_lines(items, gap=0, overlap=False):
         text = str(item.get('text', item.get('word', ''))).strip()
         parts = text.split()
         if not parts:
-            raise ValueError('empty timed item')
+            # An empty row (a stretch the transcriber returned no word for) is evidence of a gap, not speech.
+            continue
         start = float(item['start'])
         end = float(item['end'])
         if len(parts) == 1:
-            result.append({'text': parts[0], 'start': start, 'end': end})
+            # A word whose times the transcript marks as estimated keeps the mark: its edges are not measured.
+            result.append({'text': parts[0], 'start': start, 'end': end,
+                           **({'estimated': True} if item.get('estimated') else {})})
             continue
         estimated = True
         total = sum(len(part) for part in parts)
@@ -464,14 +479,16 @@ def ordered_offsets(cues, words, lookahead=2000):
     return starts, ends
 
 
-def entrance_and_exit(number, cue, region, margin):
-    """Review prompts for a caption entering or leaving more than the margin away from its matched speech."""
+def entrance_and_exit(number, cue, region, margin, measured=(True, True)):
+    """Review prompts for a caption entering or leaving more than the margin away from its matched speech. An edge
+    whose word time the transcript marks as estimated is not measured (`measured` is (entrance, exit))."""
     first, last = region
     start, end = float(cue['start']), float(cue['end'])
     review = []
-    for rule, seconds in (('enters before the speech', first - start), ('enters after the speech starts', start - first),
-                          ('leaves before the speech ends', last - end), ('outlasts the speech', end - last)):
-        if seconds > margin + 1e-8:
+    for rule, seconds, edge in (('enters before the speech', first - start, 0),
+                                ('enters after the speech starts', start - first, 0),
+                                ('leaves before the speech ends', last - end, 1), ('outlasts the speech', end - last, 1)):
+        if measured[edge] and seconds > margin + 1e-8:
             review.append({'cue': number, 'rule': rule, 'difference_s': round(seconds, 4)})
     return review
 
@@ -507,6 +524,7 @@ def check_word_timing(cues, words, margin, reach=.5):
             findings.append({'rule': 'captions offset from the dialogue', 'offset_s': round(-shift, 3)})
     regions = []
     used = set()
+    unmeasured = []
     for number, cue in enumerate(cues, 1):
         start, end = float(cue['start']) + shift, float(cue['end']) + shift
         wanted = dialogue_tokens(cue['text'])
@@ -534,9 +552,14 @@ def check_word_timing(cues, words, margin, reach=.5):
             findings.append({'cue': number, 'rule': 'caption words not in the dialogue', 'words': stale,
                              'caption': cue['text']})
         used.update(matched)
-        region = (min(words[index]['start'] for index in matched), max(words[index]['end'] for index in matched))
+        first = min(matched, key=lambda index: words[index]['start'])
+        last = max(matched, key=lambda index: words[index]['end'])
+        region = (words[first]['start'], words[last]['end'])
         regions.append(region)
-        review.extend(entrance_and_exit(number, cue, region, margin))
+        measured = (not words[first].get('estimated'), not words[last].get('estimated'))
+        if not all(measured):
+            unmeasured.append(number)
+        review.extend(entrance_and_exit(number, cue, region, margin, measured))
     for number, cue in enumerate(cues, 1):
         start, end = float(cue['start']) + shift, float(cue['end']) + shift
         missing = [words[index]['text'] for index in around(start, end) if index not in used
@@ -544,6 +567,8 @@ def check_word_timing(cues, words, margin, reach=.5):
                    and dialogue_tokens(words[index]['text'])]
         if missing:
             review.append({'cue': number, 'rule': 'spoken but not captioned', 'words': missing})
+    if unmeasured:
+        review.append({'rule': 'entrances or exits not measured: estimated word times', 'cues': unmeasured})
     return findings, review, regions
 
 
@@ -957,10 +982,12 @@ def run_check(args):
     findings, review = validate(cues, args)
     report = {'findings': findings, 'review': review, 'cues': len(cues), 'timing_screen': {'basis': 'not requested'}}
     if args.words:
-        words, estimated = split_timed_lines(read_input(args.words), overlap=True)
+        rows = read_input(args.words)
+        words, estimated = split_timed_lines(rows, overlap=True)
         timing_findings, timing_review, regions = check_word_timing(cues, words, args.margin)
         report['timing_screen'] = {'basis': 'word timings', 'margin_s': args.margin, 'regions': regions,
-                                   'estimated_word_times': estimated}
+                                   'estimated_word_times': estimated or any(w.get('estimated') for w in words),
+                                   'empty_rows_ignored': sum(1 for row in rows if not row['text'])}
         findings.extend(timing_findings)
         review.extend(timing_review)
     elif args.audio:
@@ -978,6 +1005,9 @@ def run_check(args):
         visual = check_burned(cues, args)
         findings.extend(visual.pop('findings'))
         report['burned_screen'] = visual
+    # One line per rule, so a pattern across a whole file (captions placed back to back) reads as one thing.
+    report['summary'] = {'findings': dict(collections.Counter(item['rule'] for item in findings)),
+                         'review': dict(collections.Counter(item['rule'] for item in review))}
     return report
 
 

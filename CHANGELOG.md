@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.2.5 (2026-10-30)
+
+Fixes from the first real case: a professional editor's two saved Premiere revisions of a 24000/1001 interview cut,
+sanitized, with the native captions and word timings for each.
+
+- **captions.py check could not run on it:** the transcript had empty rows (stretches the transcriber returned no
+  word for), and 1.2.4 refused them. Empty rows are now skipped and counted (`empty_rows_ignored`).
+- **Styling tags counted as words and characters:** Premiere's SRT keeps caption colours as `<font color=...>`, so
+  with the empty rows removed by hand, 1.2.4 reported 506 stale words in 117 of 121 captions and 106 over-long
+  lines. SRT and WebVTT tags, ASS overrides
+  and HTML entities are now removed before any rule or match; on the same revision the check now reports 38
+  candidate stale words in 17 captions and no line-length findings.
+- **Estimated word times:** a caption entrance or exit measured from a word time the transcript marks as estimated
+  is no longer a review prompt; the captions affected are listed once.
+- The report gains a `summary` of findings and review prompts by rule, so a pattern across a whole file (captions
+  placed back to back, which Premiere does by default) reads as one line.
+- Measured on that case: of the 38 words flagged in revision 1, the editor changed 10 in revision 2 and kept 28,
+  13 of them near-spellings of a transcript word. The editor also removed 12 words the check did not flag, most
+  likely after the dialogue changed in revision 2; catching those needs the words mapped across revisions, which
+  this release does not do. The case itself stays private: no text from it is in this repository.
+
 ## 1.2.4 (2026-10-29)
 
 Fixes from a video professional's questions: exact NTSC frame rates, resumes that notice a tool upgrade, and caption

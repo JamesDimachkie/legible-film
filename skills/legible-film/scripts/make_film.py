@@ -107,7 +107,7 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
-VERSION = '1.2.4'
+VERSION = '1.2.5'
 EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
 SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
 SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
