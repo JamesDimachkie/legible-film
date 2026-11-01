@@ -79,22 +79,34 @@ async function playwright(a) {
     try { return load(createRequire(import.meta.url),path.resolve(a.playwright || process.env.LF_PLAYWRIGHT_MODULE)); }
     catch(e) { if(e.code==='MODULE_NOT_FOUND')throw Error('Playwright missing: cannot load the explicit package path'); throw e; }
   }
-  for (const root of [path.join(process.cwd(), 'package.json'), fileURLToPath(import.meta.url)]) {
+  const userKit = () => path.join(process.platform === 'win32'
+    ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
+    : (process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share')),
+    'legible-film', 'playwright', 'package.json');
+  // setup.py installs playwright-core under the user's data folder: look there after the project and the kit.
+  for (const root of [path.join(process.cwd(), 'package.json'), fileURLToPath(import.meta.url),
+                      userKit()]) {
     const req = createRequire(root);
     for (const name of ['playwright', 'playwright-core']) {
       try { return load(req,name); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
     }
   }
-  throw Error('Playwright missing: npm install playwright-core, or --playwright PATH');
+  throw Error('Playwright missing: run setup.py for the install command, or give --playwright PATH');
 }
 function browserPath(pw, a) {
   const explicit = a.browser || process.env.LF_CHROMIUM;
   if (explicit) { if (!fs.existsSync(explicit)) throw Error('Chromium executable missing'); return explicit; }
   if (fs.existsSync(pw.chromium.executablePath())) return pw.chromium.executablePath();
-  const cache = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), '.cache'), 'ms-playwright');
+  // Playwright's own default cache per system: Windows LOCALAPPDATA, macOS ~/Library/Caches, Linux ~/.cache.
+  const cache = process.env.PLAYWRIGHT_BROWSERS_PATH || path.join(process.platform === 'win32'
+    ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
+    : process.platform === 'darwin' ? path.join(os.homedir(), 'Library', 'Caches') : path.join(os.homedir(), '.cache'),
+    'ms-playwright');
   const builds = fs.existsSync(cache) ? fs.readdirSync(cache).filter(x => /^chromium-\d+$/.test(x))
     .sort((a,b) => Number(b.split('-')[1]) - Number(a.split('-')[1])) : [];
-  for (const build of builds) for (const exe of ['chrome-win64/chrome.exe','chrome-win/chrome.exe','chrome-linux/chrome','chrome-mac/Chromium.app/Contents/MacOS/Chromium']) {
+  for (const build of builds) for (const exe of ['chrome-win64/chrome.exe','chrome-win/chrome.exe','chrome-linux/chrome',
+    'chrome-linux64/chrome','chrome-mac/Chromium.app/Contents/MacOS/Chromium',
+    'chrome-mac-arm64/Chromium.app/Contents/MacOS/Chromium']) {
     const p = path.join(cache, build, exe); if (fs.existsSync(p)) return p;
   }
   throw Error(`Chromium missing in ${cache}; set --browser PATH`);
@@ -128,12 +140,20 @@ async function record(meta, data = Buffer.alloc(0)) {
   h.writeUInt32BE(j.length); d.writeUInt32BE(data.length);
   await write(h); await write(j); await write(d); if (data.length) await write(data);
 }
+// A page that never becomes ready, or a frame that never paints, stops the job with a reason instead of hanging it.
+const READY_MS = Number(process.env.LF_READY_TIMEOUT_MS || 60000);
+const FRAME_MS = Number(process.env.LF_FRAME_TIMEOUT_MS || 60000);
+function within(promise, ms, what) {
+  let timer;
+  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(Error(`${what} did not finish within ${ms} ms`)), ms); });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
 async function paint(page, t, frame) {
-  await page.evaluate(async ({t, frame}) => {
+  await within(page.evaluate(async ({t, frame}) => {
     if (frame !== undefined) window.__lf.frame(frame);
     window.__lf.seek(t);
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  }, {t, frame});
+  }, {t, frame}), FRAME_MS, `painting t=${t} (window.__lf.seek)`);
 }
 function pngPixels(buf) {
   let pos = 8, w, h, channels, compressed = [];
@@ -232,7 +252,8 @@ async function main() {
     page.on('console',m=>{if(m.type()==='error')errors.push(`console error: ${m.text()}`)});
     await page.goto(url.href,{waitUntil:'load'});
     await page.waitForFunction(()=>!!window.__lf,{},{timeout:30000});
-    await page.evaluate(async()=>{await window.__lf.ready; await document.fonts.ready;});
+    await within(page.evaluate(async()=>{await window.__lf.ready; await document.fonts.ready;}), READY_MS,
+      'the page (window.__lf.ready and its fonts; raise LF_READY_TIMEOUT_MS for a slow page)');
     const info=await page.evaluate(()=>window.__lf.info()); validate(info);
     if(requestedSize&&(info.width!==requestedSize.width||info.height!==requestedSize.height))throw Error('page info size does not honour --size w/h parameters');
     await page.setViewportSize({width:info.width,height:info.height});

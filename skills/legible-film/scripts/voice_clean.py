@@ -24,7 +24,13 @@ import subprocess
 import tempfile
 import sys
 from pathlib import Path
-import numpy as np
+import os
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 
 def load(name):
@@ -35,7 +41,7 @@ def load(name):
     return module
 
 
-io, dialogue = load("sound_io"), load("dialogue_io")
+io, dialogue, project = load("sound_io"), load("dialogue_io"), load("project")
 RATE = 48000
 
 
@@ -109,7 +115,8 @@ def main():
         if not ffmpeg:
             raise ValueError("FFmpeg is required (PATH, FFMPEG, or --ffmpeg)")
         src, dst = Path(a.input).resolve(), Path(a.out).resolve()
-        if src == dst or dst.exists() or (a.json and Path(a.json).resolve() in (src, dst)):
+        project.refuse_overwriting_inputs([a.out, a.json], [a.input])
+        if dst.exists() or (a.json and Path(a.json).resolve() == dst):
             raise ValueError("output must be a new file distinct from input and report")
         dst.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='voice-clean-', dir=dst.parent) as temp:

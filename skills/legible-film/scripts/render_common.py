@@ -6,18 +6,29 @@ This module has no standalone operation. --help documents it; exit 0.
 """
 import argparse
 import bisect
-import ctypes
 from fractions import Fraction
 import hashlib
+import importlib.util
 import json
 import math
 import os
+import re
+from pathlib import Path
 import shutil
+import struct
 import subprocess
+import sys
 import tempfile
+import http.server
+import socketserver
 
-import numpy as np
-from PIL import Image, ImageFilter
+try:
+    import numpy as np
+    from PIL import Image, ImageFilter
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 COLOUR = ('scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,'
           'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv')
@@ -34,26 +45,206 @@ H264_VBV = {
     '6.1': (480000, 480000), '6.2': (800000, 800000)}
 
 
+class LocalServer(http.server.ThreadingHTTPServer):
+    """A loopback HTTP server that binds without HTTPServer's reverse-DNS lookup of its own host
+    (socket.getfqdn), which can take tens of seconds on macOS."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def find_tool(name, explicit=None):
     candidate = explicit or os.environ.get(name.upper())
     return candidate if candidate and (os.path.isfile(candidate) or shutil.which(candidate)) else (
         None if candidate else shutil.which(name))
 
 
-def free_memory():
-    if os.name == 'nt':
-        class Status(ctypes.Structure):
-            _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong)] + [
-                (x, ctypes.c_ulonglong) for x in ('total', 'avail', 'page', 'availpage', 'virtual', 'availvirtual', 'ext')]
-        status = Status()
-        status.length = ctypes.sizeof(status)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            raise RuntimeError('cannot measure free physical memory')
-        return status.avail
+def overlay_probe(filename):
+    """How a moving overlay reads a video, shared by cut.py check and assemble.py: its first video stream's size,
+    frame rate (r_frame_rate, a Fraction), pixel format, whether it has transparency, and whether that needs the libvpx
+    decoder (FFmpeg reports VP9 with alpha as yuv420p plus an alpha_mode tag). ValueError when it cannot be read."""
+    ffprobe = find_tool('ffprobe')
+    if not ffprobe:
+        raise ValueError('ffprobe is required to read a moving overlay')
+    result = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+                             'stream=width,height,pix_fmt,r_frame_rate,codec_name:stream_tags=alpha_mode', '-of',
+                             'json', str(filename)], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    streams = json.loads(result.stdout or '{}').get('streams') if not result.returncode else None
+    if not streams:
+        raise ValueError(f'cannot read the moving overlay {Path(filename).name}: {result.stderr.strip()[-300:]}')
+    stream = streams[0]
+    pixels = stream.get('pix_fmt', '')
+    tags = {key.lower(): value for key, value in (stream.get('tags') or {}).items()}
+    vp9 = stream.get('codec_name') == 'vp9' and str(tags.get('alpha_mode')) == '1'
+    alpha = vp9 or bool(re.search(r'(rgba|bgra|argb|abgr|gbrap|yuva|^ya)', pixels))
+    return {'size': (int(stream['width']), int(stream['height'])), 'pix_fmt': pixels, 'vp9': vp9, 'alpha': alpha,
+            'rate': Fraction(str(stream.get('r_frame_rate', '0/1')))}
+
+
+def display_geometry(stream):
+    """Describe the square-pixel canvas after FFmpeg's right-angle autorotation."""
+    coded_width, coded_height = int(stream['width']), int(stream['height'])
+    if coded_width <= 0 or coded_height <= 0:
+        raise ValueError('invalid coded picture dimensions')
+    raw_sar = stream.get('sample_aspect_ratio')
+    assumed = raw_sar in (None, '', 'N/A', '0:1', '0/1', '0:0', '0/0')
     try:
-        return os.sysconf('SC_AVPHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
-    except (AttributeError, ValueError, OSError):
-        return None
+        sar = Fraction(str(raw_sar).replace(':', '/')) if not assumed else Fraction(1)
+    except (ValueError, ZeroDivisionError) as error:
+        raise ValueError('invalid sample aspect ratio: ' + str(raw_sar)) from error
+    if sar <= 0:
+        raise ValueError('sample aspect ratio must be positive')
+    tag = (stream.get('tags') or {}).get('rotate')
+    rotations = [] if tag is None else [float(tag)]
+    for side in stream.get('side_data_list', []):
+        if side.get('rotation') is not None:
+            rotations.append(float(side['rotation']))
+        matrix = side.get('displaymatrix')
+        if matrix:
+            try:
+                rows = [[int(number) for number in row.split(':', 1)[1].split()]
+                        for row in matrix.splitlines() if ':' in row]
+                a, b = rows[0][:2]
+                c, d = rows[1][:2]
+                magnitude = max(abs(a), abs(b), abs(c), abs(d))
+                if (not magnitude or a * d - b * c <= 0 or abs(a * c + b * d) > magnitude * magnitude * .001
+                        or abs((a * a + b * b) - (c * c + d * d)) > magnitude * magnitude * .001):
+                    raise ValueError('mirrored or non-orthogonal display matrix')
+            except (IndexError, TypeError, ValueError) as error:
+                raise ValueError('unsupported display matrix; normalize the source before editing') from error
+    if any(not math.isfinite(value) for value in rotations):
+        raise ValueError('non-finite display rotation')
+    rounded = [round(value / 90) * 90 % 360 for value in rotations]
+    if any(abs(value / 90 - round(value / 90)) > .001 for value in rotations) or len(set(rounded)) > 1:
+        raise ValueError('unsupported or conflicting display rotation; normalize the source before editing')
+    rotation = rounded[-1] if rounded else 0
+    square_width = max(2, round(coded_width * float(sar) / 2) * 2)
+    square_height = max(2, round(coded_height / 2) * 2)
+    width, height = ((square_height, square_width) if rotation % 180 else (square_width, square_height))
+    if max(width, height) > 65536:
+        raise ValueError('display dimensions are too large after applying sample aspect ratio')
+    return {'width': width, 'height': height, 'coded_width': coded_width, 'coded_height': coded_height,
+            'sample_aspect_ratio': str(sar), 'sar_assumed_square': assumed, 'rotation_degrees': rotation,
+            'coordinate_space': 'autorotated square pixels', 'geometry_version': 1}
+
+
+def source_seek_safe(filename):
+    """Avoid random seeks through MP4 edit lists that splice or delay presentation."""
+    try:
+        with open(filename, 'rb') as source:
+            source.seek(0, os.SEEK_END)
+            length = source.tell()
+            source.seek(0)
+            header = source.read(8)
+            if len(header) < 8:
+                return False
+            kind = header[4:8]
+            mp4 = kind in (b'ftyp', b'moov', b'mdat', b'free', b'wide', b'skip', b'moof', b'styp', b'sidx')
+            if not mp4:
+                return os.path.splitext(str(filename))[1].lower() not in ('.mp4', '.m4v', '.mov', '.m4a', '.3gp')
+
+            def boxes(start, end):
+                while start + 8 <= end:
+                    source.seek(start)
+                    size, typ = struct.unpack('>I4s', source.read(8))
+                    head = 8
+                    if size == 1:
+                        size = struct.unpack('>Q', source.read(8))[0]
+                        head = 16
+                    elif size == 0:
+                        size = end - start
+                    if size < head or start + size > end:
+                        raise ValueError('invalid movie box')
+                    yield typ, start + head, start + size
+                    start += size
+                if start != end:
+                    raise ValueError('truncated movie box')
+
+            movies = [(a, b) for typ, a, b in boxes(0, length) if typ == b'moov']
+            if len(movies) != 1:
+                return False
+            for typ, start, end in boxes(*movies[0]):
+                if typ in (b'cmov', b'mvex'):
+                    return False
+                if typ != b'trak':
+                    continue
+                for child, a, b in boxes(start, end):
+                    if child != b'edts':
+                        continue
+                    for edit, c, d in boxes(a, b):
+                        if edit != b'elst':
+                            continue
+                        source.seek(c)
+                        raw = source.read(8)
+                        if len(raw) != 8 or raw[0] not in (0, 1):
+                            return False
+                        count = struct.unpack('>I', raw[4:])[0]
+                        size = 20 if raw[0] else 12
+                        if count != 1 or c + 8 + count * size > d:
+                            return False
+                        if count:
+                            entry = source.read(size)
+                            media_time = struct.unpack_from('>q' if raw[0] else '>i', entry,
+                                                            8 if raw[0] else 4)[0]
+                            rate = struct.unpack_from('>hh', entry, size - 4)
+                            if media_time < 0 or rate != (1, 0):
+                                return False
+            return True
+    except (OSError, ValueError, struct.error, OverflowError):
+        return False
+
+
+def presentation_frame_before(ffprobe, filename, origin, moment, through=None, return_seek=False):
+    """Find the covering frame, checking only selected frames for decoder error flags."""
+    limit = max(1.0, moment + 1.0, (through if through is not None else moment) + 1.0)
+    seek = max(0.0, moment - 5.0) if source_seek_safe(filename) else 0.0
+    while True:
+        interval = (f'{origin + seek:.9f}' if seek else '') + f'%{origin + limit:.9f}'
+        command = [ffprobe, '-v', 'error', '-select_streams', 'v:0', '-read_intervals', interval,
+                   '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time,decode_error_flags',
+                   '-of', 'json', str(filename)]
+        try:
+            result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                    encoding='utf-8', errors='replace', timeout=1800)
+        except subprocess.TimeoutExpired as error:
+            raise RuntimeError('frame timestamp scan did not finish within 1800 seconds') from error
+        if result.returncode:
+            raise ValueError('video decoder failed while resolving presentation frames: '
+                             + result.stderr.strip()[-500:])
+        try:
+            frames = [(float(frame['best_effort_timestamp_time']) - origin, int(frame.get('decode_error_flags', 0)))
+                      for frame in json.loads(result.stdout).get('frames', [])
+                      if 'best_effort_timestamp_time' in frame]
+        except (ValueError, TypeError, json.JSONDecodeError) as error:
+            raise ValueError('invalid frame timestamp or decoder error flags') from error
+        frames = [(time, flags) for time, flags in frames if math.isfinite(time)]
+        earlier = [time for time, _ in frames if time <= moment + 1e-6]
+        if not earlier and seek:
+            seek = 0.0
+            continue
+        if earlier:
+            selected = max(earlier)
+        elif frames and 0 <= frames[0][0] - moment <= .5 + 1e-6:
+            selected = frames[0][0]
+        else:
+            raise ValueError(f'no picture frame covers source time {moment:.6f} in {filename}; '
+                             'choose a later in-point or normalize the source')
+        end = through if through is not None else moment + 1e-6
+        if any(flags and (abs(time - selected) <= 1e-6 or selected <= time < end) for time, flags in frames):
+            raise ValueError('video decoder reported a damaged frame in the requested picture range')
+        # FFmpeg's accurate input seek may discard frames before the seek time.
+        seek = max(0.0, min(seek, selected - 2.0))
+        return (selected, seek) if return_seek else selected
+
+
+def free_memory():
+    """Available physical bytes, measured once for the whole skill in setup.py (Windows, macOS's vm_stat, Linux's
+    MemAvailable), or None where the system does not say."""
+    spec = importlib.util.spec_from_file_location('lf_common_setup', Path(__file__).with_name('setup.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.free_memory()
 
 
 def sha256(path):

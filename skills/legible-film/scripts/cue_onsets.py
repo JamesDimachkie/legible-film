@@ -30,27 +30,39 @@ how often chance alone lands within tolerance. A hit rate no better than chance 
 Each result carries the rise in dB that identified it; a weak rise is reported as weak, not as an
 error. This measures audio timing against the list; whether the list matches the picture, and
 whether the sound feels right, still need a person watching and listening.
-Reference matching uses normalised correlation; ambiguous overlap is inconclusive, not proof of absence.
+Reference matching measures each zero-mean candidate directly, excludes windows below -140 dBFS of varying
+energy, and bounds correlation to [-1, 1]. second_best is the best usable window at least one reference length or
+2 ms, whichever is greater, from the winner; competitor_exclusion_s records that distance. A null second_best or
+margin means there was no such competitor. Overlapping occurrences inside that distance are not ruled out.
+Distinct competing peaks are inconclusive, not proof of absence. Very long references and search windows take
+more computation.
 Reference attack is the first sample, apex is the maximum absolute sample, and end is the last
 sample; trim the isolated file to the intended audible boundaries. Relative ref paths are relative
 to the cue file. --expect-absent checks only referenced cues. Inconclusive results exit 1.
-Needs numpy and FFmpeg. Exit code 0 when every cue that is not optional checks out; 1 when a
+An output report cannot name the audio, cue file or any reference, including through a link. Needs numpy and FFmpeg.
+Exit code 0 when every cue that is not optional checks out; 1 when a
 required cue is missed or off tolerance, a silent cue has a new sound, or such a cue lies outside
 the audio; 2 when the cue list is invalid or the audio cannot be read.
 """
 
 import argparse
+import importlib.util
 import json
 import math
 import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
+spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(project)
 try:
     import numpy as np
-except ImportError:  # pragma: no cover
-    sys.exit('cue_onsets.py needs numpy: pip install numpy')
+except ImportError as missing:
+    print(project.dependency_message(missing.name or 'numpy'), file=sys.stderr)
+    sys.exit(2)
 
 RATE = 48000
 HOP = 48            # 1 ms
@@ -69,9 +81,9 @@ def envelope_db(x):
     n = max(0, (len(x) - FRAME) // HOP + 1)
     if n == 0:
         return np.zeros(0)
-    csum = np.concatenate([[0.0], np.cumsum(x * x)])
-    starts = np.arange(n) * HOP
-    rms = np.sqrt((csum[starts + FRAME] - csum[starts]) / FRAME)
+    frames = np.lib.stride_tricks.as_strided(x, shape=(n, FRAME),
+                                              strides=(x.strides[0] * HOP, x.strides[0]), writeable=False)
+    rms = np.sqrt(np.einsum('ij,ij->i', frames, frames) / FRAME)
     return 20 * np.log10(rms + 1e-9)
 
 
@@ -240,7 +252,10 @@ def lint(events, fps, duration_s, stack_ms):
 
 def reference_match(x, ref, t, sync, win, tol, absent, refpath):
     """Find a reference on the audio clock using locally normalised correlation."""
-    # FFT numerator and sliding local energy; zero-mean correlation removes DC.
+    # Compute each candidate from its own samples. Prefix sums and FFT roundoff after loud material can turn
+    # silent windows into huge false correlations. Bound batch memory independently of reference duration.
+    if not np.all(np.isfinite(x)) or not np.all(np.isfinite(ref)):
+        raise ValueError('audio or reference contains non-finite samples')
     ref = ref - np.mean(ref)
     n = len(ref)
     energy = float(np.dot(ref, ref))
@@ -252,32 +267,52 @@ def reference_match(x, ref, t, sync, win, tol, absent, refpath):
     if hi < lo:
         raise ValueError('reference does not fit in the audio search window')
     seg = x[lo:hi + n]
-    size = 1 << (len(seg) + n - 2).bit_length()
-    numerator = np.fft.irfft(np.fft.rfft(seg, size) * np.fft.rfft(ref[::-1], size), size)[n - 1:n - 1 + hi - lo + 1]
-    cs = np.concatenate(([0.0], np.cumsum(seg)))
-    cs2 = np.concatenate(([0.0], np.cumsum(seg * seg)))
-    sums = cs[n:] - cs[:-n]
-    power = np.maximum(0, cs2[n:] - cs2[:-n] - sums * sums / n)
-    corr = numerator / np.sqrt(np.maximum(power * energy, 1e-30))
-    best = int(np.argmax(corr))
+    count = hi - lo + 1
+    windows = np.lib.stride_tricks.as_strided(seg, shape=(count, n),
+                                               strides=(seg.strides[0], seg.strides[0]), writeable=False)
+    corr = np.full(count, np.nan)
+    batch_size = max(1, min(256, (8 * 1024 * 1024) // (8 * n)))
+    for start in range(0, count, batch_size):
+        batch = windows[start:start + batch_size]
+        centered = batch - np.mean(batch, axis=1, keepdims=True)
+        power = np.einsum('ij,ij->i', centered, centered)
+        numerator = np.einsum('ij,j->i', centered, ref)
+        usable = power > n * 1e-14  # RMS above -140 dBFS after removing DC.
+        values = np.full(len(batch), np.nan)
+        values[usable] = np.clip(numerator[usable] / np.sqrt(power[usable] * energy), -1.0, 1.0)
+        corr[start:start + len(batch)] = values
+    if not np.any(np.isfinite(corr)):
+        quiet = float(np.sqrt(np.mean(seg * seg))) < 10 ** (-55 / 20)
+        status = ('quiet as intended' if absent else 'missing') if quiet else 'inconclusive'
+        row = {'reference': refpath, 'correlation': None, 'second_best': None, 'margin': None,
+               'status': status, 'reason': 'no candidate window has usable varying energy'}
+        if status == 'inconclusive':
+            row['next'] = f'Check the isolated effects stem and reference {refpath}; listen at {t:.3f} s.'
+        return row
+    best = int(np.nanargmax(corr))
     peak = float(corr[best])
-    guard = max(1, int(.002 * RATE))
+    # Shifted copies that overlap the winning reference window can be the same sustained event. Compare a second
+    # independent window, and expose the exclusion so an overlapping second sound is not claimed to be ruled out.
+    guard = max(n, int(.002 * RATE))
     masked = corr.copy()
-    masked[max(0, best - guard):best + guard + 1] = -1
-    second = float(masked.max()) if len(masked) > 2 * guard + 1 else -1.0
-    margin = peak - second
+    masked[max(0, best - guard + 1):best + guard] = np.nan
+    second = float(np.nanmax(masked)) if np.any(np.isfinite(masked)) else None
+    margin = peak - second if second is not None else None
     offset = ((lo + best + point) / RATE - t) * 1000
-    gain = float(numerator[best] / energy)
+    best_window = windows[best]
+    gain = float(np.dot(best_window - np.mean(best_window), ref) / energy)
     level = 20 * math.log10(max(1e-12, abs(gain) * np.sqrt(energy / n)))
     row = dict(onset_s=round((lo + best + point) / RATE, 5), offset_ms=round(offset, 3),
-               tolerance_ms=tol, correlation=round(peak, 4), second_best=round(second, 4),
-               margin=round(margin, 4), level_db=round(level, 1), reference=refpath)
+               tolerance_ms=tol, correlation=round(peak, 4),
+               second_best=round(second, 4) if second is not None else None,
+               margin=round(margin, 4) if margin is not None else None,
+               competitor_exclusion_s=round(guard / RATE, 5), level_db=round(level, 1), reference=refpath)
     if peak < .15 and float(np.sqrt(np.mean(seg * seg))) < 10 ** (-55 / 20):
         status = 'quiet as intended' if absent else 'missing'
         reason = 'search window is below -55 dBFS RMS'
     elif peak < .35:
         status, reason = 'inconclusive', 'weak reference correlation'
-    elif margin < .05 or second > .95 * peak:
+    elif second is not None and (margin < .05 or second > .95 * peak):
         status, reason = 'inconclusive', 'competing peaks or repetitive overlap'
     elif absent:
         status, reason = 'RESIDUAL', 'reference match remains in the old window'
@@ -306,6 +341,8 @@ def main():
     p.add_argument('--json')
     p.add_argument('--ffmpeg')
     a = p.parse_args()
+    if a.chance < 0:
+        p.error('--chance cannot be negative')
     ffmpeg = find_tool('ffmpeg', a.ffmpeg)
     if not ffmpeg:
         print('ffmpeg is required (PATH, FFMPEG, or --ffmpeg)', file=sys.stderr)
@@ -344,6 +381,17 @@ def main():
     for ev in events:
         if ev.get('sound') == 'absent' and not (str(ev.get('id')) in refs or ev.get('ref')):
             p.error('absence checks require a reference for every cue')
+    ref_inputs = list(refs.values())
+    for ev in events:
+        if ev.get('ref'):
+            path = ev['ref']
+            directory = os.path.dirname(os.path.abspath(a.cues))
+            ref_inputs.append(path if os.path.isabs(path) else os.path.join(directory, path))
+    try:
+        project.refuse_overwriting_inputs([a.json], [a.audio, a.cues, a.ffmpeg, *ref_inputs])
+    except ValueError as error:
+        print('cue_onsets.py: ' + str(error), file=sys.stderr)
+        return 2
     events = [ev for ev in events if ev.get('enabled', True) or ev.get('sound') == 'silent']
     command = [ffmpeg, '-v', 'error', '-nostdin', '-i', a.audio, '-map', '0:a:0', '-ac', '1', '-ar', str(RATE)]
     command += ['-af', 'aresample=async=1:first_pts=0']
@@ -367,7 +415,7 @@ def main():
         tol = float(ev.get('tolerance_ms', a.tolerance_ms))
         win = float(ev.get('window_ms', a.window_ms))
         k0, lo, hi = sig.window(t, win)
-        row = {'id': ev.get('id'), 't': round(t, 4), 'sound': kind, 'sync': sync}
+        row = {'id': ev.get('id'), 't': round(t, 4), 'sound': kind, 'sync': sync, 'window_ms': win}
         if hi <= lo:
             row['status'] = 'outside audio'
             rows.append(row)
@@ -424,17 +472,22 @@ def main():
                'failures': sum(1 for r in rows if r.get('status') in ('missing', 'LATE', 'EARLY', 'UNEXPECTED SOUND',
                                                                      'outside audio', 'RESIDUAL', 'inconclusive')
                                and r['sound'] != 'optional')}
-    if a.chance and scored:
+    too_short = any(duration <= 2 * (row['window_ms'] / 1000 + .01) for row in scored)
+    if a.chance and scored and too_short:
+        summary['chance'] = {'sets': 0, 'mean_hit_rate': None, 'p95_hit_rate': None,
+                             'verdict': 'not run: audio is too short for full random search windows'}
+    elif a.chance and scored:
         rng = np.random.default_rng(0)
-        margin = a.window_ms / 1000 + 0.01
         rates = []
         for _ in range(a.chance):
             hits = 0
             for row in scored:
-                t = float(rng.uniform(margin, max(margin, duration - margin)))
-                k0, lo, hi = sig.window(t, a.window_ms)
-                found, k, _ = sig.attack(lo, hi)
-                hits += found and abs(k - k0) <= row['tolerance_ms']
+                margin = row['window_ms'] / 1000 + 0.01
+                t = float(rng.uniform(margin, duration - margin))
+                k0, lo, hi = sig.window(t, row['window_ms'])
+                if hi >= lo:
+                    found, k, _ = sig.attack(lo, hi)
+                    hits += found and abs(k - k0) <= row['tolerance_ms']
             rates.append(hits / len(scored))
         p95 = float(np.percentile(rates, 95))
         summary['chance'] = {'sets': a.chance, 'mean_hit_rate': round(float(np.mean(rates)), 3),
@@ -469,9 +522,13 @@ def main():
             detail = (f"offset {row['offset_ms']:+d} ms (tol {row['tolerance_ms']:g}), "
                       f"strength {row['strength_db']} dB")
         elif 'offset_ms' in row:
+            second = row['second_best']
+            margin = row['margin']
             detail = (f"offset {row['offset_ms']:+g} ms (tol {row['tolerance_ms']:g}), "
-                      f"correlation {row['correlation']:.4f}, second {row['second_best']:.4f}, "
-                      f"margin {row['margin']:.4f}, level {row['level_db']:.1f} dBFS")
+                      f"correlation {row['correlation']:.4f}, "
+                      f"second {f'{second:.4f}' if second is not None else 'none'}, "
+                      f"margin {f'{margin:.4f}' if margin is not None else 'none'}, "
+                      f"level {row['level_db']:.1f} dBFS")
         elif 'onset_s' in row:
             detail = f"onset at {row['onset_s']} s, rise {row['rise_db']} dB"
         else:

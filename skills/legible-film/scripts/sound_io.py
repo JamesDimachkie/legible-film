@@ -12,7 +12,13 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
-import numpy as np
+import sys
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 
 # Sound-role names from Legible Film 1.2.0, accepted in palettes and cue lists as the current names.

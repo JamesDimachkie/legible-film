@@ -9,12 +9,17 @@ the previous select; append @2 to a phrase to choose its second occurrence.
 --shots accepts a JSON list of shot boundary times, or motion_scan.py's JSON
 report containing cuts[].time_s. Without shot boundaries, same-shot status is
 unknown. --audio measures silence; otherwise word gaps are estimated silence.
+Timed rows may use text (as transcribe.py writes) or word, with text taking precedence. Neither output may replace
+an input or the other output, including through a hard link. A bound transcript must match the source bytes; its
+recorded sound stream is used by the edit and by silence analysis on that source. Unbound transcripts are disclosed.
+This script does not verify transcript accuracy or prove that separately supplied audio matches the source.
 The assembler still must snap to picture presentation timestamps and verify the
 snap does not enter a word. Exit 0 clean, 1 findings, 2 unable to run.
 """
 import argparse
 import bisect
 from fractions import Fraction
+import importlib.util
 import json
 import math
 import os
@@ -23,6 +28,13 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(project)
+transcribe_spec = importlib.util.spec_from_file_location('lf_transcribe', Path(__file__).with_name('transcribe.py'))
+transcribe = importlib.util.module_from_spec(transcribe_spec)
+transcribe_spec.loader.exec_module(transcribe)
 
 
 def find_tool(name, explicit=None):
@@ -46,7 +58,7 @@ def words_from(data):
     result = []
     for word in words:
         start, end = float(word['start']), float(word['end'])
-        text = str(word['word']).strip()
+        text = str(word.get('text', word.get('word', ''))).strip()
         if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start or not text:
             raise ValueError('invalid word timing or text')
         if result and start < result[-1]['end']:
@@ -89,10 +101,12 @@ def read_shots(path, duration):
     return sorted(set(values))
 
 
-def detect_silence(ffmpeg, path, threshold, duration):
+def detect_silence(ffmpeg, path, threshold, duration, stream=None):
     """Measure intervals below the supplied threshold with FFmpeg."""
-    command = [ffmpeg, '-hide_banner', '-nostdin', '-i', path, '-af',
-               'silencedetect=noise={}dB:d={}'.format(threshold, duration), '-f', 'null', '-']
+    command = [ffmpeg, '-hide_banner', '-nostdin', '-i', path]
+    if stream is not None:
+        command += ['-map', f'0:{stream}']
+    command += ['-af', 'silencedetect=noise={}dB:d={}'.format(threshold, duration), '-f', 'null', '-']
     result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode:
         raise ValueError('audio decode failed: ' + result.stderr[-500:])
@@ -204,6 +218,8 @@ def make_edit(words, selected, args, duration, silences, shots):
         del item['last_word']
     edit = {'version': 1, 'title': 'Transcript selects', 'size': args.output_size, 'fps': args.fps,
             'sources': {'a': {'file': args.source}}, 'picture': picture, 'audio': audio, 'overlays': [], 'cues': []}
+    if args.audio_stream is not None:
+        edit['sources']['a']['audio_stream'] = args.audio_stream
     return edit, joins, findings, cursor
 
 
@@ -241,9 +257,9 @@ def main():
     args = parser.parse_args()
     try:
         output = Path(args.out).resolve()
-        protected = [args.transcript, args.selects, args.source, args.audio, args.shots, args.json]
-        if any(value and Path(value).resolve() == output for value in protected):
-            raise ValueError('output must differ from input and report paths')
+        protected = [args.transcript, args.selects, args.source, args.audio, args.shots]
+        project.refuse_overwriting_inputs([args.out, args.json], protected)
+        project.refuse_overwriting_inputs([args.out], [args.json])
         if output.exists():
             output.unlink()
         if (not math.isfinite(args.handle) or args.handle < 0
@@ -256,7 +272,18 @@ def main():
         if not ffprobe:
             raise ValueError('ffprobe not found')
         duration = source_duration(ffprobe, args.source)
-        words = words_from(json.loads(Path(args.transcript).read_text(encoding='utf-8-sig')))
+        transcript = json.loads(Path(args.transcript).read_text(encoding='utf-8-sig'))
+        media = project.transcript_media(transcript)
+        args.audio_stream = None
+        if media:
+            if project.file_sha256(args.source) != media['sha256']:
+                raise ValueError('stale transcript: it was made from different media; retranscribe or confirm it')
+            if type(media.get('audio_stream')) is not int or media['audio_stream'] < 0:
+                raise ValueError('stale transcript: its sound stream is not recorded; retranscribe or confirm it')
+            args.audio_stream = transcribe.probe_audio(args.source, media['audio_stream'], ffprobe)['index']
+        else:
+            print('warning: the transcript does not record the media it was made from', file=sys.stderr)
+        words = words_from(transcript)
         if words[-1]['end'] > duration + 1e-6:
             raise ValueError('word timings extend beyond source duration')
         selects = [line.strip() for line in Path(args.selects).read_text(encoding='utf-8-sig').splitlines()
@@ -268,7 +295,8 @@ def main():
             ffmpeg = find_tool('ffmpeg', args.ffmpeg)
             if not ffmpeg:
                 raise ValueError('ffmpeg not found')
-            silences = detect_silence(ffmpeg, args.audio, args.silence_db, args.silence_duration)
+            stream = args.audio_stream if project.same_file(args.audio, args.source) else None
+            silences = detect_silence(ffmpeg, args.audio, args.silence_db, args.silence_duration, stream)
         shots = read_shots(args.shots, duration)
         selected, missing = resolve_selects(selects, words)
         edit, joins, findings, elapsed = make_edit(words, selected, args, duration, silences, shots)

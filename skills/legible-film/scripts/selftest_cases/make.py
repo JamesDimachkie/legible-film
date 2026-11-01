@@ -30,6 +30,7 @@ skipped), 1 any failure. These synthetic films prove the pipeline, not any film'
 """
 import argparse
 import json
+from fractions import Fraction
 import os
 from pathlib import Path
 import subprocess
@@ -305,8 +306,56 @@ def run_kit_cases(tool, record, j, load, lengths):
            pre.get('size') == '240x240' and pre.get('output_size') == '120x120', str(pre.get('output_size')))
 
 
+def check_never_ready(tool, record, j):
+    """A page whose window.__lf.ready never resolves stops the render with a reason, within its deadline."""
+    folder = Path(j('make-never-ready'))
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / 'index.html').write_text('<!doctype html><title>never ready</title><script>window.__lf = {ready: '
+                                       'new Promise(() => {}), info() { return {}; }, seek() {}, frame() {}};'
+                                       '</script>', encoding='utf-8')
+    previous = os.environ.get('LF_READY_TIMEOUT_MS')
+    os.environ['LF_READY_TIMEOUT_MS'] = '1500'
+    try:
+        code, out = tool('film_render.py', folder, '--out', Path(j('make-never-ready.mp4')))
+    finally:
+        if previous is None:
+            os.environ.pop('LF_READY_TIMEOUT_MS', None)
+        else:
+            os.environ['LF_READY_TIMEOUT_MS'] = previous
+    record('make_film: a page that never becomes ready stops with a reason instead of hanging',
+           code in (1, 2) and 'did not finish within' in out, out[-400:])
+
+
+def check_unmeasured_memory(record, j, scripts_dir):
+    """Where the system does not report free memory (macOS before the shared probe), the doctor says so and the run
+    goes on; it is not a missing tool and does not stop a render."""
+    import importlib.util
+    import sys
+    from unittest import mock
+    spec = importlib.util.spec_from_file_location('make_memory_case', Path(scripts_dir) / 'make_film.py')
+    make_film = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(make_film)
+    report = Path(j('make-unmeasured.json'))
+    argv = ['make_film.py', '--doctor', '--sizes', '320x180', '--json', str(report)]
+    with mock.patch.object(make_film, 'free_memory', return_value=None), mock.patch.object(sys, 'argv', argv), \
+            mock.patch('sys.stdout'):
+        code = make_film.main()
+    rows = json.loads(report.read_text(encoding='utf-8')).get('doctor', []) if report.is_file() else []
+    memory = next((row for row in rows if row.get('name') == 'free memory'), {})
+    with mock.patch.object(make_film, 'free_memory', return_value=None):
+        try:
+            make_film.Make.need_memory(None, 'preflight')
+            proceeds = True
+        except make_film.CouldNotRun:
+            proceeds = False
+    record('make_film: free memory the system does not report is "not measured", not missing, and a run proceeds',
+           memory.get('ok') is True and 'not measured' in memory.get('detail', '') and proceeds
+           and code in (0, 1), str(memory) + f' code={code}')
+
+
 def run_make_cases(tool, record, j, scripts_dir):
     scripts_dir = Path(scripts_dir)
+    check_unmeasured_memory(record, j, scripts_dir)
 
     def load(path):
         try:
@@ -330,9 +379,18 @@ def run_make_cases(tool, record, j, scripts_dir):
                                 '-of', 'csv=p=0', str(path)], capture_output=True, text=True).stdout.strip()
         samples = None
         if audio:
-            raw = subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-i', str(path), '-map', '0:a:0', '-ac', '1',
-                                  '-ar', '48000', '-f', 's16le', '-'], capture_output=True).stdout
-            samples = len(raw) // 2
+            # The container's trimmed duration, which players honour: FFmpeg 5.1's decoder ignores an MP4's end trim
+            # and returns the AAC padding (144384 samples where 9.0 decodes the same file to 144000).
+            probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+                                    'stream=duration_ts,time_base', '-of', 'json', str(path)],
+                                   capture_output=True, text=True)
+            stream = (json.loads(probe.stdout or '{}').get('streams') or [{}])[0]
+            if stream.get('duration_ts') and stream.get('time_base'):
+                samples = round(int(stream['duration_ts']) * Fraction(stream['time_base']) * 48000)
+            else:
+                raw = subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-i', str(path), '-map', '0:a:0', '-ac',
+                                      '1', '-ar', '48000', '-f', 's16le', '-'], capture_output=True).stdout
+                samples = len(raw) // 2
         return int(frames.stdout.strip() or 0), samples
 
     code, _ = tool('make_film.py', '--doctor', '--sizes', '320x180,180x320', '--json', j('make-doctor.json'))
@@ -350,6 +408,7 @@ def run_make_cases(tool, record, j, scripts_dir):
         return
     record('make_film: doctor reports ready with every tool present', code == 0,
            '; '.join(r['name'] for r in rows if not r['ok']))
+    check_never_ready(tool, record, j)
 
     # 1. The doctor names a missing tool and its fix; exit 1.
     code, out = tool('make_film.py', '--doctor', '--sizes', '320x180', '--node', j('no-such-node.exe'),

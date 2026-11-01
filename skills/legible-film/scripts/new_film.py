@@ -19,14 +19,20 @@ files already existed and were kept (listed), 2 the kit or template could not be
 """
 
 import argparse
+import importlib.util
 import json
 import os
+from pathlib import Path
 import re
 import shutil
 import sys
 
 KIT_PARTS = ['index.html', 'lf', 'blocks', 'fonts']
 TEMPLATES = ('starter', 'atlasfold')
+_project_spec = importlib.util.spec_from_file_location(
+    'lf_project', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 
 
 def find_kit(explicit=None):
@@ -35,6 +41,19 @@ def find_kit(explicit=None):
         if cand and os.path.isfile(os.path.join(cand, 'index.html')) and os.path.isdir(os.path.join(cand, 'lf')):
             return os.path.abspath(cand)
     return None
+
+
+def project_files(kit, tdir, out):
+    """The kit and template files new_film reads and the project files it writes or keeps."""
+    files = [os.path.join(tdir, name) for name in ('film.js', 'facts.json')]
+    files += [os.path.join(out, name) for name in ('film.js', 'facts.json')]
+    for part in KIT_PARTS:
+        top = os.path.join(kit, part)
+        sources = [top] if os.path.isfile(top) else [os.path.join(folder, name)
+                                                     for folder, _, names in os.walk(top) for name in names]
+        for source in sources:
+            files += [source, os.path.join(out, os.path.relpath(source, kit))]
+    return files
 
 
 def copy_tree(src, dst, written, kept):
@@ -84,6 +103,11 @@ def main():
         return 2
 
     out = os.path.abspath(a.folder)
+    try:
+        project.refuse_overwriting_inputs([a.json], project_files(kit, tdir, out))
+    except ValueError as error:
+        print(f'new_film.py: cannot run: {error}', file=sys.stderr)
+        return 2
     written, kept = [], []
     try:
         os.makedirs(out, exist_ok=True)
@@ -112,9 +136,14 @@ def main():
     print('Next steps:')
     print('  1. Replace facts.json with the product\'s real facts (source, date, conditions, on-screen display).')
     print('  2. Edit film.js: one block per scene; every claim carries role "claim" and its fact id.')
-    print(f'  3. Preview: python -m http.server --directory "{out}" 8000, then open http://127.0.0.1:8000/')
+    here = Path(__file__).resolve().parent
+    serve = project.python_command(['-m', 'http.server', '--bind', '127.0.0.1', '--directory', out, '8000'])
+    print(f'  3. Preview: {serve}')
+    print('     then open http://127.0.0.1:8000/')
     print('     (keys: space play, , . frame, arrows beat, 0-9 jump, S safe area, R reading states, L luminance).')
-    print(f'  4. Preflight: python scripts/film_check.py "{out}" --size 1920x1080, and again with --size 1080x1920.')
+    check = project.python_command([here / 'film_check.py', out, '--size', '1920x1080'])
+    print(f'  4. Preflight: {check}')
+    print('     and again with --size 1080x1920.')
     print('  5. Render with film_render.py, then run the QC battery on the delivered file.')
     if a.json:
         os.makedirs(os.path.dirname(os.path.abspath(a.json)), exist_ok=True)

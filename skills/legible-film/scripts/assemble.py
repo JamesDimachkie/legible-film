@@ -4,15 +4,29 @@
   python assemble.py edit.json --out picture.mp4 --json report.json
   python assemble.py edit.json --out picture.mp4 --spool-gib 4
 
-Snaps are measured on source presentation timestamps and audio sample clocks. The
-spool limit bounds temporary RGB storage. Output measurements do not prove a film
+Picture edits keep their source-clock boundaries and sample the frame showing at each output
+time. The output frame grid tiles picture intervals; audio uses sample clocks and mixed stems remain floating point.
+Retimed audio
+reports its unpadded duration and warns that transient timing may move. Source and motion frames
+are streamed; --spool-gib is retained for compatibility and does not limit encoded or audio files.
+Planning decodes each range once to obtain its timestamps, then decodes it again while rendering.
+Each picture decoder uses one input thread to reduce concurrent decoder memory; decoding may take longer.
+Output measurements do not prove a film
 has been watched, heard, approved, or cleared for use. Needs numpy, Pillow, FFmpeg
 and ffprobe. declared.json contains an ignore string of designed holds and dips
-for blank_scan.py and motion_scan.py --ignore, never flash_scan.py. Exit 0 on
+for blank_scan.py and motion_scan.py --ignore, never flash_scan.py.
+
+Spatial layers (references/spatial.md): an image overlay may be pinned to a track ("pin": {"layer", "fit": corners
+or follow}) or drawn behind a matte's foreground ("behind": {"layer"}), and a "blur" overlay blurs a tracked or matted
+region ("region": {"layer"}). Layer frames follow the renderer's own frame choice and framing, and are drawn only
+over a single shot of the source they were made from; where they are not drawn, the notes say why, and the report's
+"layers" counts frames drawn and not drawn. A blur that cannot cover a frame where its source is on screen stops the
+render before encoding. A drawn blur is not anonymisation: a person checks every frame. Exit 0 on
 completion, 1 when review notes remain, 2 on error.
 """
 import argparse
 import bisect
+from fractions import Fraction
 import importlib.util
 import json
 import math
@@ -24,28 +38,44 @@ import sys
 import tempfile
 from pathlib import Path
 
-import numpy as np
-from PIL import Image
+try:
+    import numpy as np
+    from PIL import Image, ImageDraw, ImageFilter
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from motion_scan import Frames
-from render_common import Encoder, exact_rate, find_tool
-from reframe import bounds, position, probe, analyse, propose, validate_path
+from render_common import Encoder, decoded_count, display_geometry, exact_rate, find_tool, h264_args, overlay_probe
+from render_common import presentation_frame_before
+from reframe import (analyse, bounds, consistent_zooms, face_review, face_targets, method_spans, position, probe,
+                     propose, validate_path)
+
+spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(project)
 
 CAPTIONS = Path(__file__).with_name('captions.py')
+# Audio fade shapes an edit.json audio item may ask for (FFmpeg afade curves): tri is linear, qsin equal power.
+FADE_CURVES = ('tri', 'qsin')
 
-
-def run(command):
-    """Run a process and raise a useful error on failure."""
-    result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
+def run(command, seconds=1800):
+    """Run a process with a time limit and raise a useful error on failure or timeout."""
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=seconds)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f'command did not finish within {seconds} s and was stopped: {Path(command[0]).name}')
     if result.returncode:
         raise RuntimeError('command failed: ' + result.stderr[-1200:])
     return result
 
 
 def write_json(path, data):
-    """Write UTF-8 JSON with explicit indentation."""
-    with open(path, 'w', encoding='utf-8') as file:
+    """Write UTF-8 JSON with explicit indentation and LF line endings on every platform."""
+    with open(path, 'w', encoding='utf-8', newline='\n') as file:
         json.dump(data, file, indent=2)
 
 
@@ -62,10 +92,48 @@ def source_path(root, sources, name):
     return str((root / filename).resolve())
 
 
+def audio_source_path(root, sources, name):
+    """Resolve original sound separately when a picture source uses a silent proxy."""
+    entry = sources.get(name, name)
+    filename = entry.get('audio_file', entry['file']) if isinstance(entry, dict) else entry
+    return str((root / filename).resolve())
+
+
+def edit_inputs(edit, root, edit_path):
+    """Every file an edit reads: the edit itself, its picture, audio and image sources, caption files and saved
+    crop paths."""
+    inputs = [edit_path]
+    inputs.extend(source_path(root, edit['sources'], item['src']) for item in edit['picture'])
+    inputs.extend(audio_source_path(root, edit['sources'], item['src']) for item in edit.get('audio', []))
+    for overlay in edit.get('overlays', []):
+        if overlay.get('kind') == 'captions' and overlay.get('file'):
+            inputs.append(root / overlay['file'])
+        elif overlay.get('src'):
+            inputs.append(source_path(root, edit['sources'], overlay['src']))
+    for item in edit['picture']:
+        crop = item.get('crop')
+        if isinstance(crop, dict) and isinstance(crop.get('path'), str) and crop['path'] != 'auto':
+            inputs.append(root / crop['path'])
+    for overlay in edit.get('overlays', []):
+        for _, reference in layer_roles(overlay):
+            sidecar = root / reference['layer']
+            inputs.append(sidecar)
+            try:
+                data = json.loads(sidecar.read_text(encoding='utf-8')).get('data')
+            except (OSError, ValueError, AttributeError):
+                data = None
+            if isinstance(data, str):
+                inputs.append(sidecar.parent / data)
+    return inputs
+
+
 def has_filter(ffmpeg, name):
     """Check the filters available in this FFmpeg build."""
-    result = subprocess.run([ffmpeg, '-hide_banner', '-filters'], capture_output=True, text=True,
-                            encoding='utf-8', errors='replace')
+    try:
+        result = subprocess.run([ffmpeg, '-hide_banner', '-filters'], stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, encoding='utf-8', errors='replace', timeout=60)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('cannot inspect FFmpeg filters: no answer within 60 s')
     if result.returncode:
         raise RuntimeError('cannot inspect FFmpeg filters')
     return name in set(re.findall(r'^\s*[TSC.]{2,3}\s+(\S+)', result.stdout, re.MULTILINE))
@@ -78,29 +146,46 @@ def colour_filter(stream, width, height):
     primaries = stream.get('color_primaries', 'unknown')
     field = stream.get('field_order', 'unknown')
     assumed = []
+    missing_transfer = transfer in ('unknown', 'unspecified', 'reserved', None)
+    missing_primaries = primaries in ('unknown', 'unspecified', 'reserved', None)
+    hdr = transfer in ('smpte2084', 'arib-std-b67')
+    if stream.get('color_range') in (None, 'unknown', 'unspecified', 'reserved'):
+        assumed.append('range tag missing; FFmpeg decoder and filter defaults used')
     fallback = 'smpte170m' if width <= 1024 and height <= 576 else 'bt709'
     if matrix in ('unknown', 'unspecified', 'reserved', None):
         matrix = fallback
         assumed.append('matrix assumed ' + matrix + ' from source size')
-    if transfer in ('unknown', 'unspecified', 'reserved', None):
-        transfer = fallback
-        assumed.append('transfer assumed ' + transfer + ' from source size')
-    if primaries in ('unknown', 'unspecified', 'reserved', None):
+    if missing_transfer:
+        assumed.append('transfer tag missing; SDR transfer not converted')
+    if missing_primaries and hdr:
         primaries = fallback
         assumed.append('primaries assumed ' + primaries + ' from source size')
+    elif missing_primaries:
+        assumed.append('primaries tag missing; SDR primaries not converted')
     filters = []
     if field not in ('unknown', 'progressive', None):
         filters.append('bwdif=mode=send_frame:parity=auto:deint=all')
-    # Explicit tags supply zscale's input interpretation even for untagged files.
+    # Label the input matrix; zscale also needs transfer and primaries for HDR.
     if matrix != 'gbr':
-        filters.append(f'setparams=colorspace={matrix}:color_trc={transfer}:color_primaries={primaries}')
-    hdr = transfer in ('smpte2084', 'arib-std-b67')
+        if not hdr and (missing_transfer or missing_primaries):
+            filters.append(f'setparams=colorspace={matrix}')
+        else:
+            filters.append(f'setparams=colorspace={matrix}:color_trc={transfer}:color_primaries={primaries}')
     if hdr:
         filters.extend(['zscale=t=linear:npl=100', 'format=gbrpf32le', 'zscale=p=bt709',
                         'tonemap=tonemap=hable:desat=0', 'zscale=t=bt709:m=bt709:r=tv', 'format=yuv420p'])
         conversion = 'HDR to BT.709 SDR: zscale linear, Hable tone map and BT.709 output'
     elif matrix == 'gbr':
         conversion = 'RGB decoded directly; output encoded as BT.709'
+    elif missing_transfer or missing_primaries:
+        conversion = f'SDR decoded with {matrix} matrix; untagged transfer or primaries not converted'
+    elif transfer == 'iec61966-2-1':
+        # sRGB is how graphics applications (Cavalry, browsers, PNG renders) tag their output. Video treats it as
+        # display values to keep, as the kit does for its own renders; converting the curve through linear light
+        # crushed a Cavalry title's background from RGB 16 to 5. Only the matrix and primaries convert.
+        filters.extend(['format=yuv444p', 'colorspace=all=bt709:range=tv:itrc=bt709',
+                        'scale=out_color_matrix=bt709:out_range=tv'])
+        conversion = f'{matrix}/sRGB/{primaries} converted to BT.709, sRGB values kept as display values'
     else:
         filters.extend(['format=yuv444p', 'colorspace=all=bt709:range=tv',
                         'scale=out_color_matrix=bt709:out_range=tv'])
@@ -119,8 +204,133 @@ def probe_source(ffprobe, filename):
     return stream, count, width, height
 
 
-def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit):
-    """Seek and spool only each requested picture range, with a one-second handle."""
+def source_origin(ffprobe, filename):
+    """The format presentation origin used to translate source-relative edit times."""
+    command = [ffprobe, '-v', 'error', '-show_entries', 'format=start_time', '-of', 'json', filename]
+    data = json.loads(run(command).stdout)
+    value = (data.get('format') or {}).get('start_time')
+    if value in (None, 'N/A'):
+        return 0.0
+    origin = float(value)
+    if not math.isfinite(origin):
+        raise ValueError('non-finite source presentation origin: ' + filename)
+    return origin
+
+
+class PlaybackSeekError(ValueError):
+    """A seeked playback decode failed and can be retried from the start."""
+
+    def __init__(self, source, message):
+        """Keep the failed source so the complete picture can be restarted safely."""
+        super().__init__(message)
+        self.source = source
+
+
+class FrameSource:
+    """The independent decoder configuration for one clip occurrence."""
+
+    def __init__(self, ffmpeg, filename, vf, size, options, times, properties=None):
+        """Retain the exact decoder settings and the timestamps found during planning."""
+        self.ffmpeg = ffmpeg
+        self.filename = filename
+        self.vf = vf
+        self.size = size
+        self.options = options
+        self.times = times
+        self.properties = properties
+
+    def open(self):
+        """Start a forward-only reader when its clip becomes active."""
+        return FrameWindow(self)
+
+    def retry_without_seek(self):
+        """Validate the linear clock before restarting the whole picture with this source."""
+        options = list(self.options)
+        position = options.index('-ss')
+        seek = float(options[position + 1])
+        del options[position:position + 2]
+        duration = options.index('-t') + 1
+        options[duration] = f'{float(options[duration]) + seek:.9f}'
+        reader = Frames(self.ffmpeg, self.filename, self.vf, self.size, options, timestamps_only=True)
+        try:
+            times = reader.scan()
+        except RuntimeError as error:
+            raise ValueError('video decoder failed while reading picture: ' + str(error)) from error
+        if times != self.times:
+            raise ValueError('video decoder failed while reading picture: linear retry timestamps changed')
+        self.options = options
+        if self.properties is not None:
+            self.properties['decode_seek_s'] = 0.0
+
+
+class FrameWindow:
+    """Keep at most the two most recent decoded frames for repeated and blended samples."""
+
+    def __init__(self, source):
+        """Open this clip's decoder and start with an empty forward window."""
+        self.source = source
+        self.reader = Frames(source.ffmpeg, source.filename, source.vf, source.size, source.options)
+        self.iterator = iter(self.reader)
+        self.index = -1
+        self.frames = {}
+        self.finished = False
+
+    def frame(self, index):
+        """Return a frame by monotonically advancing the decoder, retaining one-frame lookahead."""
+        if index < self.index - 1:
+            raise RuntimeError('picture frame requested behind the streaming window')
+        while self.index < index:
+            try:
+                raw = next(self.iterator)
+            except StopIteration:
+                self._validate()
+                raise RuntimeError('short decoded frame')
+            self.index += 1
+            self.frames[self.index] = raw
+            self.frames.pop(self.index - 2, None)
+        if index not in self.frames:
+            raise RuntimeError('short decoded frame')
+        return self.frames[index]
+
+    def _validate(self):
+        """Verify the playback decode against the planning pass before accepting the render."""
+        if self.finished:
+            return
+        self.finished = True
+        try:
+            times = self.reader.times(self.index + 1)
+        except RuntimeError as error:
+            message = 'video decoder failed while reading picture: ' + str(error)
+            if '-ss' in self.source.options:
+                raise PlaybackSeekError(self.source, message) from error
+            raise ValueError(message) from error
+        if times != self.source.times:
+            raise ValueError('video decoder failed while reading picture: playback timestamps changed')
+
+    def close(self):
+        """Finish the range, including its unused handle, and verify its count and timestamps."""
+        if self.finished:
+            return
+        for _ in self.iterator:
+            self.index += 1
+        self._validate()
+        self.frames.clear()
+
+    def abort(self):
+        """Stop this reader on a failed render without waiting for an unconsumed pipe."""
+        if self.finished:
+            return
+        if self.reader.proc.poll() is None:
+            self.reader.proc.kill()
+        self.reader.proc.stdout.close()
+        self.reader.proc.wait()
+        self.reader.reader.join()
+        self.finished = True
+        self.frames.clear()
+
+
+def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
+    """Plan each range with a null-output decode, retaining timestamps rather than picture bytes."""
     cache = {}
     properties = {}
     required = 0
@@ -129,49 +339,132 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit):
         stream, _, width, height = probe_source(ffprobe, filename)
         if stream.get('color_transfer') in ('smpte2084', 'arib-std-b67') and not has_filter(ffmpeg, 'zscale'):
             raise RuntimeError('this FFmpeg build lacks zscale; HDR conversion needs a build with libzimg')
-        vf, assumptions, conversion = colour_filter(stream, width, height)
-        start = max(0.0, float(item['in']) - 1.0)
+        vf, assumptions, conversion = colour_filter(stream, int(stream['width']), int(stream['height']))
+        vf += f',scale={width}:{height}:flags=lanczos,setsar=1'
+        origin = source_origin(ffprobe, filename)
+        requested_start = float(item['in'])
+        requested_stop = float(item['out'])
+        if not math.isfinite(requested_start) or not math.isfinite(requested_stop) or requested_start < 0:
+            raise ValueError('invalid picture range')
+        transcribe_spec = importlib.util.spec_from_file_location('lf_picture_duration',
+                                                               Path(__file__).with_name('transcribe.py'))
+        transcribe = importlib.util.module_from_spec(transcribe_spec)
+        transcribe_spec.loader.exec_module(transcribe)
+        facts = json.loads(run([ffprobe, '-v', 'error', '-show_streams', '-show_format', '-of', 'json',
+                                filename]).stdout)
+        try:
+            video_bounds = math.isfinite(float(stream.get('duration'))) and float(stream['duration']) > 0
+        except (TypeError, ValueError):
+            video_bounds = False
+        if 'matroska' in (facts.get('format') or {}).get('format_name', ''):
+            tag = (stream.get('tags') or {}).get('DURATION')
+            try:
+                tag_end = transcribe.project.parse_time(tag) if tag else None
+                video_bounds = video_bounds or (tag_end is not None and math.isfinite(tag_end) and tag_end > origin)
+            except (TypeError, ValueError):
+                pass
+        audio_present = any(row.get('codec_type') == 'audio' for row in facts.get('streams', []))
+        if not video_bounds and audio_present:
+            raise ValueError('cannot establish the picture stream end independently of audio; '
+                             'remux the source with a known video duration before editing')
+        source_duration = transcribe.presentation_duration({'format': facts.get('format', {}), 'streams': [stream]})
+        original_stop = requested_stop
+        if requested_stop > source_duration + .001:
+            if requested_start >= source_duration:
+                raise ValueError('picture in-point is at or beyond the source end: ' + filename)
+            requested_stop = source_duration
+            item['out'] = requested_stop
+            notes.append(f'Picture {item["src"]} out clamped from {original_stop:.6f} to {requested_stop:.6f} s; '
+                         'review the shortened edit.')
+        start, seek = presentation_frame_before(ffprobe, filename, origin, requested_start, requested_stop,
+                                                return_seek=True)
         stop = float(item['out']) + 1.0
         if stop <= start:
             raise ValueError('invalid picture range')
-        rawpath = os.path.join(temp, f'source-{number}.rgb')
-        reader = Frames(ffmpeg, filename, f'trim=start={start}:end={stop},' + vf,
-                        width * height * 3, ['-ss', str(start), '-copyts'])
-        count = 0
-        with open(rawpath, 'wb') as output:
-            for raw in reader:
-                required += len(raw)
-                if required > spool_limit or shutil.disk_usage(temp).free < len(raw) + 256 * 1024 * 1024:
-                    reader.proc.kill()
-                    reader.proc.wait()
-                    reader.reader.join()
-                    reader.proc.stdout.close()
-                    raise ValueError('RGB spool exceeds limit or disk reserve')
-                output.write(raw)
-                count += 1
-        times = reader.times(count)
+        clock = f'trim=start={origin + start:.9f}:end={origin + stop:.9f},setpts=PTS-({origin:.9f})/TB,'
+        numerator, denominator = stream.get('time_base', '0/1').split('/')
+        tick = float(numerator) / float(denominator)
+        while True:
+            options = ['-copyts']
+            if seek:
+                options.extend(['-ss', f'{seek:.9f}'])
+            options.extend(['-t', f'{stop - seek + 1:.9f}', '-threads', '1'])
+            reader = Frames(ffmpeg, filename, clock + vf, width * height * 3, options, timestamps_only=True)
+            try:
+                times = reader.scan()
+            except RuntimeError as error:
+                if seek:
+                    seek = 0.0
+                    continue
+                raise ValueError('video decoder failed while reading picture: ' + str(error)) from error
+            if times[0] > start + max(tick, 1e-5):
+                if seek:
+                    seek = 0.0
+                    continue
+                raise ValueError('decoded picture did not include the covering frame; normalize the source')
+            break
+        if any(later <= earlier for earlier, later in zip(times, times[1:])):
+            raise ValueError('picture presentation timestamps are not strictly increasing; '
+                             'normalize the source before editing')
         end = reader.end()
-        if end <= times[-1]:
-            raise ValueError('cannot determine final decoded frame duration: ' + filename)
+        end = max(end, requested_stop)
         intervals = np.diff(times)
         variable = bool(len(intervals) > 1 and np.max(intervals) - np.min(intervals) > .0001)
         rotation = float(stream.get('tags', {}).get('rotate', 0))
         for side_data in stream.get('side_data_list', []):
             rotation = float(side_data.get('rotation', rotation))
-        properties[filename] = {'width': width, 'height': height, 'source_matrix': stream.get('color_space'),
+        properties[filename] = {**display_geometry(stream), 'source_matrix': stream.get('color_space'),
                                 'source_transfer': stream.get('color_transfer'),
                                 'source_primaries': stream.get('color_primaries'),
                                 'field_order': stream.get('field_order'), 'variable_timing': variable,
-                                'rotation_degrees': rotation, 'rotation_conversion': 'FFmpeg autorotation',
+                                'reported_rotation_degrees': rotation, 'rotation_conversion': 'FFmpeg autorotation',
+                                'presentation_origin_s': origin,
+                                'decode_seek_s': seek,
                                 'conversion': conversion, 'assumptions': assumptions, 'filter': vf,
                                 'time_base': stream.get('time_base', '0/1')}
-        numerator, denominator = stream.get('time_base', '0/1').split('/')
-        tick = float(numerator) / float(denominator)
-        cache[number] = (rawpath, width, height, times, end, tick)
+        source = FrameSource(ffmpeg, filename, clock + vf, width * height * 3, options, times,
+                             properties[filename])
+        cache[number] = (source, width, height, times, end, tick, original_stop)
     return cache, properties, required
 
 
-def plan_picture(edit, root, cache, ffmpeg, ffprobe, temp):
+def analyse_auto_crops(edit, root, cache, ffmpeg):
+    """Measure each automatic cover crop before choosing sizes across clips from the same source."""
+    width, height = edit['size']
+    analyses = {}
+    for number, item in enumerate(edit['picture']):
+        crop = item.get('crop', {})
+        if crop.get('path') != 'auto' or item.get('fit', 'cover') != 'cover':
+            continue
+        _, sw, sh, _, _, _, _ = cache[number]
+        analysis_width = 320
+        analysis_height = max(2, round(sh / sw * analysis_width / 2) * 2)
+        start, stop = float(item['in']), float(item['out'])
+        faces = {}
+        clock, subjects, _ = analyse(ffmpeg, source_path(root, edit['sources'], item['src']),
+                                     analysis_width, analysis_height, start, stop, faces)
+        selected = [(time, box) for time, box in zip(clock, subjects) if start <= time < stop]
+        if not selected:
+            raise ValueError('no frames for automatic crop')
+        faces['samples'] = [sample for sample in faces['samples'] if start <= sample['t'] < stop]
+        cw, ch = bounds(sw, sh, width / height)
+        analyses[number] = {'source': item['src'], 'clock': [row[0] for row in selected],
+                            'subjects': [row[1] for row in selected], 'faces': faces,
+                            'crop_width': cw, 'crop_height': ch, 'explicit_zoom': 'zoom' in crop}
+    return analyses
+
+
+def crop_review_notes(name, at, start, speed, findings):
+    """Turn sampled face findings into timecoded review notes on both relevant clocks."""
+    descriptions = {'face_too_large': 'a detected face does not fit the crop; widen it or letterbox',
+                    'people_do_not_fit': 'detected people do not fit one crop; cut between them or letterbox',
+                    'face_outside_crop': 'a detected face leaves the smoothed crop; adjust it or letterbox'}
+    return [f"Crop {name} at edit {project.format_time(at + item['t'])} "
+            f"(source {project.format_time(start + item['t'] * speed)}): {descriptions[item['kind']]}."
+            for item in findings]
+
+
+def plan_picture(edit, root, cache, ffmpeg, ffprobe, temp, notes=None):
     """Snap picture edits, place joins, and resolve crop paths on the edit clock."""
     clips = []
     snaps = []
@@ -179,20 +472,24 @@ def plan_picture(edit, root, cache, ffmpeg, ffprobe, temp):
     cuts = []
     dissolves = []
     width, height = edit['size']
+    analyses = analyse_auto_crops(edit, root, cache, ffmpeg)
+    auto_zooms = consistent_zooms(analyses)
     for number, item in enumerate(edit['picture']):
         name = item['src']
         filename = source_path(root, edit['sources'], name)
-        rawpath, sw, sh, times, end, tick = cache[number]
-        boundaries = times + [end]
-        first = nearest(boundaries, float(item['in']))
-        last = nearest(boundaries, float(item['out']))
-        if first >= last or first >= len(times):
-            raise ValueError('empty snapped picture range for ' + name)
+        rawpath, sw, sh, times, end, tick, original_stop = cache[number]
+        start = float(item['in'])
+        stop = float(item['out'])
+        gap = max(0.0, times[0] - start)
+        if start >= stop or gap > .5 + max(tick, 1e-6) or stop > end + max(tick, 1e-6):
+            raise ValueError('empty or uncovered picture range for ' + name)
+        if gap > max(tick, 1e-6) and notes is not None:
+            notes.append(f'Picture {name}: held its first decoded frame back {gap:.3f} s to cover the in-point.')
         speed = float(item.get('speed', 1))
         mode = item.get('retime', 'nearest')
         if not math.isfinite(speed) or speed <= 0 or mode not in ('nearest', 'blend', 'motion'):
             raise ValueError('invalid picture speed or retime mode')
-        duration = (boundaries[last] - boundaries[first]) / speed
+        duration = (stop - start) / speed
         join = item.get('join', {'kind': 'cut'})
         kind = join.get('kind', 'cut')
         overlap = float(join.get('dur', 0)) if kind != 'cut' else 0
@@ -211,42 +508,74 @@ def plan_picture(edit, root, cache, ffmpeg, ffprobe, temp):
                          'enabled': bool(join.get('sound', False))})
             if kind == 'dissolve':
                 dissolves.append({'start': at, 'end': at + overlap})
-        for point, requested, actual in (('in', item['in'], boundaries[first]),
-                                         ('out', item['out'], boundaries[last])):
-            snaps.append({'src': name, 'point': point, 'requested': requested,
-                          'snapped': actual, 'delta': actual - float(requested), 'clock': 'video PTS'})
+        for point, requested, actual in (('in', start, start), ('out', original_stop, stop)):
+            covered = max(0, bisect.bisect_right(times, actual + max(tick, 1e-6)) - 1)
+            snaps.append({'src': name, 'point': point, 'requested': requested, 'snapped': actual,
+                          'delta': actual - requested,
+                          'clock': 'source edit time', 'covering_frame_pts': times[covered]})
         crop = item.get('crop', {})
         path = crop.get('path', [[0, .5, .5]])
-        if path == 'auto':
-            analysis_width = 320
-            analysis_height = max(2, round(sh / sw * analysis_width / 2) * 2)
-            crop_width, crop_height = bounds(sw, sh, width / height, float(crop.get('zoom', 1)))
-            clock, subjects, _ = analyse(ffmpeg, filename, analysis_width, analysis_height,
-                                         boundaries[first], boundaries[last])
-            selected = [(t, box) for t, box in zip(clock, subjects) if boundaries[first] <= t < boundaries[last]]
-            if not selected:
-                raise ValueError('no frames for automatic crop')
-            local_times = [(t - boundaries[first]) / speed for t, _ in selected]
-            path = propose(local_times, [box for _, box in selected], crop_width, crop_height, .2)
+        fit = item.get('fit', 'cover')
+        if fit not in ('cover', 'contain'):
+            raise ValueError('invalid fit')
+        zoom = float(crop.get('zoom', 1))
+        crop_info = {}
+        if path == 'auto' and fit == 'contain':
+            path = [[0, .5, .5]]
+            crop_info = {'method': 'whole frame (contain)'}
+            if notes is not None:
+                notes.append(f'Crop {name} at edit {project.format_time(at)}: whole frame (contain); '
+                             'automatic cropping was not applied.')
+        elif path == 'auto':
+            info = analyses[number]
+            match = auto_zooms.get(number)
+            if match:
+                zoom = match['zoom']
+            crop_width, crop_height = bounds(sw, sh, width / height, zoom)
+            targets, methods = face_targets(info['clock'], info['subjects'], info['faces'], crop_width, crop_height)
+            local_times = [(time - start) / speed for time in info['clock']]
+            path = propose(local_times, targets, crop_width, crop_height, .2)
+            samples = [dict(sample, t=(sample['t'] - start) / speed) for sample in info['faces']['samples']]
+            findings = face_review(samples, path, crop_width, crop_height)
+            crop_info = {'method_spans': method_spans(local_times, methods, duration),
+                         'face_detection': {'state': info['faces']['state'], 'reason': info['faces']['reason'],
+                                            'sample_count': len(samples),
+                                            'positive_samples': sum(bool(sample['boxes']) for sample in samples)},
+                         'face_findings': findings, 'face_height': info['face_height'],
+                         'zoom_source': 'explicit' if info['explicit_zoom'] else 'automatic'}
+            if notes is not None:
+                description = ', '.join(sorted(set(methods)))
+                reason = f"; {info['faces']['reason']}" if info['faces']['reason'] else ''
+                notes.append(f'Crop {name} at edit {project.format_time(at)}: {description}{reason}; '
+                             'inspect the framing.')
+                notes.extend(crop_review_notes(name, at, start, speed, findings))
+                if match and match['constrained']:
+                    notes.append(f'Crop {name} at edit {project.format_time(at)}: face size matching was limited '
+                                 'by the crop or automatic zoom limit; compare the shots.')
+                elif not info['explicit_zoom'] and info['face_height'] is None and any(
+                        sample['boxes'] for sample in samples):
+                    notes.append(f'Crop {name} at edit {project.format_time(at)}: too few face samples for '
+                                 'automatic size matching; zoom remains 1.')
         elif isinstance(path, str):
             with open(root / path, encoding='utf-8') as file:
                 loaded = json.load(file)
             path = loaded.get('path', loaded) if isinstance(loaded, dict) else loaded
+            if isinstance(loaded, dict) and loaded.get('clock') == 'source':
+                # reframe.py writes source-clock times; the edit counts from the clip's in-point at its speed.
+                path = [[(key[0] - start) / speed, key[1], key[2]] for key in validate_path(path)]
         path = validate_path(path)
-        fit = item.get('fit', 'cover')
-        if fit not in ('cover', 'contain'):
-            raise ValueError('invalid fit')
         clips.append({'src': name, 'file': filename, 'raw': rawpath, 'sw': sw, 'sh': sh, 'times': times,
-                      'start': boundaries[first], 'stop': boundaries[last], 'duration': duration, 'at': at,
+                      'start': start, 'stop': stop, 'duration': duration, 'at': at,
                       'speed': speed, 'mode': mode, 'kind': kind, 'overlap': overlap,
-                      'colour': join.get('color', 'black'), 'crop': path, 'zoom': float(crop.get('zoom', 1)),
+                      'hold_previous': bool(item.get('hold_previous')),
+                      'colour': join.get('color', 'black'), 'crop': path, 'zoom': zoom, 'crop_info': crop_info,
                       'fit': fit, 'background': item.get('background', 'black'), 'time_tick': tick})
     return clips, snaps, cues, cuts, dissolves
 
 
-def audio_packet_end(ffprobe, filename):
+def audio_packet_end(ffprobe, filename, stream='a:0'):
     """Find the last audio packet's end without retaining the packet list."""
-    command = [ffprobe, '-v', 'error', '-select_streams', 'a:0', '-show_packets',
+    command = [ffprobe, '-v', 'error', '-select_streams', str(stream), '-show_packets',
                '-show_entries', 'packet=pts_time,duration_time', '-of', 'csv=p=0', filename]
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                             encoding='utf-8', errors='replace')
@@ -266,13 +595,20 @@ def audio_packet_end(ffprobe, filename):
     return end
 
 
-def audio_rate(ffprobe, filename):
+def audio_rate(ffprobe, filename, stream=None):
     """Find the rate and audio stream bounds on FFmpeg's source presentation clock."""
-    command = [ffprobe, '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+    spec = importlib.util.spec_from_file_location('lf_transcribe_audio', Path(__file__).with_name('transcribe.py'))
+    transcribe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(transcribe)
+    stream = transcribe.probe_audio(filename, stream, ffprobe)['index']
+    command = [ffprobe, '-v', 'error', '-select_streams', str(stream), '-show_entries',
                'stream=sample_rate,start_time,duration:stream_tags=DURATION:format=start_time',
                '-of', 'json', filename]
     probe_data = json.loads(run(command).stdout)
-    stream = probe_data['streams'][0]
+    streams = probe_data.get('streams') or []
+    if not streams:
+        raise ValueError(f'no audio stream {stream} in {filename}; choose a source with sound')
+    stream = streams[0]
     rate = int(stream['sample_rate'])
     if rate <= 0:
         raise ValueError('invalid sample rate: ' + filename)
@@ -286,28 +622,61 @@ def audio_rate(ffprobe, filename):
         hours, minutes, seconds = tag.split(':')
         end = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
     else:
-        end = audio_packet_end(ffprobe, filename)
+        end = audio_packet_end(ffprobe, filename, stream)
     return rate, start - origin, end - origin
+
+
+def tempo_filters(speed, rubberband):
+    """Choose a measured pitch-preserving stretcher, retaining an atempo fallback."""
+    if speed == 1:
+        return []
+    if rubberband and .01 <= speed <= 100:
+        return ['aresample=48000:filter_size=16',
+                f'rubberband=tempo={speed}:window=short:transients=smooth:channels=together']
+    filters = []
+    remaining = speed
+    while remaining > 2:
+        filters.append('atempo=2')
+        remaining /= 2
+    while remaining < .5:
+        filters.append('atempo=.5')
+        remaining *= 2
+    if remaining != 1:
+        filters.append(f'atempo={remaining}')
+    return filters
 
 
 def render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, output_dir, notes):
     """Render faded audio edits on independent sample clocks into track stems."""
     tracks = {}
     snaps = []
+    rubberband = None
     for number, item in enumerate(edit.get('audio', [])):
         track = item['track']
         name = item['src']
-        filename = source_path(root, edit['sources'], name)
+        filename = audio_source_path(root, edit['sources'], name)
         at = float(item.get('at', 0))
-        rate, stream_start, source_end = audio_rate(ffprobe, filename)
+        source = edit['sources'].get(name) or {}
+        selected = source.get('audio_stream') if isinstance(source, dict) else None
+        spec = importlib.util.spec_from_file_location('lf_selected_audio', Path(__file__).with_name('transcribe.py'))
+        transcribe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(transcribe)
+        selected = transcribe.probe_audio(filename, selected, ffprobe)['index']
+        rate, stream_start, source_end = audio_rate(ffprobe, filename, selected)
         start = round(float(item['in']) * rate) / rate
         requested_end = round(float(item['out']) * rate) / rate
         end = min(requested_end, round(source_end * rate) / rate)
         if end < requested_end:
             notes.append(f'Audio {name} out clamped from {requested_end:.6f} to {end:.6f} s.')
         fade = float(item.get('fade_ms', 15)) / 1000
-        if not track or any(char in track for char in ('/', '\\', ':')) or end <= start or fade < 0:
+        fade_in = float(item.get('fade_in_ms', fade * 1000)) / 1000
+        fade_out = float(item.get('fade_out_ms', fade * 1000)) / 1000
+        curves = (item.get('fade_in_curve', 'tri'), item.get('fade_out_curve', 'tri'))
+        if not track or any(char in track for char in ('/', '\\', ':')) or end <= start or min(fade, fade_in,
+                                                                                               fade_out) < 0:
             raise ValueError('invalid audio item')
+        if any(curve not in FADE_CURVES for curve in curves):
+            raise ValueError(f'invalid audio fade curve {curves}; use one of {", ".join(FADE_CURVES)}')
         for point, actual in (('in', start), ('out', end)):
             requested = float(item[point])
             snaps.append({'src': name, 'point': point, 'requested': requested, 'snapped': actual,
@@ -322,74 +691,191 @@ def render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, output_dir, no
         filters = ['aresample=async=1:first_pts=0',
                    f'atrim=start_sample={round(start * rate)}:end_sample={round(end * rate)}',
                    'asetpts=PTS-STARTPTS']
-        remaining = speed
-        while remaining > 2:
-            filters.append('atempo=2')
-            remaining /= 2
-        while remaining < .5:
-            filters.append('atempo=.5')
-            remaining *= 2
-        filters.extend([f'atempo={remaining}', f"volume={float(item.get('gain_db', 0))}dB", 'aresample=48000'])
-        edge = min(fade, duration / 2)
-        if edge:
-            filters.extend([f'afade=t=in:st=0:d={edge}', f'afade=t=out:st={duration - edge}:d={edge}'])
+        if speed != 1 and rubberband is None:
+            rubberband = has_filter(ffmpeg, 'rubberband')
+        use_rubberband = bool(rubberband and .01 <= speed <= 100)
+        prefix = list(filters)
+        tempo = tempo_filters(speed, use_rubberband)
+        if use_rubberband:
+            # Give the stretcher silence to flush its lookahead, then keep only the source's intended duration.
+            tempo.insert(1, f'apad=pad_dur={max(.25, .25 * speed):.9f}')
+            tempo.append(f'atrim=duration={duration:.9f}')
+        filters.extend(tempo)
+        filters.extend([f"volume={float(item.get('gain_db', 0))}dB", 'aresample=48000'])
+        edge_in, edge_out = fade_edges(fade_in, fade_out, duration)
+        if edge_in:
+            filters.append(f'afade=t=in:st=0:d={edge_in}' + (f':curve={curves[0]}' if curves[0] != 'tri' else ''))
+        if edge_out:
+            filters.append(f'afade=t=out:st={duration - edge_out}:d={edge_out}'
+                           + (f':curve={curves[1]}' if curves[1] != 'tri' else ''))
         if at < 0:
             filters.extend([f'atrim=start={-at}', 'asetpts=PTS-STARTPTS'])
         elif at > 0:
             # Delay in samples avoids rounding the edit clock to milliseconds.
             filters.append(f'adelay={round(at * 48000)}S:all=1')
         part = os.path.join(temp, f'audio-{number}.wav')
-        command = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-i', filename, '-vn',
-                   '-af', ','.join(filters), '-ar', '48000', '-ac', '2', '-c:a', 'pcm_s16le', part]
-        run(command)
+        command = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-i', filename, '-map', f'0:{selected}', '-vn',
+                   '-af', ','.join(filters), '-ar', '48000', '-ac', '2', '-c:a', 'pcm_f32le', part]
+        try:
+            run(command)
+        except RuntimeError:
+            if not use_rubberband:
+                raise
+            fallback = prefix + tempo_filters(speed, False) + filters[len(prefix) + len(tempo):]
+            command[command.index('-af') + 1] = ','.join(fallback)
+            run(command)
+            use_rubberband = False
+            notes.append(f'Audio {name}: rubberband could not run; used atempo. Inspect retimed sync and sound.')
+        if speed != 1.0:
+            # The padded track length hides time-stretcher shortfalls; measure the part before mixing.
+            measured = run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', part])
+            part_duration = float(json.loads(measured.stdout)['format']['duration'])
+            expected = max(0.0, duration + at)
+            difference = part_duration - expected
+            snaps.append({'src': name, 'point': 'retime duration', 'clock': 'decoded audio part', 'speed': speed,
+                          'expected_duration_s': expected, 'actual_duration_s': part_duration,
+                          'delta': difference, 'stretcher': 'rubberband' if use_rubberband else 'atempo'})
+            notes.append(f'Audio {name} retimed {speed:g}x: transients can move or repeat; '
+                         'inspect picture and sound sync.')
+            if speed < .5:
+                notes.append(f'Audio {name} retimed below 0.5x: transient shifts may exceed one frame; '
+                             'inspect every sync point and the tail.')
+            if use_rubberband and rate != 48000:
+                notes.append(f'Audio {name} uses a short resampling filter before retiming; '
+                             'inspect high-frequency detail.')
+            if not use_rubberband:
+                notes.append(f'Audio {name} used atempo because rubberband is unavailable for this retime; '
+                             'inspect transients and sync.')
+            if abs(difference) > .001:
+                notes.append(f'Audio {name} retimed part is {difference * 1000:+.1f} ms from its planned duration; '
+                             'the track is padded or trimmed. Inspect the tail and sync.')
         tracks.setdefault(track, []).append(part)
     for track, parts in tracks.items():
-        command = [ffmpeg, '-hide_banner', '-v', 'error', '-y']
-        for part in parts:
-            command.extend(['-i', part])
-        inputs = ''.join(f'[{index}:a]' for index in range(len(parts)))
-        graph = f'{inputs}amix=inputs={len(parts)}:duration=longest:normalize=0,apad,atrim=duration={total}[a]'
-        command.extend(['-filter_complex', graph, '-map', '[a]', '-c:a', 'pcm_s16le',
-                        str(output_dir / (track + '.wav'))])
-        run(command)
+        mix_track(ffmpeg, parts, total, output_dir / (track + '.wav'))
     return snaps
 
 
+def fade_edges(fade_in, fade_out, duration):
+    """The fade-in and fade-out lengths of an audio part, shrunk in proportion when together they exceed it.
+    Equal fades give the earlier rule exactly: each is at most half the part."""
+    if fade_in + fade_out <= duration:
+        return fade_in, fade_out
+    scale = duration / (fade_in + fade_out)
+    return fade_in * scale, fade_out * scale
+
+
+def mix_track(ffmpeg, parts, total, out, seconds=1800):
+    """Mix one track's parts into a stem exactly `total` seconds long.
+
+    apad=whole_dur pads to the film's length and then ends the stream by itself; the output option -t trims parts
+    that run longer and bounds the file whatever the filters do. The earlier graph (amix, then an endless apad and
+    atrim=duration) hung FFmpeg 9.0 in about one run in nine with two or more parts, writing silence without end."""
+    command = [ffmpeg, '-hide_banner', '-v', 'error', '-y']
+    for part in parts:
+        command.extend(['-i', str(part)])
+    inputs = ''.join(f'[{index}:a]' for index in range(len(parts)))
+    graph = f'{inputs}amix=inputs={len(parts)}:duration=longest:normalize=0,apad=whole_dur={total}[a]'
+    command.extend(['-filter_complex', graph, '-map', '[a]', '-t', str(total), '-c:a', 'pcm_f32le', str(out)])
+    run(command, seconds)
+
+
 def motion_retimes(ffmpeg, clips, properties, fps, temp, spool_limit, already_used):
-    """Interpolate each motion-retimed clip before the final encoder starts."""
-    requested = sum((math.ceil(clip['duration'] * fps) + 4) * clip['sw'] * clip['sh'] * 3
-                    for clip in clips if clip['mode'] == 'motion')
-    if already_used + requested > spool_limit or shutil.disk_usage(temp).free < requested + 256 * 1024 * 1024:
-        raise ValueError('motion interpolation exceeds available RGB spool budget')
-    for number, clip in enumerate(clips):
+    """Plan interpolated timestamps without storing interpolated RGB frames."""
+    for clip in clips:
         if clip['mode'] != 'motion':
             continue
-        path = os.path.join(temp, f'motion-{number}.rgb')
+        if not any(abs(value - clip['start']) <= max(clip['time_tick'], 1e-6) for value in clip['times']):
+            raise ValueError('motion interpolation cannot start inside a held source frame; '
+                             'use nearest or blend retiming for this range')
+        origin = properties[clip['file']]['presentation_origin_s']
         # PTS retiming precedes interpolation so interpolation runs on the output clock.
-        vf = (f"trim=start={clip['start']}:end={clip['stop']},"
-              f"setpts=(PTS-STARTPTS)/{clip['speed']},tpad=stop_mode=clone:stop_duration=1,"
+        vf = (f"trim=start={origin + clip['start']}:end={origin + clip['stop']},"
+              f"setpts=(PTS-({origin + clip['start']})/TB)/{clip['speed']},tpad=stop_mode=clone:stop_duration=1,"
               f"minterpolate=fps={fps}:mi_mode=mci,trim=duration={clip['duration']},"
               + properties[clip['file']]['filter'])
-        reader = Frames(ffmpeg, clip['file'], vf, clip['sw'] * clip['sh'] * 3,
-                        ['-ss', str(max(0.0, clip['start'] - 1.0)), '-copyts'])
-        count = 0
-        with open(path, 'wb') as output:
-            for raw in reader:
-                output.write(raw)
-                count += 1
-                if count > math.ceil(clip['duration'] * fps) + 4:
-                    raise RuntimeError('interpolated frames exceed disk reservation')
-        times = reader.times(count)
-        clip['motion_raw'] = path
+        size = clip['sw'] * clip['sh'] * 3
+        options = ['-copyts', '-threads', '1']
+        reader = Frames(ffmpeg, clip['file'], vf, size, options, timestamps_only=True)
+        times = reader.scan()
+        if len(times) > math.ceil(clip['duration'] * fps) + 4:
+            raise RuntimeError('interpolated frames exceed disk reservation')
+        clip['motion_raw'] = FrameSource(ffmpeg, clip['file'], vf, size, options, times)
         clip['motion_times'] = times
 
 
+class MovingOverlay:
+    """A video with transparency drawn over the picture (a lower third or title made in Cavalry or another engine):
+    decoded once and in order to straight-alpha RGBA, one of its frames per output frame, sized to its share of the
+    film's width, holding its last frame if the film asks for more. RGB codecs (PNG, QuickTime Animation) keep their
+    values, as sRGB graphics do in the picture; YUV with alpha (ProRes 4444, VP9) is read with the matrix its file
+    declares."""
+
+    def __init__(self, filename, width, spec, fps):
+        probe = overlay_probe(filename)
+        self.vp9 = probe['vp9']
+        if not probe['alpha']:
+            raise ValueError(f'{Path(filename).name} has no transparency ({probe["pix_fmt"]}); render it with an alpha '
+                             'channel (PNG in a MOV, QuickTime Animation, ProRes 4444 or VP9 WebM)')
+        if probe['rate'] != Fraction(str(fps)):
+            raise ValueError(f'{Path(filename).name} runs at {probe["rate"]} fps and the film at {fps}: render it at '
+                             "the film's rate, so each of its frames is one of the film's")
+        self.filename, self.size = filename, probe['size']
+        target = max(1, round(float(spec.get('w', 1.0)) * width))
+        self.target = (target, max(1, round(self.size[1] * target / self.size[0])))
+        self.process, self.index, self.image = None, -1, None
+
+    def frame(self, index):
+        """The overlay's frame `index` (0 is its first), decoding forward."""
+        if self.process is None:
+            command = [find_tool('ffmpeg'), '-v', 'error', '-nostdin'] + (['-c:v', 'libvpx-vp9'] if self.vp9 else [])
+            command += ['-i', str(self.filename), '-vf', 'format=rgba', '-fps_mode', 'passthrough', '-f', 'rawvideo',
+                        '-pix_fmt', 'rgba', '-']
+            self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            self.index, self.image = -1, None
+        size = self.size[0] * self.size[1] * 4
+        while self.index < index:
+            data = self.process.stdout.read(size)
+            if len(data) < size:
+                break
+            self.index += 1
+            image = Image.frombytes('RGBA', self.size, data)
+            if self.target != self.size:
+                # Resample premultiplied, so transparent pixels' colour does not bleed into the edges.
+                image = image.convert('RGBa').resize(self.target, Image.Resampling.LANCZOS).convert('RGBA')
+            self.image = image
+        if self.image is None:
+            raise ValueError(f'no frames could be decoded from the moving overlay {Path(self.filename).name}')
+        return self.image
+
+    def close(self):
+        """Stop the decoder; a later frame() starts it again from the first frame."""
+        if self.process is not None:
+            self.process.kill()
+            self.process.wait()
+            self.process = None
+
+
 def prepare_overlays(edit, root, width, cues, notes):
-    """Load image overlays and collect captions for a later burn pass."""
+    """Load image overlays, open moving overlays and collect captions for a later burn pass."""
     images = []
     captions = []
+    pictures = 0
     for overlay in edit.get('overlays', []):
         kind = overlay.get('kind')
+        if kind == 'video':
+            start, end = float(overlay['from']), float(overlay['to'])
+            fade = float(overlay.get('fade_ms', 0)) / 1000
+            if end <= start or fade < 0:
+                raise ValueError('invalid overlay timing')
+            filename = source_path(root, edit['sources'], overlay['src'])
+            images.append((MovingOverlay(filename, width, overlay, edit['fps']), overlay, start, end, fade))
+            continue
+        if kind == 'blur':
+            start, end = float(overlay['from']), float(overlay['to'])
+            if end <= start or float(overlay.get('strength', 0.0)) < 0 or float(overlay.get('pad', 0.0)) < 0:
+                raise ValueError('invalid blur overlay: from must be before to; strength and pad not negative')
+            images.append((None, overlay, start, end, 0.0))
+            continue
         if kind == 'captions':
             if CAPTIONS.is_file():
                 spec = importlib.util.spec_from_file_location('legible_captions', CAPTIONS)
@@ -405,23 +891,44 @@ def prepare_overlays(edit, root, width, cues, notes):
             raise ValueError('unknown overlay kind')
         filename = source_path(root, edit['sources'], overlay['src'])
         image = Image.open(filename).convert('RGBA')
-        ow = max(1, round(float(overlay['w']) * width))
-        oh = max(1, round(image.height * ow / image.width))
-        image = image.resize((ow, oh), Image.Resampling.LANCZOS)
+        pin = overlay.get('pin')
+        if not (isinstance(pin, dict) and pin.get('fit', 'corners') == 'corners'):
+            ow = max(1, round(float(overlay['w']) * width))
+            oh = max(1, round(image.height * ow / image.width))
+            image = image.resize((ow, oh), Image.Resampling.LANCZOS)
         start = float(overlay['from'])
         end = float(overlay['to'])
         fade = float(overlay.get('fade_ms', 0)) / 1000
         if end <= start or fade < 0:
             raise ValueError('invalid overlay timing')
-        cues.append({'id': f'overlay-{len(images)}', 't': start, 'sound': 'optional',
+        cues.append({'id': f'overlay-{pictures}', 't': start, 'sound': 'optional',
                      'role': overlay.get('role', 'pop'), 'sync': 'attack',
                      'enabled': bool(overlay.get('sound', False))})
+        pictures += 1
         images.append((image, overlay, start, end, fade))
     return images, captions
 
 
-def render_clip(clip, time, handles, width, height):
-    """Sample, crop and scale one picture clip at an edit time."""
+
+def source_grid_matches(clip, fps):
+    """A unit-speed CFR clip whose in-point and timestamps follow the output frame grid."""
+    times = clip['times']
+    if clip['mode'] != 'nearest' or clip['speed'] != 1 or len(times) < 2:
+        return False
+    tick = max(1e-6, clip['time_tick'])
+    if abs(times[nearest(times, clip['start'])] - clip['start']) > tick * .51:
+        return False
+    step = 1.0 / float(fps)
+    precision = max(1e-6, .5 * 10 ** (math.floor(math.log10(max(abs(times[-1]), 1))) - 5))
+    return all(abs(value - (times[0] + number * step)) <= tick * 1.01 + precision
+               for number, value in enumerate(times))
+
+
+def clip_sample(clip, time):
+    """The renderer's choice of source frame for an edit time: {'times', 'raw', 'index', 'sample_time', 'blend'}.
+
+    `index` is the decoded frame shown; `blend` is the share of the next frame mixed in under blend retiming (None
+    otherwise). Layers (spatial.py) are matched to this same choice, never to a second calculation."""
     if clip['mode'] == 'motion':
         sample_time = max(0, time - clip['at'])
         times = clip['motion_times']
@@ -432,53 +939,670 @@ def render_clip(clip, time, handles, width, height):
         rawpath = clip['raw']
     precision = 0.5 * 10 ** (math.floor(math.log10(max(abs(sample_time), 1))) - 5)
     interval = times[1] - times[0] if len(times) > 1 else 1.0
-    tolerance = min(interval * .1, max(1e-6, precision, clip['time_tick'] * .50001))
+    tick_factor = 1.01 if clip.get('_matching_grid') else .50001
+    tolerance = min(interval * .1, max(1e-6, precision, clip['time_tick'] * tick_factor))
     index = max(0, min(len(times) - 1, bisect.bisect_right(times, sample_time + tolerance) - 1))
-
-    def get_frame(frame_index):
-        """Read a spooled frame by its PTS-selected index."""
-        handle = handles[rawpath]
-        size = clip['sw'] * clip['sh'] * 3
-        handle.seek(frame_index * size)
-        raw = handle.read(size)
-        if len(raw) != size:
-            raise RuntimeError('short decoded frame')
-        return Image.frombytes('RGB', (clip['sw'], clip['sh']), raw)
-
-    image = get_frame(index)
+    blend = None
     if clip['mode'] == 'blend' and index + 1 < len(times) and times[index + 1] < clip['stop']:
-        fraction = (sample_time - times[index]) / (times[index + 1] - times[index])
-        image = Image.blend(image, get_frame(index + 1), max(0, min(1, fraction)))
+        blend = (sample_time - times[index]) / (times[index + 1] - times[index])
+    return {'times': times, 'raw': rawpath, 'index': index, 'sample_time': sample_time, 'blend': blend}
+
+
+def clip_framing(clip, time, width, height):
+    """How the renderer places a clip's decoded frame (sw x sh) in the output frame at an edit time: contain
+    (`size` and `offset` of the letterboxed picture) or cover (`box`, the crop in decoded pixels, rounded the way
+    Pillow rounds a crop box)."""
     if clip['fit'] == 'contain':
-        image.thumbnail((width, height), Image.Resampling.LANCZOS)
-        canvas = Image.new('RGB', (width, height), clip['background'])
-        canvas.paste(image, ((width - image.width) // 2, (height - image.height) // 2))
-        return canvas
+        scale = min(width / clip['sw'], height / clip['sh'])
+        size = (max(1, round(clip['sw'] * scale)), max(1, round(clip['sh'] * scale)))
+        return {'fit': 'contain', 'size': size, 'offset': ((width - size[0]) // 2, (height - size[1]) // 2)}
     cw, ch = bounds(clip['sw'], clip['sh'], width / height, clip['zoom'])
     cx, cy = position(clip['crop'], max(0, time - clip['at']))
     cx = min(1 - cw / 2, max(cw / 2, cx))
     cy = min(1 - ch / 2, max(ch / 2, cy))
     box = ((cx - cw / 2) * clip['sw'], (cy - ch / 2) * clip['sh'],
            (cx + cw / 2) * clip['sw'], (cy + ch / 2) * clip['sh'])
-    return image.crop(box).resize((width, height), Image.Resampling.LANCZOS)
+    return {'fit': 'cover', 'box': tuple(int(round(value)) for value in box)}
 
 
-def render_picture(ffmpeg, clips, images, width, height, fps, total, output):
-    """Composite picture and image overlays into the shared capped encoder."""
-    rawpaths = {clip['raw'] for clip in clips} | {clip['motion_raw'] for clip in clips
-                                                  if clip['mode'] == 'motion'}
-    handles = {path: open(path, 'rb') for path in rawpaths}
+def apply_framing(image, framing, width, height, background):
+    """Place a decoded frame (or a layer frame at the decoded size) in the output frame."""
+    if framing['fit'] == 'contain':
+        image = image.resize(framing['size'], Image.Resampling.LANCZOS)
+        canvas = Image.new(image.mode, (width, height), background)
+        canvas.paste(image, framing['offset'])
+        return canvas
+    return image.crop(framing['box']).resize((width, height), Image.Resampling.LANCZOS)
+
+
+def framing_matrix(framing, source_width, source_height, width, height):
+    """The 3x3 matrix taking a point of the decoded frame (continuous pixels, edges on integers) to the output frame,
+    for the framing clip_framing chose."""
+    if framing['fit'] == 'contain':
+        sx, sy = framing['size'][0] / source_width, framing['size'][1] / source_height
+        tx, ty = framing['offset']
+    else:
+        x0, y0, x1, y1 = framing['box']
+        sx, sy = width / (x1 - x0), height / (y1 - y0)
+        tx, ty = -x0 * sx, -y0 * sy
+    return np.array([[sx, 0, tx], [0, sy, ty], [0, 0, 1]], dtype=np.float64)
+
+
+def render_clip(clip, time, handles, width, height):
+    """Sample, crop and scale one picture clip at an edit time."""
+    sample = clip_sample(clip, time)
+
+    def get_frame(frame_index):
+        """Read a PTS-selected frame from the forward reader or a legacy file handle."""
+        handle = handles[sample['raw']]
+        size = clip['sw'] * clip['sh'] * 3
+        if hasattr(handle, 'frame'):
+            raw = handle.frame(frame_index)
+        else:
+            handle.seek(frame_index * size)
+            raw = handle.read(size)
+        if len(raw) != size:
+            raise RuntimeError('short decoded frame')
+        return Image.frombytes('RGB', (clip['sw'], clip['sh']), raw)
+
+    image = get_frame(sample['index'])
+    if sample['blend'] is not None:
+        image = Image.blend(image, get_frame(sample['index'] + 1), max(0, min(1, sample['blend'])))
+    return apply_framing(image, clip_framing(clip, time, width, height), width, height, clip['background'])
+
+
+# ----------------------------------------------------------------------------------------------- spatial layers
+
+BLUR_STRENGTH = 0.04  # blur radius as a share of the output height
+BLUR_PAD = 0.15  # padding as a share of the region's size on each side
+POINT_BOX = 0.15  # a blur on a point track covers a square this share of the output height
+# Why a layered overlay was not drawn on a frame, as the report counts it (reason prefix, cause).
+SKIP_CAUSES = (('the track is lost', 'lost'), ('the layer is stale', 'stale'), ('another source', 'other_source'),
+               ('a dissolve or dip', 'dissolve'), ('a held frame', 'held'), ("outside the layer's frames", 'outside'),
+               ('no layer frame', 'missing'))
+
+
+def layer_roles(spec):
+    """[('pin' | 'behind' | 'blur', the layer reference)] for every layer an overlay reads."""
+    roles = []
+    if spec.get('kind') == 'blur':
+        region = spec.get('region')
+        if not isinstance(region, dict) or not isinstance(region.get('layer'), str):
+            raise ValueError('a blur overlay needs "region": {"layer": "spatial/NAME.json"}')
+        roles.append(('blur', region))
+    for role in ('pin', 'behind'):
+        if role in spec:
+            if not isinstance(spec[role], dict) or not isinstance(spec[role].get('layer'), str):
+                raise ValueError(f'"{role}" needs {{"layer": "spatial/NAME.json"}}')
+            roles.append((role, spec[role]))
+    return roles
+
+
+def time_label(seconds):
+    """An edit time as m:ss.ss."""
+    return project.format_time(max(0.0, seconds))
+
+
+def spans_of(frames, fps):
+    """Consecutive output frame numbers as [(start s, end s)]."""
+    spans = []
+    for number in sorted(frames):
+        if spans and number == spans[-1][1] + 1:
+            spans[-1][1] = number
+        else:
+            spans.append([number, number])
+    return [(start / fps, (end + 1) / fps) for start, end in spans]
+
+
+def quad_centre(quad):
+    """The projective centre of a quadrilateral: where its diagonals cross."""
+    p1, p2, p3, p4 = quad
+    d1, d2 = p3 - p1, p4 - p2
+    denominator = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(denominator) < 1e-12:
+        return quad.mean(axis=0)
+    t = ((p2[0] - p1[0]) * d2[1] - (p2[1] - p1[1]) * d2[0]) / denominator
+    return p1 + t * d1
+
+
+def quad_area(quad):
+    """A quadrilateral's area."""
+    x, y = quad[:, 0], quad[:, 1]
+    return abs(0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))))
+
+
+def premultiplied(image):
+    """An RGBA image as a float32 premultiplied array, padded with two transparent pixels on every side."""
+    array = np.asarray(image.convert('RGBA'), dtype=np.float32) / 255
+    array[..., :3] *= array[..., 3:4]
+    return np.pad(array, ((2, 2), (2, 2), (0, 0)))
+
+
+def warp_overlay(image, overlay, quad, opacity, spatial):
+    """Draw an RGBA overlay onto an RGB picture with its corners on `quad` (output pixels): a perspective warp with
+    bilinear sampling of a copy scaled near the drawn size, so the edges are antialiased and nothing aliases."""
+    width, height = image.size
+    quad = np.asarray(quad, dtype=np.float64)
+    if not np.all(np.isfinite(quad)) or opacity <= 0:
+        return image
+    x0, y0 = max(0, int(math.floor(quad[:, 0].min())) - 1), max(0, int(math.floor(quad[:, 1].min())) - 1)
+    x1, y1 = min(width, int(math.ceil(quad[:, 0].max())) + 1), min(height, int(math.ceil(quad[:, 1].max())) + 1)
+    if x1 <= x0 or y1 <= y0:
+        return image
+    edges = [float(np.linalg.norm(quad[(i + 1) % 4] - quad[i])) for i in range(4)]
+    target = (max(edges[0], edges[2]), max(edges[1], edges[3]))
+    if target[0] < overlay.width / 1.5 or target[1] < overlay.height / 1.5:
+        overlay = overlay.resize((max(2, round(min(overlay.width, target[0]))),
+                                  max(2, round(min(overlay.height, target[1])))), Image.Resampling.LANCZOS)
+    source = premultiplied(overlay)
+    w, h = overlay.size
+    inverse = np.linalg.inv(spatial.homography([[0, 0], [w, 0], [w, h], [0, h]], quad))
+    ys, xs = np.mgrid[y0:y1, x0:x1].astype(np.float64)
+    points = np.stack([xs.ravel() + .5, ys.ravel() + .5, np.ones(xs.size)])
+    mapped = inverse @ points
+    u = mapped[0] / mapped[2] - .5 + 2
+    v = mapped[1] / mapped[2] - .5 + 2
+    limit_x, limit_y = source.shape[1] - 1, source.shape[0] - 1
+    outside = (u < 0) | (v < 0) | (u > limit_x) | (v > limit_y) | (mapped[2] <= 0)
+    u = np.clip(u, 0, limit_x - 1e-6)
+    v = np.clip(v, 0, limit_y - 1e-6)
+    left, top = np.floor(u).astype(int), np.floor(v).astype(int)
+    fx, fy = (u - left)[:, None], (v - top)[:, None]
+    sample = ((source[top, left] * (1 - fx) + source[top, left + 1] * fx) * (1 - fy)
+              + (source[top + 1, left] * (1 - fx) + source[top + 1, left + 1] * fx) * fy)
+    sample[outside] = 0
+    sample = sample.reshape(y1 - y0, x1 - x0, 4) * opacity
+    canvas = np.asarray(image, dtype=np.float32).copy()
+    region = canvas[y0:y1, x0:x1] / 255
+    region = sample[..., :3] + region * (1 - sample[..., 3:4])
+    canvas[y0:y1, x0:x1] = np.clip(np.round(region * 255), 0, 255)
+    return Image.fromarray(canvas.astype(np.uint8), 'RGB')
+
+
+def matte_over(over, base, matte):
+    """Put the matte's foreground of `base` back over `over`: 255 keeps base exactly, 0 keeps over."""
+    weight = matte.astype(np.uint32)[..., None]
+    mixed = (np.asarray(over, dtype=np.uint32) * (255 - weight) + np.asarray(base, dtype=np.uint32) * weight
+             + 127) // 255
+    return Image.fromarray(mixed.astype(np.uint8), 'RGB')
+
+
+def blur_region(image, mask, radius):
+    """Blur the picture under a mask (an 'L' image the size of the picture): pixelate, then soften, then composite
+    through the mask, working only inside the mask's bounding box."""
+    box = mask.getbbox()
+    if box is None:
+        return image
+    margin = int(radius * 2) + 2
+    x0, y0 = max(0, box[0] - margin), max(0, box[1] - margin)
+    x1, y1 = min(image.width, box[2] + margin), min(image.height, box[3] + margin)
+    region = image.crop((x0, y0, x1, y1))
+    block = max(1, int(radius // 2))
+    small = region.resize((max(1, region.width // block), max(1, region.height // block)), Image.Resampling.BOX)
+    soft = small.resize(region.size, Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(max(1, radius / 2)))
+    region.paste(soft, (0, 0), mask.crop((x0, y0, x1, y1)))
+    image = image.copy()
+    image.paste(region, (x0, y0))
+    return image
+
+
+def active_clips(intervals, number):
+    """The clips on screen at an output frame, outgoing first (the renderer's own rule)."""
+    return [clip for clip, start, end in intervals if start <= number < end]
+
+
+class LayerPlan:
+    """Spatial layers (references/spatial.md) drawn over the picture: image overlays pinned to a track or drawn
+    behind a matte's foreground, and blur overlays over a tracked or matted region.
+
+    Each layer frame is chosen from the source frame the renderer selected for that output frame (clip_sample) and
+    placed through the renderer's own framing (clip_framing, framing_matrix, apply_framing), so a layer moves with
+    the picture through crop, zoom, fit, reframe paths, rotation, pixel aspect and speed. A layer is drawn only over
+    a clip of the source it was made from; under another source (a cutaway), during a dissolve or dip, on a held
+    frame, a lost or missing frame or a stale layer, a pin or behind overlay is not drawn and the notes say where
+    and why. A blur covers every clip of its source on screen, including both sides of a dissolve, and stops the
+    render (fails closed) when any such frame has no usable layer frame."""
+
+    def __init__(self, edit, root, clips, images, width, height, fps, count):
+        spec = importlib.util.spec_from_file_location('lf_assemble_spatial', Path(__file__).with_name('spatial.py'))
+        self.spatial = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.spatial)
+        self.root = Path(root)
+        self.sources = edit['sources']
+        self.width, self.height, self.fps = width, height, float(fps)
+        self.project_root = project.find_project(root)
+        self.entries = {}
+        self.readers = {}
+        for number, (_, item, start, end, _) in enumerate(images):
+            roles = layer_roles(item)
+            if not roles:
+                continue
+            entry = {'number': number, 'spec': item, 'start': start, 'end': end, 'roles': {}, 'frames': {},
+                     'skipped': {}, 'looks': set(), 'flicker': [], 'previous_matte': None, 'reference': None}
+            for role, reference in roles:
+                entry['roles'][role] = self.load(role, reference)
+            self.entries[number] = entry
+        self.intervals = clip_frame_intervals(clips, fps)
+        self.schedule(count)
+
+    def load(self, role, reference):
+        """Read a layer for one role and check it can serve that role."""
+        path = (self.root / reference['layer']).resolve()
+        layer = self.spatial.read_layer(path)
+        kind = layer['kind']
+        if role == 'pin':
+            fit = reference.get('fit', 'corners')
+            if kind != 'track' or fit not in ('corners', 'follow'):
+                raise ValueError(f'pin needs a track layer and fit corners or follow: {reference["layer"]}')
+            if fit == 'corners' and self.spatial.track_shape(layer) == 'point':
+                raise ValueError(f'{reference["layer"]} follows a point; pin it with "fit": "follow"')
+            if reference.get('aspect', 'keep') not in ('keep', 'stretch'):
+                raise ValueError('pin "aspect" is keep or stretch')
+        if role == 'behind' and kind != 'matte':
+            raise ValueError(f'behind needs a matte layer: {reference["layer"]} is a {kind}')
+        if role == 'blur' and kind not in ('track', 'matte'):
+            raise ValueError(f'a blur region needs a track or matte layer: {reference["layer"]}')
+        state = self.spatial.layer_state(path, layer, self.project_root)
+        return {'path': path, 'name': path.stem, 'file': reference['layer'], 'layer': layer, 'state': state,
+                'reference': reference, 'relations': {}}
+
+    def relation(self, use, clip):
+        """'same' when a clip plays the layer's source as it was when the layer was made, 'stale' when it plays the
+        layer's source but the layer no longer fits it, 'other' for any other source. Bound by the identity the
+        edit records for the source (the map's size and SHA-256, never rehashed here), else by the file itself;
+        a preview proxy is bound through the original file the edit names for its sound."""
+        key = id(clip)
+        if key not in use['relations']:
+            layer, state = use['layer'], use['state']
+            entry = self.sources.get(clip['src'])
+            files = [Path(clip['file'])]
+            if isinstance(entry, dict) and entry.get('audio_file'):
+                files.append(Path(audio_source_path(self.root, self.sources, clip['src'])))
+            by_path = [file for file in files if project.same_file(file, state['source_file'])]
+            named = clip['src'] == layer['source'].get('alias') or bool(by_path)
+            if isinstance(entry, dict) and isinstance(entry.get('sha256'), str):
+                same = entry['sha256'] == layer['source']['sha256'] and entry.get('bytes') == layer['source']['size']
+                named = named or same
+            else:
+                same = any(file.stat().st_size == layer['source']['size'] for file in by_path)
+            if state['state'] == 'current' and same:
+                result = 'same'
+            else:
+                result = 'stale' if named else 'other'
+            use['relations'][key] = result
+        return use['relations'][key]
+
+    def pick(self, use, clip, time):
+        """The layer frame(s) for a clip at an edit time, from the renderer's own frame choice: ({'index': i} or
+        {'pair': (i, j), 'fraction': f, 'look': ...}, None), or (None, reason)."""
+        spatial, layer = self.spatial, use['layer']
+        times = layer['times']
+        sample = clip_sample(clip, time)
+        if clip['mode'] == 'motion':
+            moment = clip['start'] + sample['sample_time'] * clip['speed']
+            first = spatial.frame_index(times, moment)
+            if first is None:
+                return None, "outside the layer's frames"
+            second = min(first + 1, len(times) - 1)
+            span = times[second] - times[first]
+            fraction = max(0.0, min(1.0, (moment - times[first]) / span)) if span > 0 else 0.0
+            return {'pair': (first, second), 'fraction': fraction, 'look': 'motion-interpolated retime'}, None
+        selected = sample['times'][sample['index']]
+        first = spatial.match_frame(times, selected)
+        if first is None:
+            if selected < times[0] or selected > times[-1]:
+                return None, "outside the layer's frames"
+            return None, 'no layer frame for the source frame shown'
+        if sample['blend'] is None:
+            return {'index': first}, None
+        second = spatial.match_frame(times, sample['times'][sample['index'] + 1])
+        if second is None:
+            return None, "outside the layer's frames"
+        return {'pair': (first, second), 'fraction': max(0.0, min(1.0, sample['blend'])),
+                'look': 'blended retime'}, None
+
+    def usable(self, use, choice):
+        """Whether a picked track frame (or pair) is tracked; matte frames always are."""
+        if use['layer']['kind'] != 'track':
+            return True
+        indices = choice['pair'] if 'pair' in choice else (choice['index'],)
+        return all(use['layer']['frames'][index]['state'] != 'lost' for index in indices)
+
+    def frame_plan(self, entry, active, time):
+        """What to draw for one overlay on one output frame: ([(clip, {role: choice})], None), or ([], the reason
+        nothing is drawn)."""
+        roles = entry['roles']
+        blur = 'blur' in roles
+        plans = []
+        for role, use in roles.items():
+            relations = [(clip, self.relation(use, clip)) for clip in active]
+            mine = [clip for clip, relation in relations if relation != 'other']
+            if not mine:
+                names = ', '.join(sorted({clip['src'] for clip in active}))
+                return [], f'another source is on screen ({names})'
+            if any(relation == 'stale' for _, relation in relations):
+                return [], 'the layer is stale: ' + '; '.join(use['state']['reasons'] or ['its source changed'])
+            if len(active) > 1 and not blur:
+                return [], 'a dissolve or dip is on screen (a pin or behind draws over a single shot)'
+            for clip in mine:
+                if clip.get('hold_previous'):
+                    if blur:
+                        continue
+                    return [], 'a held frame is on screen'
+                choice, reason = self.pick(use, clip, time)
+                if reason is None and not self.usable(use, choice):
+                    reason = 'the track is lost on this frame'
+                if reason:
+                    return [], reason
+                plans.append((clip, role, choice))
+        merged = {}
+        for clip, role, choice in plans:
+            merged.setdefault(id(clip), (clip, {}))[1][role] = choice
+        return list(merged.values()), None
+
+    def schedule(self, count):
+        """Plan every layered overlay for every output frame before rendering. A blur that cannot cover its region
+        on every frame where its source is on screen stops the render here, before anything is encoded."""
+        failures = []
+        for entry in self.entries.values():
+            seen = False
+            for number in range(count):
+                time = number / self.fps
+                if not entry['start'] <= time < entry['end']:
+                    continue
+                plan, reason = self.frame_plan(entry, active_clips(self.intervals, number), time)
+                if reason is None:
+                    entry['frames'][number] = plan
+                    seen = seen or bool(plan)
+                    for _, choices in plan:
+                        entry['looks'].update(choice['look'] for choice in choices.values() if choice.get('look'))
+                    continue
+                entry['skipped'].setdefault(reason, []).append(number)
+                if 'blur' in entry['roles'] and not reason.startswith('another source'):
+                    failures.append((entry, number, reason))
+            if 'blur' in entry['roles'] and not seen and not any(row[0] is entry for row in failures):
+                failures.append((entry, None, 'its source is never on screen during the blur, so nothing would be '
+                                              'blurred; check the layer and the blur times'))
+        if failures:
+            lines = []
+            for entry in {id(row[0]): row[0] for row in failures}.values():
+                by_reason = {}
+                for owner, number, reason in failures:
+                    if owner is entry:
+                        by_reason.setdefault(reason, []).append(number)
+                for reason, numbers in by_reason.items():
+                    where = ', '.join(f'{time_label(a)}-{time_label(b)}' for a, b in
+                                      spans_of([n for n in numbers if n is not None], self.fps)[:6])
+                    lines.append(f"blur {entry['roles']['blur']['name']}: {reason}" + (f' at {where}' if where else ''))
+            raise ValueError('a privacy blur must cover every frame of its source, so the render stopped: '
+                             + '; '.join(lines))
+
+    def matte_frame(self, use, clip, choice, time):
+        """A matte frame placed in the output frame as an 'L' array, through the renderer's framing; a retimed pair
+        takes the nearer frame."""
+        index = choice['index'] if 'index' in choice else choice['pair'][round(choice['fraction'])]
+        key = (str(use['path']), id(clip))
+        if key not in self.readers:
+            layer = use['layer']
+            self.readers[key] = self.spatial.FrameReader(self.spatial.data_path(use['path'], layer),
+                                                         layer['frame_size'], 'matte')
+        frame = Image.fromarray(self.readers[key].frame(index), 'L')
+        if frame.size != (clip['sw'], clip['sh']):
+            frame = frame.resize((clip['sw'], clip['sh']), Image.Resampling.BILINEAR)
+        return np.asarray(apply_framing(frame, clip_framing(clip, time, self.width, self.height),
+                                        self.width, self.height, 0))
+
+    def track_points(self, use, clip, choice, time):
+        """A track frame in output pixels: (corners 4x2 or None, centre, size or None)."""
+        spatial, layer = self.spatial, use['layer']
+        if 'index' in choice:
+            corners, point, _ = spatial.track_frame(layer, choice['index'])
+        else:
+            first = spatial.track_frame(layer, choice['pair'][0])
+            second = spatial.track_frame(layer, choice['pair'][1])
+            mix = choice['fraction']
+            corners = None if first[0] is None else first[0] * (1 - mix) + second[0] * mix
+            point = first[1] * (1 - mix) + second[1] * mix
+        scale = np.array([clip['sw'] / layer['frame_size'][0], clip['sh'] / layer['frame_size'][1]])
+        matrix = framing_matrix(clip_framing(clip, time, self.width, self.height), clip['sw'], clip['sh'],
+                                self.width, self.height)
+        if corners is not None:
+            quad = spatial.apply_homography(matrix, corners * scale)
+            return quad, quad_centre(quad), math.sqrt(quad_area(quad))
+        return None, spatial.apply_homography(matrix, [point * scale])[0], None
+
+    def blur_mask(self, entry, clip, choice, time):
+        """The padded region a blur covers on one frame, as an 'L' mask the size of the output."""
+        use, spec = entry['roles']['blur'], entry['spec']
+        pad = float(spec.get('pad', BLUR_PAD))
+        if use['layer']['kind'] == 'matte':
+            matte = Image.fromarray(self.matte_frame(use, clip, choice, time), 'L')
+            box = matte.point(lambda value: 255 if value >= 128 else 0).getbbox()
+            # Thresholding a Gaussian-blurred mask at 4/255 grows it by about 2.15 sigma.
+            grow = max(1.0, pad * (max(box[2] - box[0], box[3] - box[1]) if box else 0) / 2.15)
+            grown = matte.point(lambda value: 255 if value >= 128 else 0).filter(ImageFilter.GaussianBlur(grow))
+            mask = grown.point(lambda value: 255 if value >= 4 else 0)
+        else:
+            quad, centre, _ = self.track_points(use, clip, choice, time)
+            if quad is None:
+                side = float(spec.get('size', POINT_BOX)) * self.height / 2
+                quad = centre + np.array([[-side, -side], [side, -side], [side, side], [-side, side]])
+            middle = quad_centre(quad)
+            quad = middle + (quad - middle) * (1 + 2 * pad)
+            mask = Image.new('L', (self.width, self.height), 0)
+            ImageDraw.Draw(mask).polygon([tuple(map(float, point)) for point in quad], fill=255)
+        return mask.filter(ImageFilter.GaussianBlur(1.0)).point(lambda value: min(255, value * 2))
+
+    def blur(self, image, number, time):
+        """Blur every blur overlay's region on this frame (before titles and graphics are drawn, and before the
+        frame is kept for a hold)."""
+        for entry in self.entries.values():
+            if 'blur' not in entry['roles'] or number not in entry['frames']:
+                continue
+            radius = max(2.0, float(entry['spec'].get('strength', BLUR_STRENGTH)) * self.height)
+            for clip, choices in entry['frames'][number]:
+                image = blur_region(image, self.blur_mask(entry, clip, choices['blur'], time), radius)
+        return image
+
+    def fitted(self, entry, overlay):
+        """A corner-pinned image letterboxed (transparent) to the tracked region's shape on its key frame, so it is
+        not stretched; unchanged with "aspect": "stretch". Made once per overlay."""
+        if 'fitted' not in entry:
+            use = entry['roles']['pin']
+            entry['fitted'] = overlay
+            frames = [frame for frame in use['layer']['frames'] if frame.get('corners') is not None]
+            key = next((frame for frame in frames if frame['state'] == 'key'), frames[0] if frames else None)
+            if use['reference'].get('aspect', 'keep') == 'keep' and key is not None:
+                corners = np.asarray(key['corners'], dtype=np.float64) * use['layer']['frame_size']
+                across = (np.linalg.norm(corners[1] - corners[0]) + np.linalg.norm(corners[2] - corners[3])) / 2
+                down = (np.linalg.norm(corners[3] - corners[0]) + np.linalg.norm(corners[2] - corners[1])) / 2
+                aspect = across / down if down > 0 else overlay.width / overlay.height
+                width = max(overlay.width, round(overlay.height * aspect))
+                height = max(overlay.height, round(overlay.width / aspect))
+                if (width, height) != overlay.size:
+                    canvas = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+                    canvas.paste(overlay, ((width - overlay.width) // 2, (height - overlay.height) // 2))
+                    entry['fitted'] = canvas
+        return entry['fitted']
+
+    def reads(self, number):
+        """Whether image overlay `number` is drawn through a layer."""
+        return number in self.entries and 'blur' not in self.entries[number]['roles']
+
+    def draw(self, number, image, overlay, opacity, time, frame_number):
+        """Draw a pinned and/or behind image overlay on one output frame, or nothing where the plan says so."""
+        entry = self.entries[number]
+        if frame_number not in entry['frames']:
+            return image
+        clip, choices = entry['frames'][frame_number][0]
+        spec = entry['spec']
+        if 'pin' in choices:
+            quad, centre, size = self.track_points(entry['roles']['pin'], clip, choices['pin'], time)
+            if entry['roles']['pin']['reference'].get('fit', 'corners') == 'corners':
+                over = warp_overlay(image, self.fitted(entry, overlay), quad, opacity, self.spatial)
+            else:
+                over = self.follow(entry, image, overlay, opacity, centre, size)
+        else:
+            over = image.copy()
+            layer = overlay.copy()
+            layer.putalpha(layer.getchannel('A').point(lambda value: round(value * max(0, opacity))))
+            over.paste(layer, (round(float(spec.get('x', 0)) * self.width),
+                               round(float(spec.get('y', 0)) * self.height)), layer)
+        if 'behind' in choices:
+            matte = self.matte_frame(entry['roles']['behind'], clip, choices['behind'], time)
+            previous = entry['previous_matte']
+            if previous is not None and previous[0] == frame_number - 1:
+                change = float(np.mean(np.abs(matte.astype(np.int16) - previous[1]))) / 255
+                entry['flicker'].append((time, change))
+            entry['previous_matte'] = (frame_number, matte.astype(np.int16))
+            over = matte_over(over, image, matte)
+        return over
+
+    def follow(self, entry, image, overlay, opacity, centre, size):
+        """Move (and, for a region track, scale) an overlay with the track: from where x, y place it on its first
+        drawn frame, or centred on the track plus "offset" (fractions of the output) when the pin gives one."""
+        spec = entry['spec']
+        reference = entry['roles']['pin']['reference']
+        if entry['reference'] is None:
+            entry['reference'] = (centre, size)
+        start_centre, start_size = entry['reference']
+        ratio = size / start_size if size and start_size else 1.0
+        w, h = overlay.width * ratio, overlay.height * ratio
+        if isinstance(reference.get('offset'), list):
+            middle = centre + np.array([float(reference['offset'][0]) * self.width,
+                                        float(reference['offset'][1]) * self.height])
+        else:
+            placed = np.array([float(spec.get('x', 0)) * self.width + overlay.width / 2,
+                               float(spec.get('y', 0)) * self.height + overlay.height / 2])
+            middle = centre + (placed - start_centre) * ratio
+        quad = middle + np.array([[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]])
+        return warp_overlay(image, overlay, quad, opacity, self.spatial)
+
+    def close(self):
+        """Stop every layer decoder."""
+        for reader in self.readers.values():
+            reader.close()
+
+    def report(self, notes):
+        """Each layered overlay's frames drawn and not drawn (with reasons), its track's worst error where drawn and
+        a matte's measured change between frames where drawn; adds a note for each span not drawn and each
+        interpolated retime."""
+        rows = []
+        for entry in self.entries.values():
+            roles = entry['roles']
+            label = ' and '.join(f"{role} {use['name']}" for role, use in roles.items())
+            label = label[0].upper() + label[1:]
+            total = len(entry['frames']) + sum(len(numbers) for numbers in entry['skipped'].values())
+            row = {'overlay': entry['number'], 'kind': entry['spec'].get('kind'),
+                   'roles': {role: {'layer': use['file'], 'kind': use['layer']['kind'],
+                                    'state': use['state']['state'], 'reasons': use['state']['reasons']}
+                             for role, use in roles.items()},
+                   'from': entry['start'], 'to': entry['end'], 'frames': total, 'drawn_frames': len(entry['frames']),
+                   'not_drawn': []}
+            for reason, numbers in entry['skipped'].items():
+                for start, end in spans_of(numbers, self.fps):
+                    row['not_drawn'].append({'start': round(start, 6), 'end': round(end, 6), 'reason': reason})
+                    if 'blur' in roles:
+                        notes.append(f'{label}: nothing to blur {time_label(start)}-{time_label(end)}: {reason}.')
+                    else:
+                        notes.append(f'{label} not drawn {time_label(start)}-{time_label(end)}: {reason}.')
+            row['not_drawn'].sort(key=lambda span: span['start'])
+            row['frames_by_cause'] = {'drawn': len(entry['frames'])}
+            for reason, numbers in entry['skipped'].items():
+                cause = next((name for words, name in SKIP_CAUSES if reason.startswith(words)), 'other')
+                row['frames_by_cause'][cause] = row['frames_by_cause'].get(cause, 0) + len(numbers)
+            for look in sorted(entry['looks']):
+                notes.append(f'{label} is drawn over a {look}: track corners are interpolated between tracked frames '
+                             'and mattes take the nearer frame; look at it.')
+            track = next((use['layer'] for use in roles.values() if use['layer']['kind'] == 'track'), None)
+            if track:
+                errors = [track['frames'][choice['index']]['error_px'] for plans in entry['frames'].values()
+                          for _, choices in plans for choice in choices.values()
+                          if 'index' in choice and track['frames'][choice['index']].get('error_px') is not None]
+                row['track_error_px_worst'] = round(max(errors), 3) if errors else None
+            if entry['flicker']:
+                values = [value for _, value in entry['flicker']]
+                worst = max(entry['flicker'], key=lambda pair: pair[1])
+                row['matte_flicker'] = {'mean': round(float(np.mean(values)), 5), 'worst': round(worst[1], 5),
+                                        'worst_at': round(worst[0], 6),
+                                        'measure': 'mean absolute change of the drawn matte between consecutive '
+                                                   'output frames (0-1); real movement counts too'}
+            if 'blur' in roles:
+                notes.append(f'{label} covers {len(entry["frames"])} frames; a privacy blur is not anonymisation: '
+                             'a person checks every frame of it.')
+            rows.append(row)
+        return rows
+
+
+def grid_tolerance(fps, clips):
+    """Bound the accumulated source-clock rounding used for every output boundary."""
+    rate = float(fps)
+    precision = sum(max(float(clip.get('time_tick', 0)), 1e-6) / float(clip.get('speed', 1)) for clip in clips)
+    return min(precision, .25 / rate)
+
+
+def output_boundary(time, fps, tolerance):
+    """Map a half-open time boundary to the first frame on or after it."""
+    rate = float(fps)
+    nearest = round(time * rate)
+    if (nearest > 0 or time == 0) and abs(time - nearest / rate) <= tolerance:
+        return nearest
+    return math.ceil(time * rate - 1e-12)
+
+
+def output_frame_count(total, fps, clips):
+    """Use the same output-grid boundary as every clip's exclusive end."""
+    return output_boundary(total, fps, grid_tolerance(fps, clips))
+
+
+def clip_frame_intervals(clips, fps):
+    """Snap starts and exclusive ends with one tolerance so adjacent cuts tile."""
+    tolerance = grid_tolerance(fps, clips)
+    return [(clip, output_boundary(clip['at'], fps, tolerance),
+             output_boundary(clip['at'] + clip['duration'], fps, tolerance)) for clip in clips]
+
+
+def render_picture(ffmpeg, clips, images, width, height, fps, total, output, layers=None):
+    """Composite picture and image overlays into the shared capped encoder; `layers` (a LayerPlan) blurs regions
+    before overlays are drawn and draws pinned and behind overlays."""
+    handles = {}
     encoder = Encoder(ffmpeg, output, width, height, fps)
-    count = math.ceil(total * fps - 1e-9)
+    count = output_frame_count(total, fps, clips)
+    intervals = clip_frame_intervals(clips, fps)
+    for clip in clips:
+        clip['_matching_grid'] = source_grid_matches(clip, fps)
+    held_images = {}
+    previous_image = None
+
+    def picture_for(clip, time):
+        if not clip.get('hold_previous'):
+            source = clip_sample(clip, time)['raw']
+            if source not in handles:
+                handles[source] = source.open() if isinstance(source, FrameSource) else open(source, 'rb')
+            return render_clip(clip, time, handles, width, height)
+        key = id(clip)
+        if key not in held_images:
+            if previous_image is None:
+                raise ValueError('a hold needs a previous displayed frame')
+            held_images[key] = previous_image.copy()
+        return held_images[key].copy()
+
     try:
         for number in range(count):
             time = number / float(fps)
-            active = [clip for clip in clips if clip['at'] <= time < clip['at'] + clip['duration']]
+            active = active_clips(intervals, number)
             if not active:
                 raise RuntimeError(f'gap in picture at {time:.6f}')
-            image = render_clip(active[0], time, handles, width, height)
+            active_sources = {clip_sample(clip, time)['raw'] for clip in active if not clip.get('hold_previous')}
+            for source in list(handles):
+                if source not in active_sources:
+                    handles.pop(source).close()
+            for key in list(held_images):
+                if not any(id(clip) == key for clip in active):
+                    del held_images[key]
+            image = picture_for(active[0], time)
             for clip in active[1:]:
-                incoming = render_clip(clip, time, handles, width, height)
+                incoming = picture_for(clip, time)
                 fraction = min(1, max(0, (time - clip['at']) / clip['overlap'])) if clip['overlap'] else 1
                 if clip['kind'] == 'dissolve':
                     # The outgoing image stays opaque beneath the arriving image.
@@ -491,22 +1615,53 @@ def render_picture(ffmpeg, clips, images, width, height, fps, total, output):
                         image = Image.blend(colour, incoming, (fraction - .5) * 2)
                 else:
                     image = incoming
-            for overlay, spec, start, end, fade in images:
-                if start <= time < end:
+            if layers is not None:
+                image = layers.blur(image, number, time)
+            previous_image = image.copy()
+            for overlay_number, (overlay, spec, start, end, fade) in enumerate(images):
+                if overlay is not None and start <= time < end:
+                    if isinstance(overlay, MovingOverlay):
+                        overlay = overlay.frame(int(math.floor((time - start) * float(fps) + 1e-6)))
                     opacity = min(1, (time - start) / fade, (end - time) / fade) if fade else 1
+                    if layers is not None and layers.reads(overlay_number):
+                        image = layers.draw(overlay_number, image, overlay, max(0, opacity), time, number)
+                        continue
                     layer = overlay.copy()
                     layer.putalpha(layer.getchannel('A').point(lambda value: round(value * max(0, opacity))))
                     image.paste(layer, (round(float(spec.get('x', 0)) * width),
                                         round(float(spec.get('y', 0)) * height)), layer)
             encoder.write(np.asarray(image))
+        for handle in handles.values():
+            handle.close()
+        handles.clear()
         encoder.close()
     except BaseException:
         encoder.abort()
         raise
     finally:
         for handle in handles.values():
-            handle.close()
+            if hasattr(handle, 'abort'):
+                handle.abort()
+            else:
+                handle.close()
+        if layers is not None:
+            layers.close()
+        for overlay, *_ in images:
+            if isinstance(overlay, MovingOverlay):
+                overlay.close()
     return count
+
+
+def render_picture_with_retry(ffmpeg, clips, images, width, height, fps, total, output, layer_factory=None):
+    """Restart a failed seeked picture with a freshly scheduled layer plan and validated linear clock."""
+    while True:
+        for clip in clips:
+            clip['_matching_grid'] = source_grid_matches(clip, fps)
+        layers = layer_factory() if layer_factory is not None else None
+        try:
+            return render_picture(ffmpeg, clips, images, width, height, fps, total, output, layers), layers
+        except PlaybackSeekError as error:
+            error.source.retry_without_seek()
 
 
 def caption_options(overlay):
@@ -518,39 +1673,46 @@ def caption_options(overlay):
             options += [flag, ','.join(str(v) for v in value) if isinstance(value, list) else str(value)]
     for box in overlay.get('avoid', []):
         options += ['--avoid', ','.join(str(v) for v in box)]
-    for key, flag in (('plate', '--plate'), ('highlight', '--highlight')):
-        if overlay.get(key):
-            options.append(flag)
+    if 'plate' in overlay:
+        options.append('--plate' if overlay['plate'] else '--no-plate')
+    if overlay.get('highlight'):
+        options.append('--highlight')
     return options
 
 
 def burn_captions(captions, root, picture, temp):
     """Burn captions with captions.py after the picture is rendered, one overlay at a time."""
     current = picture
+    reports = []
     for index, overlay in enumerate(captions):
         output = Path(temp) / f'caption-{index}.mp4'
+        report = Path(temp) / f'caption-{index}.json'
         command = [sys.executable, '-I', str(CAPTIONS), 'burn', str(current), str(root / overlay['file']),
-                   '--out', str(output)]
+                   '--out', str(output), '--json', str(report), '--crf', '0']
         command += caption_options(overlay)
-        run(command)
+        run(command, 6 * 3600)
+        reports.append(json.loads(report.read_text(encoding='utf-8')))
+        if index:
+            current.unlink(missing_ok=True)
         current = output
-    return current
+    return current, reports
 
 
-def cap_caption_encode(ffmpeg, source, destination, width, height, fps):
-    """Restore the shared level-capped encode after the captions tool's burn pass."""
-    reader = Frames(ffmpeg, str(source), 'format=rgb24', width * height * 3)
-    encoder = Encoder(ffmpeg, destination, width, height, fps)
-    count = 0
-    try:
-        for raw in reader:
-            encoder.write(np.frombuffer(raw, np.uint8).reshape(height, width, 3))
-            count += 1
-        reader.times(count)
-        encoder.close()
-    except BaseException:
-        encoder.abort()
-        raise
+def cap_caption_encode(ffmpeg, source, destination, width, height, fps, expected_frames):
+    """Apply the shared level cap without a lossy YUV-to-RGB-to-YUV round trip."""
+    rate = exact_rate(fps)
+    options = h264_args(width, height, fps)
+    options[1] = (f'setpts=N*{rate.denominator}/({rate.numerator}*TB),format=yuv420p,'
+                  'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv')
+    command = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-i', str(source), '-map', '0:v:0', '-an',
+               '-frames:v', str(expected_frames), '-fps_mode', 'passthrough', *options, str(destination)]
+    run(command, 6 * 3600)
+    ffprobe = find_tool('ffprobe')
+    if not ffprobe:
+        raise ValueError('ffprobe is required to verify caption burn frames')
+    count = decoded_count(ffprobe, destination)
+    if count != expected_frames:
+        raise ValueError(f'caption burn returned {count} frames, expected {expected_frames}')
 
 
 def export(edit, out, report_path, temp, stage, picture, cues, cuts, dissolves, report):
@@ -559,12 +1721,20 @@ def export(edit, out, report_path, temp, stage, picture, cues, cuts, dissolves, 
     write_json(stage / 'edit-cues.json', {'fps': float(exact_rate(edit['fps'])),
                                          'events': sorted(cues + edit.get('cues', []), key=lambda cue: cue['t'])})
     holds = edit.get('holds', [])
+    declared = edit.get('declared', [])
     dips = [{'start': clip['at'], 'end': clip['at'] + clip['overlap']}
             for clip in report.pop('_clips') if clip['kind'] == 'dip']
     ranges = sorted((float(x['start']), float(x['end'])) if isinstance(x, dict)
-                    else (float(x[0]), float(x[1])) for x in holds + dips)
-    ignore = ','.join(f'{start:.3f}-{end:.3f}' for start, end in ranges)
-    write_json(stage / 'declared.json', {'cuts': cuts, 'holds': holds, 'dissolves': dissolves, 'ignore': ignore})
+                    else (float(x[0]), float(x[1])) for x in holds + dips + declared)
+    merged = []
+    for start, end in ranges:
+        if merged and start <= merged[-1][1] + 1e-6:
+            merged[-1][1] = max(end, merged[-1][1])
+        else:
+            merged.append([start, end])
+    ignore = ','.join(f'{start:.3f}-{end:.3f}' for start, end in merged)
+    write_json(stage / 'declared.json', {'cuts': cuts, 'holds': holds, 'designed': declared,
+                                         'dissolves': dissolves, 'ignore': ignore})
     write_json(stage / 'assemble-report.json', report)
     pairs = [(Path(picture), out)]
     for path in stage.iterdir():
@@ -601,7 +1771,8 @@ def main():
     parser.add_argument('edit')
     parser.add_argument('--out', required=True)
     parser.add_argument('--json')
-    parser.add_argument('--spool-gib', type=float, default=8, help='maximum raw RGB spool, default 8 GiB')
+    parser.add_argument('--spool-gib', type=float, default=8,
+                        help='legacy compatibility option; picture frames are streamed instead of spooled')
     args = parser.parse_args()
     try:
         ffmpeg = find_tool('ffmpeg')
@@ -623,42 +1794,57 @@ def main():
             raise ValueError('size must be positive and even')
         out = Path(args.out).resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
-        filenames = {source_path(root, edit['sources'], item['src']) for item in edit['picture']}
-        filenames.update(source_path(root, edit['sources'], item['src']) for item in edit.get('audio', []))
         targets = {out, out.parent / 'edit-cues.json', out.parent / 'declared.json'}
+        if any(overlay.get('kind') == 'captions' for overlay in edit.get('overlays', [])):
+            targets.add(out.parent / 'caption-burn.json')
         targets.add(Path(args.json).resolve() if args.json else out.parent / 'assemble-report.json')
         targets.update(out.parent / (item['track'] + '.wav') for item in edit.get('audio', []))
-        output_targets = targets
-        if any(str(target) in filenames for target in output_targets) or edit_path in output_targets:
-            raise ValueError('output must not overwrite an edit or source')
+        project.refuse_overwriting_inputs(sorted(targets), edit_inputs(edit, root, edit_path))
         picture_sources = {source_path(root, edit['sources'], item['src']) for item in edit['picture']}
         notes = []
         with tempfile.TemporaryDirectory(prefix='legible-footage-', dir=out.parent) as temp:
             stage = Path(temp) / 'stage'
             stage.mkdir()
             limit = int(args.spool_gib * 1024 ** 3)
-            cache, properties, used = conform(ffmpeg, ffprobe, edit, root, temp, limit)
-            clips, snaps, cues, cuts, dissolves = plan_picture(edit, root, cache, ffmpeg, ffprobe, temp)
+            cache, properties, used = conform(ffmpeg, ffprobe, edit, root, temp, limit, notes)
+            clips, snaps, cues, cuts, dissolves = plan_picture(edit, root, cache, ffmpeg, ffprobe, temp, notes)
             total = clips[-1]['at'] + clips[-1]['duration']
             if total <= 0:
                 raise ValueError('zero duration')
             motion_retimes(ffmpeg, clips, properties, fps, temp, limit, used)
             images, captions = prepare_overlays(edit, root, width, cues, notes)
             picture = Path(temp) / 'picture.mp4'
-            count = render_picture(ffmpeg, clips, images, width, height, rate, total, picture)
+            layer_factory = None
+            if any(layer_roles(spec) for _, spec, _, _, _ in images):
+                def layer_factory():
+                    """Schedule every layer before creating an encoder, including on a playback retry."""
+                    return LayerPlan(edit, root, clips, images, width, height, rate,
+                                     output_frame_count(total, rate, clips))
+            count, layers = render_picture_with_retry(ffmpeg, clips, images, width, height, rate, total, picture,
+                                                      layer_factory)
             if captions:
-                captioned = burn_captions(captions, root, picture, temp)
+                captioned, caption_reports = burn_captions(captions, root, picture, temp)
+                write_json(stage / 'caption-burn.json', {'version': 1, 'overlays': caption_reports})
+                for caption_report in caption_reports:
+                    for finding in caption_report.get('review', []):
+                        if finding.get('rule') == 'caption reduced to fit':
+                            notes.append(f"Caption {finding['cue']} reduced from {finding['requested_size_px']} to "
+                                         f"{finding['used_size_px']} px; choose a wider area or shorter caption.")
                 picture = Path(temp) / 'caption-capped.mp4'
-                cap_caption_encode(ffmpeg, captioned, picture, width, height, rate)
-                notes.append('Caption burn was encoded again with the shared level-capped encoder; review legibility.')
+                cap_caption_encode(ffmpeg, captioned, picture, width, height, rate, count)
+                notes.append('Caption burn used lossless YUV intermediates before the shared level-capped encoder; '
+                             'review legibility.')
             snaps.extend(render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, stage, notes))
             report = {'duration_s': total, 'frames': count, 'snaps': snaps, 'sources': properties,
-                      'spool_budget_bytes': limit, 'source_spool_bytes': used, '_clips': clips,
+                      'spool_budget_bytes': limit, 'spool_limit_enforced': False, 'source_spool_bytes': used,
+                      'motion_spool_bytes': 0, '_clips': clips,
                       'retimes': [{'src': clip['src'], 'in': clip['start'], 'out': clip['stop'],
                                    'speed': clip['speed'], 'mode': clip['mode']}
                                   for clip in clips if clip['speed'] != 1],
                       'crops': [{'src': clip['src'], 'path': clip['crop'], 'fit': clip['fit'],
-                                 'zoom': clip['zoom']} for clip in clips], 'notes': notes}
+                                 'zoom': clip['zoom'], **clip['crop_info']} for clip in clips], 'notes': notes}
+            if layers is not None:
+                report['layers'] = layers.report(notes)
             export(edit, out, args.json, temp, stage, picture, cues, cuts, dissolves, report)
         print(f'Rendered {count} frames; {len(snaps)} snap points; {len(notes)} review notes.')
         for note in notes:

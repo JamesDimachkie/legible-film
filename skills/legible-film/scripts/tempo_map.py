@@ -19,11 +19,20 @@ import importlib.util
 import math
 import sys
 from pathlib import Path
-import numpy as np
+import os
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 _spec = importlib.util.spec_from_file_location('sound_io', Path(__file__).with_name('sound_io.py'))
 io = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(io)
+_project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 RATE, HOP, FRAME = 16000, 16, 256
 
 
@@ -304,6 +313,7 @@ def main():
     p.add_argument('--ffmpeg')
     a = p.parse_args()
     try:
+        project.refuse_overwriting_inputs([a.json], [a.music])
         ffmpeg = io.find_tool('ffmpeg', a.ffmpeg)
         if not ffmpeg or a.start < 0 or a.beats_per_bar < 1 or (a.bpm and not 60 <= a.bpm <= 200):
             raise ValueError('need FFmpeg, start >= 0, beats-per-bar >= 1 and BPM in 60..200')

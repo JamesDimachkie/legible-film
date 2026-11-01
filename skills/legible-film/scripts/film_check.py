@@ -13,6 +13,11 @@ animation or @keyframes, fetch, XMLHttpRequest, WebSocket, remote URLs); a line 
   python film_check.py films/launch
   python film_check.py films/launch --size 1080x1920 --json qa/preflight.json
   python film_check.py films/launch --size 1920x1080 --res 720
+  python film_check.py films/launch --determinism --file-only
+
+--determinism compares a few actual frames in order, reverse order and a fresh page. It can find
+history-dependent pixels; three samples cannot prove the entire film deterministic. --file-only
+loads local assets directly in Chromium and blocks HTTP(S) requests, without a local server.
 
 --res N is the delivered short side when the render scales the frame (film_render.py --res): the
 layout stays at --size, and the output-pixel criteria (type size, the large-text contrast rule, dither
@@ -41,7 +46,9 @@ import argparse
 import functools
 import glob
 import http.server
+import importlib.util
 import json
+import math
 import mimetypes
 import os
 import re
@@ -51,6 +58,12 @@ import subprocess
 import sys
 import tempfile
 import threading
+from pathlib import Path
+from fractions import Fraction
+
+_project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 
 VERSION = '1.0'
 LINT = [
@@ -84,9 +97,11 @@ let browser;
 const out = { console: [], requests_after_ready: [] };
 const timer = setTimeout(async () => { out.error = 'timed out'; console.log(JSON.stringify(out)); try { await browser?.close(); } catch (e) {} process.exit(2); }, 280000);
 try {
-  browser = await chromium.launch({ executablePath: exe || undefined, args: ['--force-color-profile=srgb'] });
+  browser = await chromium.launch({ executablePath: exe || undefined,
+                                    args: ['--force-color-profile=srgb', '--allow-file-access-from-files'] });
   const ctx = await browser.newContext({ viewport: { width: +W, height: +H }, deviceScaleFactor: 1, serviceWorkers: 'block' });
   const page = await ctx.newPage();
+  if (url.startsWith('file:')) await page.route(/^https?:/, route => route.abort());
   let ready = false;
   page.on('request', r => { if (ready) out.requests_after_ready.push(r.url()); });
   page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') out.console.push(`${m.type()}: ${m.text()}`); });
@@ -146,13 +161,17 @@ def serve(folder):
     return httpd
 
 
-def lint(folder):
+def page_files(folder):
+    """The film's own code: film.js, index.html, the block and engine scripts and the style sheets."""
     files = [os.path.join(folder, 'film.js'), os.path.join(folder, 'index.html')]
     for sub in ('blocks', 'lf'):
         files += sorted(glob.glob(os.path.join(folder, sub, '*.js')))
-    files += sorted(glob.glob(os.path.join(folder, '*.css')))
+    return files + sorted(glob.glob(os.path.join(folder, '*.css')))
+
+
+def lint(folder):
     hits = []
-    for f in files:
+    for f in page_files(folder):
         if not os.path.isfile(f):
             continue
         with open(f, encoding='utf-8', errors='replace') as fh:
@@ -175,16 +194,19 @@ def srt_time(t):
 
 
 def run_page(a, folder, w, h):
-    httpd = serve(folder)
-    port = httpd.server_address[1]
-    url = f'http://127.0.0.1:{port}/index.html?render&w={w}&h={h}' + (f'&res={a.res}' if a.res else '')
+    file_only = getattr(a, 'file_only', False)
+    httpd = None if file_only else serve(folder)
+    url = (Path(folder, 'index.html').as_uri() if file_only else
+           f'http://127.0.0.1:{httpd.server_address[1]}/index.html')
+    url += f'?render&w={w}&h={h}' + (f'&res={a.res}' if a.res else '')
     node = find_tool('node', a.node)
     if not node:
-        httpd.shutdown()
+        if httpd:
+            httpd.shutdown()
         raise RuntimeError('Node is not on PATH (or pass --node)')
     capture = a.capture or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'film_capture.mjs')
     try:
-        if os.path.isfile(capture):
+        if os.path.isfile(capture) and not file_only:
             res = {}
             for cmd in ('info', 'analyse'):
                 p = subprocess.run([node, capture, cmd, '--url', url, '--size', f'{w}x{h}'] + (['--browser', a.browser] if a.browser else []) + (['--playwright', a.playwright] if a.playwright else []),
@@ -213,7 +235,94 @@ def run_page(a, folder, w, h):
             res['runner'] = 'bundled runner'
             return res
     finally:
-        httpd.shutdown()
+        if httpd:
+            httpd.shutdown()
+
+
+DETERMINISM_RUNNER = r"""
+import path from 'node:path';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+const [url, width, height, mod, exe, dir, rawTimes, kit] = process.argv.slice(2);
+const tries = mod ? [path.resolve(mod, 'index.mjs'), path.resolve(mod)] : [];
+// The project folder first, then where setup.py --install kit puts it.
+for (const base of [process.cwd(), kit].filter(Boolean)) {
+  const req = createRequire(path.join(base, 'x.js'));
+  for (const name of ['playwright', 'playwright-core']) { try { tries.push(req.resolve(name)); } catch (e) {} }
+}
+let pw;
+for (const candidate of tries) { try { pw = await import(pathToFileURL(candidate).href); break; } catch (e) {} }
+if (!pw) throw Error('Playwright is not installed: run setup.py --install kit, or pass --playwright');
+const browser = await (pw.chromium || pw.default.chromium).launch({
+  executablePath: exe || undefined, args: ['--force-color-profile=srgb', '--allow-file-access-from-files']
+});
+try {
+  const context = await browser.newContext({ viewport:{width:+width,height:+height}, deviceScaleFactor:1,
+                                             serviceWorkers:'block' });
+  if (url.startsWith('file:')) await context.route(/^https?:/, route => route.abort());
+  async function page() {
+    const p = await context.newPage();
+    await p.goto(url);
+    await p.waitForFunction(() => !!window.__lf, null, {timeout:30000});
+    await p.evaluate(async () => { await window.__lf.ready; await document.fonts.ready; });
+    return p;
+  }
+  async function capture(p, index, time, label) {
+    await p.evaluate(async (t) => {
+      if (typeof window.__lf.frame === 'function') window.__lf.frame(t);
+      window.__lf.seek(t);
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    }, time);
+    await p.screenshot({path:path.join(dir, `${label}-${index}.png`), type:'png'});
+  }
+  const times = JSON.parse(rawTimes);
+  const first = await page();
+  for (let i=0; i<times.length; i++) await capture(first, i, times[i], 'ordered');
+  for (let i=times.length-1; i>=0; i--) await capture(first, i, times[i], 'reversed');
+  await first.close();
+  const fresh = await page();
+  for (let i=0; i<times.length; i++) await capture(fresh, i, times[i], 'fresh');
+  await fresh.close();
+  await context.close();
+} finally { await browser.close(); }
+"""
+
+
+def determinism_probe(url, width, height, info, node, playwright, browser):
+    """Compare a few actual raster frames in order, reverse order and a fresh page."""
+    from PIL import Image, ImageChops
+    fps = float(Fraction(str(info.get('fps') or 0)))
+    frames = int(info.get('frames') or 0)
+    if not math.isfinite(fps) or fps <= 0 or frames <= 0:
+        raise ValueError('determinism probe needs a positive fps and frame count from __lf.info()')
+    indices = sorted({0, (frames - 1) // 2, frames - 1})
+    times = [index / fps for index in indices]
+    with tempfile.TemporaryDirectory(prefix='lf-determinism-') as folder:
+        script = os.path.join(folder, 'determinism.mjs')
+        with open(script, 'w', encoding='utf-8', newline='\n') as handle:
+            handle.write(DETERMINISM_RUNNER)
+        spec = importlib.util.spec_from_file_location('lf_check_setup', Path(__file__).with_name('setup.py'))
+        setup = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(setup)
+        command = [node, script, url, str(width), str(height), playwright or '', browser or '', folder,
+                   json.dumps(times), str(setup.data_home() / 'playwright')]
+        result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                                timeout=180)
+        if result.returncode:
+            reasons = re.findall(r'^\w*Error: (.+)$', result.stderr, re.MULTILINE)
+            raise RuntimeError('determinism capture failed: ' + (reasons[-1] if reasons else
+                                                                 result.stderr.strip()[-300:] or 'no output'))
+        differences = []
+        for index, time in enumerate(times):
+            with Image.open(os.path.join(folder, f'ordered-{index}.png')) as original:
+                original = original.convert('RGB')
+                for sequence in ('reversed', 'fresh'):
+                    with Image.open(os.path.join(folder, f'{sequence}-{index}.png')) as image:
+                        other = image.convert('RGB')
+                        if other.size != original.size or ImageChops.difference(original, other).getbbox():
+                            differences.append({'frame': indices[index], 'time_s': time, 'sequence': sequence})
+    return {'frames': indices, 'times_s': times, 'differences': differences,
+            'method': 'ordered, reversed and fresh page; exact decoded RGB pixels'}
 
 
 def main():
@@ -227,11 +336,19 @@ def main():
     ap.add_argument('--node')
     ap.add_argument('--browser', help='Chromium executable')
     ap.add_argument('--playwright', help='path to an installed playwright or playwright-core package')
+    ap.add_argument('--determinism', action='store_true', help='compare frames in order, reverse and a fresh page')
+    ap.add_argument('--file-only', action='store_true', help='load local files directly and block web requests')
     a = ap.parse_args()
 
     folder = os.path.abspath(a.film)
     if not os.path.isfile(os.path.join(folder, 'index.html')):
         print(f'film_check.py: {folder} is not a film folder (needs an index.html implementing window.__lf)', file=sys.stderr)
+        return 2
+    try:
+        project.refuse_overwriting_inputs([a.json], page_files(folder) + [os.path.join(folder, 'facts.json'),
+                                                                         a.capture])
+    except ValueError as error:
+        print(f'film_check.py: cannot run: {error}', file=sys.stderr)
         return 2
     w, h = (1920, 1080)
     if a.size:
@@ -263,6 +380,29 @@ def main():
     hits = lint(folder)
     errors = list(an.get('errors', []))
     warnings = list(an.get('warnings', []))
+    determinism = {'status': 'not requested'}
+    if a.determinism:
+        httpd = None
+        try:
+            if a.file_only:
+                url = Path(folder, 'index.html').as_uri()
+            else:
+                httpd = serve(folder)
+                url = f'http://127.0.0.1:{httpd.server_address[1]}/index.html'
+            url += f'?render&w={w}&h={h}' + (f'&res={a.res}' if a.res else '')
+            determinism = determinism_probe(url, w, h, info, find_tool('node', a.node),
+                                            a.playwright or os.environ.get('LF_PLAYWRIGHT_MODULE'),
+                                            find_chromium(a.browser))
+            determinism['status'] = 'different' if determinism['differences'] else 'same'
+            for difference in determinism['differences']:
+                errors.append(f"determinism: frame {difference['frame']} at {difference['time_s']:.3f} s differs "
+                              f"in the {difference['sequence']} sequence")
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
+            determinism = {'status': 'skip', 'reason': str(error)}
+            warnings.append(f'determinism probe not run: {error}')
+        finally:
+            if httpd:
+                httpd.shutdown()
     if unanalysed:
         warnings.append('the page has no __lf.analyse(): facts, contrast, reading windows, predicted flashing, motion '
                         'and patterns were not checked; the cue list, captions and declarations come from info()')
@@ -327,6 +467,7 @@ def main():
         'tool': 'film_check.py', 'version': VERSION, 'film': folder, 'size': f'{w}x{h}', 'runner': res.get('runner'),
         **({'output_size': f'{out_size[0]}x{out_size[1]}', 'res': a.res} if a.res else {}),
         'errors': errors, 'warnings': warnings, 'lint': hits, 'requests_after_ready': late,
+        'determinism': determinism,
         'info': info, 'analysis': analysis, 'exports': written,
         'not_checked': ['the delivered file (render it and run the QC battery)', 'motion at playback speed', 'sound']
                        + (['facts, contrast, reading windows, predicted flashing, motion and patterns (no __lf.analyse())']
@@ -359,6 +500,8 @@ def main():
         print(f"  loop: the seam {'closes' if lp.get('closes') else 'does not close'} (frame 0 against the end: "
               f"{', '.join(lp.get('checked', []))}; {len(lp.get('differences', []))} difference(s))")
     print(f"  lint: {len(hits)} hit(s); requests after ready: {len(late)}")
+    if a.determinism:
+        print(f"  determinism: {determinism['status']}")
     for e in errors[:20]:
         print(f'  ERROR {e}')
     if len(errors) > 20:

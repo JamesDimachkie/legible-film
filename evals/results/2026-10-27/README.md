@@ -34,7 +34,7 @@ installed and one without. A grader from another model family scored both blind 
   - Grades with quoted evidence: [round 1](grades-round-1.md), [round 2](grades-round-2.md); all results in
     [grades.json](grades.json).
 - **Environment:**
-  - The sessions ran on the author's machine. Codex loads his personal instruction file (`~/.codex/AGENTS.md`) into
+  - The sessions ran on the author's machine. Codex loads a personal instruction file (`~/.codex/AGENTS.md`) into
     every session, and it could not be switched off without copying credentials, so both arms had it.
   - That file asks for approval before spending, uploading or publishing, which favours the run without the skill on
     the approval expectations. One output names the author as the person who approves.

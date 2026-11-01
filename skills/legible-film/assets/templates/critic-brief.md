@@ -19,6 +19,10 @@ You are the **[lens]** critic for a short film. Read this brief and follow it ex
 - Every transition sampled at 20-30 frames a second (`frame_sheet.py --around [times]`), and every frame of a
   suspect interval (`--frames A-B`).
 - Full resolution where grade, depth, type or alignment matter, and viewing size (`--width 384`) for every text.
+- When the picture lands on speech, label the tiles with the words spoken (`--words FILE --offset S`) and put tiles
+  at the moments that must land (`--at`).
+- Describe each key frame in one sentence as a stranger would, naming every object: an object you would have to
+  explain is a finding. Then cover the words: the pictures alone should still tell the story.
 - You cannot listen. Where sound matters, measure it and say so.
 
 ## Fixed constraints (do not recommend breaking them)

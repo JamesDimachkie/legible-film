@@ -18,6 +18,19 @@ Contents: [1. Render custody](#1-render-custody) · [2. Frame rate and motion bl
   when a script changes directory.
 - Keep the editable project; the export is not the source.
 
+For footage edits, `assemble.py` first decodes each selected range to obtain its presentation times without writing
+raw frames, then decodes it again as the clip plays. It retains at most two source frames per active clip; a dissolve
+or dip can have two active readers. Each picture decoder uses one input thread to reduce concurrent decoder memory;
+this can slow decoding. Motion retimes also stream after a timestamp pass. Automatic crop analysis adds a
+separate 320-pixel-wide decode and keeps its sampled analysis in memory, not a raw-frame disk spool. These passes cost
+time and their timestamp and crop-analysis metadata grow with the number of frames. The preflight schedule for spatial
+layers also grows with the output frames it covers. Encoded picture intermediates and audio files still need disk space
+proportional to their duration; the 2 GiB free-space check is a reserve, not a bound on the whole render. `--spool-gib`
+is accepted for compatibility and no longer sets a raw-picture disk limit.
+The assembly report retains the requested `spool_budget_bytes` for compatibility and marks `spool_limit_enforced`
+as false. If seeked playback fails, the picture is restarted with a linear decode only when its timestamps still
+match the original plan; a changed clock fails the render.
+
 ## 2. Frame rate and motion blur
 
 - Use 60 fps when interface elements, text or the camera travel: lower rates make interface motion judder and slow
@@ -94,8 +107,9 @@ Dark tints are flattened by 8-bit 4:2:0 encoding; judge exact dark brand colours
   more reference frames: on FFmpeg 9.0.2 a 2160p60 encode signalled level 5.2 with `-preset slow` but 6.0 with
   `slower` and `veryslow`, while `-level 5.2` kept all three at 5.2. Pass `-level 4.2` for 1080p60 and `5.2` for
   2160p60 unless the spec says otherwise, and verify with `qc_file.py --max-level`.
-- Alpha deliverables: ProRes 4444 (`.mov`) for editors, VP9 WebM with alpha for browsers. Check the alpha
-  channel itself; a page background is not always captured as opaque.
+- Alpha deliverables: ProRes 4444 (`.mov`) for editors, VP9 WebM with alpha for browsers, rendered by an engine that
+  exports alpha (the film kit's renders are opaque). Check the alpha channel itself; a page background is not always
+  captured as opaque.
 - A seamless loop survives encoding better from a lossless intermediate (PNG sequence) encoded once; check the
   seam on the encoded file (`motion_scan.py --loop`).
 - A lossless capture followed by one delivery encode avoids stacking lossy generations; trial it on a short
@@ -114,6 +128,12 @@ Dark tints are flattened by 8-bit 4:2:0 encoding; judge exact dark brand colours
   `yuv420p` most reliably, so deliver that to the web.
 - Fine grain or dither can mask banding, but a platform's re-encode may remove light noise; test with a
   platform-like re-encode before adopting grain, and apply it globally rather than per element.
+- A look reviewed at one size is unproven at another. A glow keyed to brightness changes with resolution: at 4K,
+  thin lines rasterise with brighter cores, more of each crosses the glow threshold, and a reviewed 1080 insert came
+  out visibly glowier (mean luma 61 against 47). Before delivering a size nobody reviewed, compare it with the
+  reviewed render at one displayed size: `frame_sheet.py --width` on both at the same times, and the average of the
+  per-frame luma `ffmpeg -i FILE -vf "scale=1920:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG" -f null -`
+  prints for each (one value a frame). Or deliver the reviewed size.
 - A finish that blends layers (bloom, screen, glow) must run on RGB frames: convert with `format=gbrp` before
   the blend. Blending on YUV planes once turned every frame of a deliverable purple; a pixel check of the
   centre of the frame against the raw render catches it.

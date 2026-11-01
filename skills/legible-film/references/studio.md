@@ -5,6 +5,12 @@ hear, assets bought where they show, specialist craft passes, and a loop that ke
 a stated bar. Nothing in the main method relaxes: every gate, hard limit, truth rule and QC check still applies, and
 no money is spent without the person's yes.
 
+Follow it, on top of the loop, when the person asks for studio grade or gives a budget for premium work: a study of
+comparable work, choices they can watch (concept sketches, styleframes, an animatic), spending on the film's real
+bottleneck, specialist passes, and raising the weakest moment until viewers clear its six-question bar (§8) or the
+person stops. To find assets, read [assets](assets.md); to make them with generative tools,
+[generation](generation.md).
+
 ## Contents
 
 1. [When it applies](#1-when-it-applies)
@@ -20,13 +26,13 @@ no money is spent without the person's yes.
 ## 1. When it applies
 
 Use studio grade when the person asks for it by name, asks for the highest quality or "the best possible", or gives
-a budget for premium assets, generation or specialist work. Otherwise run the main steps; nothing here is required
+a budget for premium assets, generation or specialist work. Otherwise run the main loop; nothing here is required
 for a good film.
 
 Studio grade is not more of everything. Every element still earns its place, and the extra effort goes into finding
 the idea, testing choices with the person, and taking each weak moment to excellent. A film can be quieter and
 simpler at studio grade than it was before. Scale the studio to the piece: a short piece or an already approved idea
-keeps the core's tailoring ([short pieces](../SKILL.md#short-pieces)), and its concept reopens only if the person asks.
+keeps the core's tailoring ([sizing the job](../SKILL.md#size-the-job-first)), and its concept reopens only if the person asks.
 
 **Who judges what.** You prepare options, build, measure and inspect frames. Every judgement that needs motion at
 playback speed or hearing belongs to a person: how a move feels, a voice, the music, the mix on real speakers,
@@ -54,9 +60,9 @@ Settle these before designing picture or sound:
   everything still owed, with an approved subscription counted for its full term until its cancellation is
   confirmed), and what remains under the cap. Never exceed the cap, start a new generation batch or renew beyond an
   approved term without asking.
-- **The bar.** Agree two or three reference films the finished piece should be able to sit beside. If the person has
-  none, do the reference part of the study first (§4, items 1-3) and show short labelled comparisons; agreeing two or
-  three of them completes this item. The person never has to find references themselves.
+- **The bar.** Agree two or three reference films the finished piece should be able to sit beside, kept in `look.md`
+  ([look](look.md)). If the person has none, do the reference part of the study first (§4, items 1-3) and show short
+  labelled comparisons; agreeing two or three of them completes this item. The person never has to find references themselves.
 - **Who judges.** Name who approves each gate in §5, who can watch and listen, and whether a viewer from the intended
   audience is available for the bar (§8).
 - **What is owed.** Agree which of the studio deliverables in §9 this film needs, in plain words, with their cost and
@@ -121,9 +127,9 @@ references to test.
    to do, what it did and why its makers say they chose it, citing the pages you opened. Start from
    [case-library](case-library.md).
 2. Write what this film's kind and platform ask for and rule out, citing platform documentation.
-3. Annotate every reference, the person's or yours: the timestamp, the one property to borrow (a camera behaviour, a
-   reveal, a material response, a balance, an ending), what must not transfer, and, where it sharpens the choice, a
-   counterexample that does the opposite job. Label each observation as reported by its makers, seen in frames, or
+3. Annotate every reference, the person's or yours, in `look.md` (`look.py add ... --take --leave --range`): the
+   timestamp, the one property to borrow (a camera behaviour, a reveal, a material response, a balance, an ending),
+   what must not transfer, and, where it sharpens the choice, a counterexample that does the opposite job. Label each observation as reported by its makers, seen in frames, or
    played by a named person; a property of motion or sound stays unverified until someone has played it. "Like this"
    without a timestamp is an open question. Draw some references from outside motion design: nature, gesture, dance,
    film. Measure each motion reference's pace with `motion_scan.py` (still share, longest still stretch, cuts per
@@ -147,17 +153,18 @@ and the proposed directions.
 
 ## 5. The studio gates
 
-Studio grade inserts gates into steps 1-9. At each, the person sees something they can judge, presented as in §3, the
-decision is recorded with its sentence, and everything provisional is labelled.
+Studio grade adds review gates to the Map, Plan, Cut, Check, Screen, Revise and Deliver loop. At each, the person
+sees something they can judge, presented as in §3, the decision is recorded with its sentence, and everything
+provisional is labelled.
 
-| Gate | In step | The person sees | They decide |
+| Gate | Stage | The person sees | They decide |
 |---|---|---|---|
-| Concept sketches | 2 | each of three concepts as a rough of three moments (the idea, what gets in its way, what happens next), a few seconds each, with temp sound | the concept, and the best idea to keep from the others |
-| Styleframes | 4 | stills of the opening, the proof, the ending and the frame with the most text or interface, with approved copy, in every delivered aspect ratio, at full size and at viewing size | the look: colours, type and imagery (motion is judged at the animatic) |
-| Animatic | 3-4 | the whole film as timed stills or simple moving drafts, with temp sound and voice | story, order and pacing |
-| Sound direction | 5 | two or three treatments that differ in one choice, and music candidates against the animatic, loudness matched | whether music, voice, effects or quiet carry each passage; the music; the sound's one rule |
-| Picture lock | 6 | the full cut, muted, at viewing size | the picture and its timing |
-| Final | 7-9 | the finished file and its deliverables, muted, then with sound | release |
+| Concept sketches | Plan | each of three concepts as a rough of three moments (the idea, what gets in its way, what happens next), a few seconds each, with temp sound | the concept, and the best idea to keep from the others |
+| Styleframes | Plan | stills of the opening, the proof, the ending and the frame with the most text or interface, with approved copy, in every delivered aspect ratio, at full size and at viewing size | the look: colours, type and imagery (motion is judged at the animatic) |
+| Animatic | Plan, Cut | the whole film as timed stills or simple moving drafts, with temp sound and voice | story, order and pacing |
+| Sound direction | Plan, Cut | two or three treatments that differ in one choice, and music candidates against the animatic, loudness matched | whether music, voice, effects or quiet carry each passage; the music; the sound's one rule |
+| Picture lock | Screen | the full cut, muted, at viewing size | the picture and its timing |
+| Final | Check, Screen, Deliver | the finished file and its deliverables, muted, then with sound | release |
 
 For a silent deliverable, the sound-direction gate and every "with sound" pass are recorded as not applicable, with
 the reason, and with the audio stream verified absent, or verified silent where the destination requires a track.
@@ -444,7 +451,7 @@ one, the decision stays unknown.
 3. Make two or three alternatives for that moment, each from a different starting point, with its entry, exit and
    claims fixed.
 4. Show them to the person in motion and, unless the film is silent, with sound.
-5. Build the choice, then run QC and the change proof ([revisions](../SKILL.md#revisions)).
+5. Build the choice, then run QC and the change proof ([revise](../SKILL.md#revise-change-what-was-asked-keep-what-was-approved)).
 6. Compare the polished moments with the approved rough at the same size. Polish adds texture, light and secondary
    motion, which can bury the one relationship the idea depends on; when it has, remove or recompose the added detail.
 7. Put the film beside the agreed references, at the same size and in the same conditions, and name what still

@@ -47,7 +47,10 @@ Write these into the brief before the build:
 Pictures need the same support as words:
 
 - An object travelling into the product says "this goes into the product". A line joining two things says
-  "these are connected". A count of lanes, bars or dots encodes a ratio. "All" and "every" are numbers.
+  "these are connected". A count of lanes, bars or dots encodes a ratio. "All" and "every" are numbers (every problem
+  on screen clearing at once says "all").
+- On a screen styled like real software, label illustrative states "illustrative": "simulated" says a simulation
+  ran.
 - When a number changes, change the picture that encodes it: replacing "4×" with "6×" in the copy while four
   lanes still race in the picture leaves the film saying 4×.
 - Solid markers on real places read as a live network; a sheen across a price reads as an infomercial.
@@ -62,7 +65,7 @@ Pictures need the same support as words:
   same week.
 - Check what outside the film must agree with it: the product page, a repository description, the post copy,
   the thumbnail.
-- Have an independent reviewer (a fresh context, ideally another model family, or a person) check every
+- Have an independent reviewer (a fresh agent, of another provider only with the person's yes, or a person) check every
   on-screen string, footnote, voice line and caption against today's sources, and record the result. In one
   documented release this check caught an approved headline that overclaimed after the picture had already
   been corrected.

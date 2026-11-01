@@ -59,7 +59,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 
 def sibling(name):
@@ -69,7 +74,7 @@ def sibling(name):
     return module
 
 
-io, onsets = sibling('sound_io'), sibling('cue_onsets')
+io, onsets, project = sibling('sound_io'), sibling('cue_onsets'), sibling('project')
 find_tool = io.find_tool
 RATE = 48000
 EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.mp3', '.ogg'}
@@ -83,6 +88,31 @@ FAMILIES = {'impact', 'whoosh', 'riser', 'tick', 'pop', 'key', 'glitch'}
 
 def read_json(path):
     return json.loads(Path(path).read_text(encoding='utf-8-sig'))
+
+
+def library_sources(path):
+    """The source files an index lists, or none when the index cannot be read (pick reports that itself)."""
+    try:
+        library = read_json(path)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(library, dict) or not isinstance(library.get('files'), list) or not library.get('root'):
+        return []
+    root = Path(library['root'])
+    root = root if root.is_absolute() else Path(path).resolve().parent / root
+    return [root / row['path'] for row in library['files']
+            if isinstance(row, dict) and isinstance(row.get('path'), str)]
+
+
+def command_files(a):
+    """The files a command writes and the local files it reads, so that no output replaces an input."""
+    if a.command == 'index':
+        root = Path(a.library_dir)
+        sounds = [path for path in root.rglob('*') if path.suffix.lower() in EXTENSIONS] if root.is_dir() else []
+        return [a.out or root / 'library.json', a.json], [a.licences, *sounds]
+    if a.command == 'pick':
+        return [a.out or 'palette.json', a.json], [a.cues, a.library, *library_sources(a.library)]
+    return [a.json], [a.rate_state]
 
 
 def sha256(path):
@@ -680,6 +710,11 @@ def main():
     for parser in (index, pick, search):
         parser.add_argument('--json'); parser.add_argument('--ffmpeg'); parser.add_argument('--ffprobe')
     a = p.parse_args()
+    try:
+        project.refuse_overwriting_inputs(*command_files(a))
+    except ValueError as error:
+        print('sound_library.py: cannot run: ' + str(error), file=sys.stderr)
+        return 2
     try:
         if getattr(a, 'seed', 0) < 0:
             raise ValueError('--seed must be non-negative')

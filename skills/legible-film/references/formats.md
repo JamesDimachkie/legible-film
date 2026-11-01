@@ -83,7 +83,8 @@ duration.
 - The sound is usually one hit on the moment the mark locks, with a tail that dies away to silence; add a music bed
   only when asked.
 - When the sting will sit over other footage, deliver it with alpha: ProRes 4444 for editors and VP9 WebM for
-  browsers. The composition must not paint a background of its own: check that frame 0 is transparent, and look at
+  browsers, from an engine that exports alpha ([engines](engines.md)); the film kit and `assemble.py` write opaque
+  video. The composition must not paint a background of its own: check that frame 0 is transparent, and look at
   stills over a light and a dark background to check shadows and fine lines.
 - Verified on FFmpeg 9.0.2: ffprobe reported a ProRes 4444 file encoded as `yuva444p10le` as `yuva444p12le`, and a VP9
   alpha WebM as `yuv420p` with `alpha_mode=1`. Both are expected readings, not faults.
@@ -107,6 +108,8 @@ duration.
 - The first frame works as a cover, because some feeds show it before play: the name with a one-line definition, or
   the problem mid-action.
 - Suggest a cover frame to the person when the title card is not the strongest frame of the film.
+- `check.py` makes a black, white or one-colour frame 0 a look, with the time the picture first shows something; a
+  designed fade in from black is named as the cause. Keep it only where the feed shows a cover you set.
 - Make the cover still from a lossless frame carrying the same finish as the master, or from the master itself, and
   check its text and colour at full size; a pre-finish snapshot is not the delivered cover.
 

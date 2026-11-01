@@ -48,13 +48,22 @@ import tempfile
 import threading
 import time
 
-import numpy as np
+import os
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('lf_render_common', HERE / 'render_common.py')
 C = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(C)
+project_spec = importlib.util.spec_from_file_location('lf_project', HERE / 'project.py')
+project = importlib.util.module_from_spec(project_spec)
+project_spec.loader.exec_module(project)
 
 
 class DecodeFailure(RuntimeError):
@@ -294,6 +303,11 @@ def main():
         return 2
     output = Path(a.out).resolve()
     report_path = Path(a.json or str(output) + '.manifest.json')
+    try:
+        project.refuse_overwriting_inputs([output, report_path], [a.input, a.cuts_json])
+    except ValueError as error:
+        print(f'motion_blur.py: cannot run: {error}', file=sys.stderr)
+        return 2
     if output.exists() or report_path.exists():
         print('motion_blur.py: output and manifest must be new paths', file=sys.stderr)
         return 2

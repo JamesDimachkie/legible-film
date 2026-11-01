@@ -22,7 +22,13 @@ import importlib.util
 import math
 import sys
 from pathlib import Path
-import numpy as np
+import os
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 _spec = importlib.util.spec_from_file_location('sound_io', Path(__file__).with_name('sound_io.py'))
 io = importlib.util.module_from_spec(_spec)

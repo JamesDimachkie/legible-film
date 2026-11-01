@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "Fragments, back-to-back cards and deliberate holds",
+  "limits": {
+    "cps": 20,
+    "line_length": 42,
+    "lines": 2,
+    "min_duration": 0.1,
+    "max_duration": 12,
+    "gap": 0,
+    "margin": 0.25
+  },
+  "exceptions": []
+}

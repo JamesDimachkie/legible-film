@@ -18,11 +18,17 @@ Thank you for helping improve this skill. It stays useful by staying evidence-ba
   `--ffmpeg` / `--ffprobe` and the `FFMPEG` / `FFPROBE` environment variables).
 - Every script prints `--help` and states in its docstring what it cannot establish; measuring scripts write JSON
   with `--json`, and image tools write PNGs.
-- Add a case to `scripts/selftest.py` with a known answer for any new behaviour, and keep it passing:
+- Add a known-answer case for any new behaviour to the matching module in `scripts/selftest_cases/` (a new module
+  goes in `CASE_MODULES` in `scripts/selftest.py`), and keep every case passing. With the Python that `setup.py`
+  names (`$PY`, as in the README's Try it):
 
   ```
-  python skills/legible-film/scripts/selftest.py
+  "$PY" skills/legible-film/scripts/selftest.py --smoke
+  "$PY" skills/legible-film/scripts/selftest.py --force
   ```
+
+  `--smoke` takes about ten seconds; the full run takes 10 to 45 minutes. CI runs it on Linux, macOS, Windows and on
+  Python 3.9 with FFmpeg 5.1, and `.github/scripts/check_docs.py` checks the docs, links and line endings.
 
 ## Privacy
 

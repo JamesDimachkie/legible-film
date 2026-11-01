@@ -21,6 +21,7 @@ Deliverable: size, frame rate, duration, renditions, sound, captions
 - Brand (tokens, logo files and fonts captured from the live product) and approved exceptions:
 - Footage, recordings or assets supplied, with their permitted use:
 - Decisions already made (story, music structure, look) that must be preserved:
+- References and expectations: kept in the project's `look.md` (`look.py`)
 
 ## Evidence
 - Facts file: `facts.json` (every number and factual line, with source, date read, conditions and label)

@@ -87,14 +87,13 @@ def run_sound_cases(tool, record, j, scripts_dir):
     palette_path = Path(j('kit', 'palette.json'))
     palette = json.loads(palette_path.read_text())
     import hashlib
-    import wave
     hashes_ok, peaks_ok, edges_ok, dc_ok, spectra_ok, format_ok = True, True, True, True, True, True
     broadband_ok, sub_ok, bed_audio = True, True, None
     for name, role in palette['roles'].items():
         for index, relative in enumerate(role['takes']):
             path = palette_path.parent / relative
-            with wave.open(str(path), 'rb') as wav:
-                format_ok &= wav.getnchannels() == 2 and wav.getsampwidth() == 3 and wav.getframerate() == 48000
+            channels, width, rate = wav_format(path)
+            format_ok &= channels == 2 and width == 3 and rate == 48000
             hashes_ok &= hashlib.sha256(path.read_bytes()).hexdigest() == role['sha256'][index]
             x = io.decode(ffmpeg, path)
             peaks_ok &= -4.3 <= io.db(np.max(np.abs(x))) <= -2.99
@@ -335,3 +334,18 @@ def main():
 
 if __name__ == '__main__':
     sys.exit(main())
+
+
+def wav_format(path):
+    """Channels, bytes per sample and rate from a WAV's fmt chunk, including WAVE_FORMAT_EXTENSIBLE, which Python's
+    wave module reads only from 3.12."""
+    data = Path(path).read_bytes()[:65536]
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk, size = data[offset:offset + 4], int.from_bytes(data[offset + 4:offset + 8], 'little')
+        if chunk == b'fmt ':
+            body = data[offset + 8:offset + 8 + size]
+            return (int.from_bytes(body[2:4], 'little'), int.from_bytes(body[14:16], 'little') // 8,
+                    int.from_bytes(body[4:8], 'little'))
+        offset += 8 + size + (size & 1)
+    raise ValueError(f'no fmt chunk in {path}')

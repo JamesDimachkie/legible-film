@@ -31,6 +31,7 @@ Needs numpy, Pillow, FFmpeg and ffprobe. Exit 0 nothing to fix, 1 inspect or fix
 
 import argparse
 import bisect
+import importlib.util
 import json
 import math
 import os
@@ -40,11 +41,15 @@ import subprocess
 import sys
 import tempfile
 
+_project_spec = importlib.util.spec_from_file_location(
+    'lf_project', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 try:
     import numpy as np
     from PIL import Image
-except ImportError:  # pragma: no cover
-    print('region_check.py needs numpy and Pillow: pip install numpy Pillow', file=sys.stderr)
+except ImportError as missing:
+    print(project.dependency_message(missing.name or 'numpy'), file=sys.stderr)
     sys.exit(2)
 
 
@@ -166,6 +171,7 @@ def main():
     p.add_argument('--ffprobe')
     a = p.parse_args()
     try:
+        project.refuse_overwriting_inputs([a.json], [a.video, a.reference, a.reference_video])
         span = re.fullmatch(r'\s*(\d+(?:\.\d*)?|\.\d+)\s*[-,]\s*(\d+(?:\.\d*)?|\.\d+)\s*', a.interval)
         if not span:
             raise ValueError('--interval needs START-END seconds')

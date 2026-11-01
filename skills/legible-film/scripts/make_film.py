@@ -78,7 +78,8 @@ builds of FFmpeg, ffprobe, Node, Playwright and Chromium for the steps that use 
 FFmpeg upgrade reruns the renders, muxes and QC; spotting and the sound kit are reused).
 make-state.json is bound to the output folder it was written in: resuming in a copied or
 moved folder runs every step again, a cached step whose outputs or results point outside
-the output folder (or the film folder) runs again, and nothing is written outside OUT.
+the output folder (or the film folder) runs again. Everything is written inside OUT, except draft audio
+(FILM/audio/draft) and the preflight's exports, which go in the film folder.
 
 It measures and reports; it does not watch or listen. Every film it makes is reported
 unwatched and its sound unheard (a draft soundtrack says so); the weakest point is left
@@ -107,7 +108,10 @@ import time
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
-VERSION = '1.2.5'
+_project_spec = importlib.util.spec_from_file_location('lf_project', HERE / 'project.py')
+P = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(P)
+VERSION = P.skill_version()
 EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
 SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
 SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
@@ -142,9 +146,15 @@ function load(req, name) {
 }
 let pw = null;
 try {
+  const userKit = () => path.join(process.platform === 'win32'
+    ? (process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'))
+    : (process.env.XDG_DATA_HOME || path.join(os.homedir(), '.local', 'share')),
+    'legible-film', 'playwright', 'package.json');
   const explicit = pwArg || process.env.LF_PLAYWRIGHT_MODULE;
   if (explicit) pw = load(createRequire(capture), path.resolve(explicit));
-  else outer: for (const root of [path.join(process.cwd(), 'package.json'), capture]) {
+  // setup.py installs playwright-core under the user's data folder: look there after the project and the kit.
+  else outer: for (const root of [path.join(process.cwd(), 'package.json'), capture,
+                                   userKit()]) {
     const req = createRequire(root);
     for (const name of ['playwright', 'playwright-core']) {
       try { pw = load(req, name); break outer; } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
@@ -240,6 +250,47 @@ def save_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, default=str), encoding='utf-8')
 
 
+def palette_inputs(path):
+    """The music, voice and role takes a palette resolves relative to its own folder."""
+    palette = load_json(path, {})
+    if not isinstance(palette, dict):
+        return []
+    names = []
+    music = palette.get('music')
+    if isinstance(music, dict):
+        names.append(music.get('file'))
+    voice = palette.get('voice')
+    entries = voice if isinstance(voice, list) else [voice]
+    names += [row.get('file') for row in entries if isinstance(row, dict)]
+    roles = palette.get('roles')
+    if isinstance(roles, dict):
+        for role in roles.values():
+            if isinstance(role, dict) and isinstance(role.get('takes'), list):
+                names.extend(role['takes'])
+    return [Path(path).parent / name for name in names if isinstance(name, str) and name]
+
+
+def make_inputs(a):
+    """The film, palette and every palette media file, or the named library, before any report is written."""
+    inputs = []
+    if a.film and Path(a.film).is_dir():
+        inputs.extend(path for path in Path(a.film).rglob('*') if path.is_file())
+        if not a.sound:
+            film = Path(a.film)
+            palette = next((path for path in (film / 'palette.json', film / 'audio' / 'palette.json')
+                            if path.is_file()), None)
+            if palette:
+                inputs.extend(palette_inputs(palette))
+    if a.sound and a.sound not in ('draft', 'none'):
+        given = Path(a.sound[len('library:'):] if a.sound.startswith('library:') else a.sound)
+        if given.is_dir():
+            inputs.extend(path for path in given.rglob('*') if path.is_file())
+        else:
+            inputs.append(given)
+            inputs.extend(palette_inputs(given))
+    return inputs
+
+
 def parse_size(text):
     m = re.fullmatch(r'(\d+)[xX](\d+)', text.strip())
     if not m or min(int(x) for x in m.groups()) < 2:
@@ -253,8 +304,10 @@ def fix_for(what):
     return {
         'ffmpeg': pick('winget install Gyan.FFmpeg', 'brew install ffmpeg', 'sudo apt install ffmpeg'),
         'node': pick('winget install OpenJS.NodeJS.LTS', 'brew install node', 'sudo apt install nodejs npm'),
-        'playwright': f'npm install --prefix "{os.getcwd()}" playwright-core   (or set LF_PLAYWRIGHT_MODULE / --playwright)',
-        'chromium': 'npx playwright-core install chromium   (or set LF_CHROMIUM / --browser to a Chromium executable)',
+        'playwright': P.python_command([HERE / 'setup.py', '--install', 'kit']) + '   (installs playwright-core '
+                      'and Chromium where the kit looks, with your yes; or set LF_PLAYWRIGHT_MODULE / --playwright)',
+        'chromium': P.python_command([HERE / 'setup.py', '--install', 'kit']) + '   (or set LF_CHROMIUM / '
+                    '--browser to a Chromium executable)',
     }[what]
 
 
@@ -386,16 +439,17 @@ def doctor(a, sizes, need_aac=True):
     if not (HERE / 'film_capture.mjs').is_file() or not (HERE / 'film_render.py').is_file():
         add('skill scripts', False, f'film_capture.mjs or film_render.py missing beside {Path(__file__).name}',
             'reinstall the skill so its scripts/ folder is complete')
-    try:
-        free = free_memory()
-        dims = [render_common().output_size(w, h, a.res) for w, h in sizes]
-        need = max((560 * 1024 ** 2 + w * h * 100) + 192 * 1024 ** 2 for w, h in dims)
-        big = max(sizes, key=lambda s: s[0] * s[1])
+    free = free_memory()
+    dims = [render_common().output_size(w, h, a.res) for w, h in sizes]
+    need = max((560 * 1024 ** 2 + w * h * 100) + 192 * 1024 ** 2 for w, h in dims)
+    big = max(sizes, key=lambda s: s[0] * s[1])
+    if free is None:
+        add('free memory', True, f'not measured on this system; one render worker at {big[0]}x{big[1]} needs about '
+            f'{need / 1024 ** 2:.0f} MiB, so check free memory before a long render', '')
+    else:
         add('free memory', free >= need, f'{free / 1024 ** 2:.0f} MiB free; one render worker at {big[0]}x{big[1]} '
             f'needs about {need / 1024 ** 2:.0f} MiB (film_render.py estimate)',
             'close other programs or rendering jobs, or use a lower --res')
-    except RuntimeError as exc:
-        add('free memory', False, str(exc), 'check free memory yourself, then run film_render.py with --force')
     probe_dir = Path(a.out).resolve() if a.out else Path.cwd()
     while not probe_dir.exists() and probe_dir != probe_dir.parent:
         probe_dir = probe_dir.parent
@@ -406,21 +460,8 @@ def doctor(a, sizes, need_aac=True):
 
 
 def free_memory():
-    if os.name == 'nt':
-        import ctypes
-
-        class Status(ctypes.Structure):
-            _fields_ = [('length', ctypes.c_ulong), ('load', ctypes.c_ulong)] + [
-                (x, ctypes.c_ulonglong) for x in ('total', 'avail', 'page', 'availpage', 'virtual', 'availvirtual', 'ext')]
-        status = Status()
-        status.length = ctypes.sizeof(status)
-        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-            raise RuntimeError('cannot measure free physical memory')
-        return status.avail
-    try:
-        return os.sysconf('SC_AVPHYS_PAGES') * os.sysconf('SC_PAGE_SIZE')
-    except (AttributeError, ValueError, OSError):
-        raise RuntimeError('cannot measure free physical memory')
+    """Available physical bytes, or None where the system does not say (render_common, from setup.py)."""
+    return render_common().free_memory()
 
 
 def seam_times(rows):
@@ -693,7 +734,7 @@ class Make:
 
     def need_memory(self, what, mib=512):
         free = free_memory()
-        if free < mib * 1024 ** 2:
+        if free is not None and free < mib * 1024 ** 2:
             raise CouldNotRun(f'{free / 1024 ** 2:.0f} MiB free, under {mib} MiB, before {what}; close other jobs and retry')
 
     def finding(self, size, check, detail):
@@ -818,7 +859,7 @@ class Make:
             def log_message(self, *args):
                 pass
         self.need_memory('reading the film info')
-        server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(Quiet, directory=str(self.film)))
+        server = render_common().LocalServer(('127.0.0.1', 0), functools.partial(Quiet, directory=str(self.film)))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -1339,7 +1380,8 @@ class Make:
         code, text = self.run(label, [
             ffmpeg, '-hide_banner', '-v', 'error', '-nostdin', '-n', '-i', picture, '-i', wav,
             '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-af', audio, '-c:a', 'aac', '-profile:a', 'aac_low',
-            '-ar', '48000', '-b:a', '256k', '-t', f'{duration:.6f}', '-movflags', '+faststart', target])
+            '-ar', '48000', '-b:a', '256k', '-t', f'{duration:.6f}', '-movflags', '+faststart',
+            '-movie_timescale', '48000', target])
         if code:
             raise CouldNotRun(f'mux failed ({label}): ' + text.strip()[-600:])
 
@@ -2138,6 +2180,11 @@ def main():
                     f' gives {out_w}x{out_h}: H.264 4:2:0 needs even sides{hint}')
     if a.name and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*', a.name):
         p.error('--name may use letters, digits, dot, dash and underscore')
+    try:
+        P.refuse_overwriting_inputs([a.json], make_inputs(a))
+    except ValueError as error:
+        print(f'make_film.py: could not run: {error}', file=sys.stderr)
+        return 2
     summary = {'tool': 'make_film.py', 'version': VERSION, 'exit_code': 2}
 
     def finish(code, extra=None):

@@ -3,10 +3,11 @@
 
 Run it once after installing, and after changing any script:
 
-  python selftest.py            # a few minutes; longer on a loaded machine
-  python selftest.py --quick  # dependency probe only
-  python selftest.py --force  # rerun even when the environment cache matches
-  python selftest.py --keep DIR # keep the generated media and reports in DIR
+  python selftest.py             # full suite: 10-20 minutes on CI's machines, 20-45 on a laptop
+  python selftest.py --quick     # dependency probe only, about a second
+  python selftest.py --smoke     # synthetic media, check and edit, about ten seconds
+  python selftest.py --force     # rerun even when the environment cache matches
+  python selftest.py --keep DIR  # keep the generated media and reports in DIR
 
 Each case states what it proves. A pass shows the scripts measure these synthetic answers on this
 machine's FFmpeg and Python; it says nothing about any real film. The cache records an
@@ -30,12 +31,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 RESULTS = []
 SKIPS = []
-CASE_MODULES = ('sound', 'render', 'make', 'gaps', 'library', 'chain', 'qcfix', 'captions', 'tracefix', 'footage', 'dialogue', 'reviewfix')
+CASE_MODULES = ('project', 'check', 'screen', 'exchange', 'exchange_write', 'map', 'setup', 'firstrun', 'cut', 'taste', 'look', 'matte', 'tighten', 'spatial', 'stream', 'sound', 'render', 'make', 'gaps', 'library', 'chain', 'qcfix', 'captions', 'cues', 'outputs', 'flash', 'tracefix', 'footage', 'dialogue', 'reviewfix', 'grade')
 
 
 def record(name, ok, detail=''):
@@ -85,10 +87,33 @@ def write_wav(path, samples, rate=48000):
 
 
 # Filters used by the Python scripts and their synthetic fixture generators.
+FILTER_LIMITS = {
+    'idet': 'interlace detection', 'cropdetect': 'crop detection', 'signalstats': 'signal range checks',
+    'metadata': 'frame metadata checks', 'astats': 'audio statistics', 'amix': 'audio mixing',
+    'afade': 'audio fades', 'alimiter': 'audio peak limiting', 'loudnorm': 'loudness mastering',
+    'ass': 'libass complex-script captions; Pillow Raqm may be used instead',
+    'rubberband': 'preferred pitch-preserving retimes; atempo remains available with a sync warning',
+    'zscale': 'HDR to SDR conversion; SDR editing remains available', 'lut': 'synthetic lookup-table fixtures',
+    'colorspace': 'tagged SDR colour conversion', 'tonemap': 'HDR to SDR tone mapping',
+    'bwdif': 'deinterlacing', 'minterpolate': 'motion-interpolated retimes',
+    'tpad': 'motion-interpolated retime tails', 'setsar': 'square-pixel picture and caption output',
+    'volume': 'audio gain', 'pad': 'picture padding', 'fade': 'picture fades',
+    'overlay': 'caption burn overlays', 'scdet': 'shot detection', 'loop': 'still and title picture generation',
+    'ametadata': 'audio metadata in grading', 'aphasemeter': 'stereo phase measurement in grading',
+    'waveform': 'waveform scope images', 'vectorscope': 'vectorscope images',
+    'siti': 'spatial and temporal information in grading', 'entropy': 'entropy measurements in grading',
+    'blurdetect': 'blur measurements in grading', 'blockdetect': 'block measurements in grading',
+    'afftdn': 'voice noise reduction', 'deesser': 'voice de-essing', 'acompressor': 'voice compression',
+    'whisper': 'FFmpeg transcription engine; other local transcription engines remain available',
+}
 FILTERS = ('adelay', 'aformat', 'anullsrc', 'apad', 'aresample', 'asetpts', 'asetrate', 'asplit', 'atempo', 'atrim',
            'blackdetect', 'color', 'concat', 'crop', 'drawbox', 'ebur128', 'format', 'fps',
            'freezedetect', 'highpass', 'lowpass', 'pan', 'psnr', 'scale', 'select', 'setparams',
-           'setpts', 'separatefields', 'showinfo', 'silencedetect', 'sine', 'split', 'testsrc2', 'tinterlace', 'trim')
+           'setpts', 'separatefields', 'showinfo', 'silencedetect', 'sine', 'split', 'testsrc2', 'tinterlace',
+           'trim', *FILTER_LIMITS)
+OPTIONAL_FILTERS = frozenset(('ass', 'rubberband', 'zscale', 'tonemap', 'bwdif', 'minterpolate', 'tpad', 'lut',
+                              'ametadata', 'aphasemeter', 'waveform', 'vectorscope', 'siti', 'entropy', 'blurdetect',
+                              'blockdetect', 'afftdn', 'deesser', 'acompressor', 'whisper'))
 
 
 def find_tool(name, explicit=None):
@@ -116,8 +141,13 @@ def environment():
                        encoding='utf-8', errors='replace')
     available = set(re.findall(r'^\s*[TSC.]{2,3}\s+(\S+)', r.stdout, re.MULTILINE))
     missing = sorted(set(FILTERS) - available)
-    if r.returncode or missing:
-        raise RuntimeError('missing FFmpeg filters: ' + ', '.join(missing))
+    if r.returncode:
+        raise RuntimeError('could not list FFmpeg filters')
+    required = [name for name in missing if name not in OPTIONAL_FILTERS]
+    if required:
+        details = [name + ' (' + FILTER_LIMITS.get(name, 'required by the synthetic suite') + ')' for name in missing]
+        raise RuntimeError('missing FFmpeg filters: ' + ', '.join(details))
+    limitations = [{'filter': name, 'limitation': FILTER_LIMITS[name]} for name in missing]
     h = hashlib.sha256()
     for root, dirs, files in os.walk(HERE):
         dirs[:] = sorted(d for d in dirs if d != '__pycache__')
@@ -145,7 +175,7 @@ def environment():
         node_version = result.stdout.strip() if result.returncode == 0 else None
     return dict(python=sys.version, numpy=numpy.__version__, pillow=PIL.__version__,
                 ffmpeg=versions['ffmpeg'], ffprobe=versions['ffprobe'], skill_version=version,
-                scripts_sha256=h.hexdigest(), filters=list(FILTERS), node=node_version,
+                scripts_sha256=h.hexdigest(), filters=list(FILTERS), filter_limitations=limitations, node=node_version,
                 playwright_module=os.environ.get('LF_PLAYWRIGHT_MODULE'))
 
 
@@ -190,6 +220,14 @@ def skipped_cases(area, output):
             found.append({'count': 1, 'reason': line[len('SKIP  '):]})
         elif area == 'library' and line.startswith('SKIP  Openverse live network cases:'):
             found.append({'count': 1, 'reason': line[len('SKIP  '):]})
+        elif area == 'cut' and line.startswith('SKIP  cut: '):
+            found.append({'count': 1, 'reason': line[len('SKIP  '):]})
+        elif area == 'check' and line.startswith('SKIP  check: '):
+            found.append({'count': 1, 'reason': line[len('SKIP  '):]})
+        elif area == 'screen' and line.startswith('SKIP  screen: '):
+            found.append({'count': 1, 'reason': line[len('SKIP  '):]})
+        elif area == 'grade' and line.startswith('NOT RUN  grade: '):
+            found.append({'count': 1, 'reason': line[len('NOT RUN  '):]})
     return found
 
 
@@ -227,6 +265,150 @@ def report_summary(passed, failed, skips, json_path=None, work=None, cached=Fals
     return result
 
 
+def unsafe_destination(path, kind):
+    """Why writing a report or cache to `path` could destroy a file the person cares about ('' when it cannot): an
+    existing file must be an earlier report of the same kind (a JSON object with its keys)."""
+    if not path or not os.path.exists(path):
+        return ''
+    if os.path.isdir(path):
+        return f'{path} is a folder; give a file name ending in .json'
+    keys = ('passed', 'failed') if kind == 'report' else ('environment', 'result')
+    try:
+        with open(path, 'rb') as fh:
+            data = json.loads(fh.read(1 << 20).decode('utf-8-sig'))
+    except (OSError, ValueError, UnicodeError):
+        data = None
+    if isinstance(data, dict) and all(key in data for key in keys):
+        return ''
+    return f'{path} exists and is not an earlier self-test {kind}; choose a new file name'
+
+
+def missing_package(error):
+    """Give the same repair command as other first-run entry points."""
+    spec = importlib.util.spec_from_file_location('lf_project_selftest', os.path.join(HERE, 'project.py'))
+    project = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(project)
+    name = 'PIL' if error.name and (error.name == 'PIL' or error.name.startswith('PIL.')) else 'numpy'
+    return project.dependency_message(name)
+
+
+def smoke(a):
+    """Exercise the core paths on a tiny generated video and imported synthetic transcript."""
+    try:
+        import numpy  # noqa: F401
+        import PIL  # noqa: F401
+    except ImportError as error:
+        print(missing_package(error))
+        return 2
+    for name in ('ffmpeg', 'ffprobe'):
+        if not shutil.which(name):
+            spec = importlib.util.spec_from_file_location('lf_setup_selftest', os.path.join(HERE, 'setup.py'))
+            setup = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(setup)
+            print('Fix: ' + setup.command_fix('ffmpeg'))
+            print('not ready to edit and check: ' + name + ' is missing; follow the FFmpeg fix above')
+            return 2
+    work = os.path.abspath(a.keep) if a.keep else tempfile.mkdtemp(prefix='video-skill-smoke-')
+    os.makedirs(work, exist_ok=True)
+    video = os.path.join(work, 'source.mp4')
+    root = os.path.join(work, 'project')
+    transcript = os.path.join(work, 'source.srt')
+    results = []
+
+    def run_step(name, script, *args, accepted=(0,), verify=None):
+        code, output = tool(script, *args)
+        if code not in accepted:
+            raise RuntimeError(name + ' failed: ' + output.strip()[-1200:])
+        if verify:
+            verify()
+        print('PASS  ' + name, flush=True)
+        results.append(name)
+
+    def verify_decode(path, expected_frames=None):
+        """Require a real full decode, not just a successful probe or a skipped check."""
+        with open(path, encoding='utf-8') as fh:
+            decoded = json.load(fh).get('decode') or {}
+        count = decoded.get('decoded_video_frames')
+        if not decoded.get('ok') or not count or (expected_frames is not None and count != expected_frames):
+            raise RuntimeError('full decode did not return the expected frames: ' + str(decoded))
+
+    try:
+        ff('-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=15:duration=2', '-f', 'lavfi', '-i',
+           'sine=frequency=440:duration=2:sample_rate=48000', '-c:v', 'libx264', '-threads', '1',
+           '-vf', TAG709, '-pix_fmt', 'yuv420p', '-color_primaries', 'bt709', '-color_trc', 'bt709',
+           '-colorspace', 'bt709', '-c:a', 'aac', '-movflags', '+faststart', '-shortest', video)
+        qc = os.path.join(work, 'qc.json')
+        run_step('decode and probe', 'qc_file.py', video, '--spec', '320x180@15', '--frames', '30',
+                 '--audio', 'required', '--json', qc, verify=lambda: verify_decode(qc, 30))
+        checks = os.path.join(work, 'checks.json')
+        code, output = tool('check.py', '--file', video, '--no-speech', '--spec', '320x180@15', '--json', checks)
+        if code not in (0, 1):
+            raise RuntimeError('file check failed: ' + output.strip()[-1200:])
+        with open(checks, encoding='utf-8') as fh:
+            checked = json.load(fh)
+        items = {item.get('id'): item for item in checked.get('items', [])}
+        for name in ('spec', 'flash', 'blank'):
+            if items.get(name, {}).get('state') != 'pass':
+                raise RuntimeError('file check did not pass ' + name + ': ' + str(items.get(name)))
+        print('PASS  file check', flush=True)
+        results.append('file check')
+        with open(transcript, 'w', encoding='utf-8') as fh:
+            fh.write('1\n00:00:00,300 --> 00:00:01,300\nHello world\n')
+        run_step('register source', 'map.py', 'add', root, video, '--role', 'interview')
+        run_step('import transcript', 'map.py', 'run', root, '--alias', 'int_01', '--words', 'import:' + transcript)
+        with open(os.path.join(root, 'map', 'int_01', 'words.json'), encoding='utf-8') as fh:
+            words = json.load(fh).get('words', [])
+        if [word.get('text') for word in words] != ['Hello', 'world']:
+            raise RuntimeError('imported transcript did not contain the expected words')
+        with open(os.path.join(root, 'film.md'), 'w', encoding='utf-8') as fh:
+            fh.write('---\ntitle: Smoke\nsize: 320x180\nfps: 15\ncaptions: srt\n---\n'
+                     '> int_01 0:00.20-0:01.60 Hello world\n')
+        version = os.path.join(root, 'cuts', 'v001')
+        output = os.path.join(version, 'preview.mp4')
+        captions = os.path.join(version, 'captions.srt')
+        lines = os.path.join(version, 'lines.json')
+
+        def verify_render():
+            if not all(os.path.isfile(path) for path in (output, captions, lines)):
+                raise RuntimeError('render did not produce the video, captions and edit-time words')
+
+        run_step('render imported transcript', 'cut.py', 'render', root, '--final', accepted=(0, 1),
+                 verify=verify_render)
+        rendered_qc = os.path.join(work, 'rendered-qc.json')
+        run_step('decode rendered cut', 'qc_file.py', output, '--audio', 'required', '--json', rendered_qc,
+                 verify=lambda: verify_decode(rendered_qc))
+        caption_qc = os.path.join(work, 'caption-qc.json')
+
+        def verify_captions():
+            with open(caption_qc, encoding='utf-8') as fh:
+                report = json.load(fh)
+            timing = report.get('timing_screen') or {}
+            coverage = timing.get('coverage') or {}
+            if (report.get('findings') or not timing.get('estimated_word_times') or not report.get('review')
+                    or coverage.get('all_dialogue_words') != 2 or coverage.get('all_dialogue_matched') != 2):
+                raise RuntimeError('caption check did not cover both imported words with an estimated-time warning')
+
+        run_step('caption check (estimated timings need review)', 'captions.py', 'check', captions, '--words', lines,
+                 '--json', caption_qc, verify=verify_captions)
+        if a.json:
+            report_summary(len(results), 0, [{'count': 1, 'reason': 'full synthetic suite not run (--smoke)'}],
+                           a.json, work if a.keep else None)
+        print('ready to edit and check')
+        return 0
+    except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
+        print('Smoke failure: ' + str(error), file=sys.stderr)
+        spec = importlib.util.spec_from_file_location('lf_project_smoke', os.path.join(HERE, 'project.py'))
+        project = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(project)
+        print('Check the environment with: ' + project.python_command([Path(HERE) / 'setup.py']),
+              file=sys.stderr)
+        print('not ready to edit and check: ' + str(error).splitlines()[0], file=sys.stderr)
+        return 2
+    finally:
+        if not a.keep:
+            shutil.rmtree(work, ignore_errors=True)
+
+
 def main():
     for stream in (sys.stdout, sys.stderr):
         # A case's detail can hold any character (a caption's music symbol); a Windows console or a redirect in the
@@ -237,6 +419,7 @@ def main():
     ap.add_argument('--keep', help='keep generated files in this folder')
     ap.add_argument('--json', help='write counts and skip reasons as JSON')
     ap.add_argument('--quick', action='store_true', help='probe dependencies and filters only')
+    ap.add_argument('--smoke', action='store_true', help='check a short synthetic edit and file')
     ap.add_argument('--cache', default=cache_path(), help='cache record file')
     ap.add_argument('--no-cache', action='store_true')
     ap.add_argument('--force', action='store_true')
@@ -244,13 +427,30 @@ def main():
     if sys.version_info < (3, 9):
         print('Python 3.9 or later is required')
         return 2
+    # A mistyped destination must never replace the person's file with a report.
+    unsafe = unsafe_destination(a.json, 'report') or (not a.no_cache and unsafe_destination(a.cache, 'cache record'))
+    if a.keep and os.path.exists(a.keep) and (not os.path.isdir(a.keep) or os.listdir(a.keep)):
+        unsafe = f'--keep {a.keep} must be a new or empty folder: the self-test writes many files into it'
+    if unsafe:
+        print(f'selftest.py: cannot run: {unsafe}', file=sys.stderr)
+        return 2
+    if a.quick and a.smoke:
+        print('choose --quick or --smoke, not both', file=sys.stderr)
+        return 2
+    if a.smoke:
+        return smoke(a)
     try:
         identity = environment()
-    except (ImportError, OSError, RuntimeError) as exc:
+    except ImportError as exc:
+        print(missing_package(exc))
+        return 2
+    except (OSError, RuntimeError) as exc:
         print(f'dependency probe failed: {exc}')
         return 2
     print('Dependency probe: ' + json.dumps(identity, indent=1), flush=True)
     if a.quick:
+        if identity['filter_limitations']:
+            print('LIMITED: optional FFmpeg filters are missing; see filter_limitations above.')
         if a.json:
             report_summary(0, 0, [{'count': 1, 'reason': 'full synthetic suite not run (--quick)'}], a.json)
         return 0
@@ -273,7 +473,7 @@ def main():
         import numpy as np
         from PIL import Image  # noqa: F401
     except ImportError as exc:
-        print(f'missing Python package: {exc.name}. pip install numpy Pillow')
+        print(missing_package(exc))
         return 2
     if missing:
         print('missing on PATH: ' + ', '.join(missing))
@@ -336,7 +536,7 @@ def main():
                      '--out', j('sheet.png'), '--keep-frames', j('frames'))
     kept = sorted(os.listdir(j('frames'))) if os.path.isdir(j('frames')) else []
     record('frame_sheet: window sheet with exact frame labels', code == 0 and os.path.isfile(j('sheet.png'))
-           and kept and kept[0].startswith('frame-000022-at-0.733s'), kept[0] if kept else out[-120:])
+           and kept and kept[0] == 'frame-tile-001-at-~0.733333s.png', kept[0] if kept else out[-120:])
 
     # 5. Onion skin.
     if len(kept) >= 2:
@@ -542,7 +742,7 @@ def main():
                      '--keep-frames', j('vfr_frames'))
     kept = sorted(os.listdir(j('vfr_frames'))) if os.path.isdir(j('vfr_frames')) else []
     record('frame_sheet: a time picks the frame on screen when frame timing varies',
-           code == 0 and kept == ['frame-000155-at-3.000s.png'], kept[0] if kept else out[-120:])
+           code == 0 and kept == ['frame-tile-001-at-3s.png'], kept[0] if kept else out[-120:])
 
     # 14. A render blank throughout is near-empty, not a clean pass.
     ff('-f', 'lavfi', '-i', 'color=c=gray:s=320x180:r=30:d=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', j('flat.mp4'))

@@ -63,6 +63,7 @@ export function styleCss(st) {
     `font-family:"${fam}"`, `font-size:${st.size}px`, `font-weight:${st.weight ?? 800}`,
     `font-stretch:${st.width ?? 100}%`, `line-height:${st.lineHeight ?? 1}`,
     `letter-spacing:${st.tracking ?? 0}em`, 'white-space:pre', 'font-kerning:normal',
+    ...(st.direction ? [`direction:${st.direction}`] : []),
     'font-optical-sizing:auto', 'font-feature-settings:"tnum" 1' + (st.features ? ',' + st.features : ''),
   ].join(';');
 }
@@ -80,10 +81,30 @@ export function inkMetrics(string, st) {
   };
 }
 
-// Build the content of a text element: words as inline-blocks separated by margins (so spaces
-// never collapse), letters as spans (for whole-letter reveals).
+// Joined and bidirectional writing is animated by whole words, preserving its native shaping.
+function joinedWriting(string) {
+  return /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff]/u.test(string);
+}
+
+function graphemes(string, language) {
+  if (typeof Intl.Segmenter !== 'function') return [string];
+  return Array.from(new Intl.Segmenter(language || undefined, { granularity: 'grapheme' }).segment(string), x => x.segment);
+}
+
+// Words retain their original separators; safe scripts reveal by grapheme, joined scripts by word.
 function fill(el, string, st) {
   el.textContent = '';
+  if (joinedWriting(string)) {
+    const letters = [], wordEls = [];
+    for (const token of string.match(/\s+|\S+/gu) || []) {
+      if (/^\s+$/u.test(token)) { el.appendChild(document.createTextNode(token)); continue; }
+      const word = document.createElement('span');
+      const letter = document.createElement('span');
+      word.className = 'lf-w'; letter.className = 'lf-l'; letter.textContent = token;
+      word.appendChild(letter); el.appendChild(word); letters.push(letter); wordEls.push(word);
+    }
+    return { letters, wordEls };
+  }
   const words = string.split(' ');
   const letters = [], wordEls = [];
   words.forEach((w, i) => {
@@ -91,7 +112,7 @@ function fill(el, string, st) {
     we.className = 'lf-w';
     we.style.display = 'inline-block';
     if (i > 0) we.style.marginLeft = `${st.space ?? 0.26}em`;
-    for (const ch of Array.from(w)) {
+    for (const ch of graphemes(w, st.language)) {
       const le = document.createElement('span');
       le.className = 'lf-l';
       le.textContent = ch;
@@ -131,6 +152,8 @@ export function textNode(parent, opts) {
   const string = String(opts.string ?? '');
   const el = document.createElement('div');
   el.style.cssText = styleCss(st) + ';position:absolute;left:0;top:0;transform-origin:0 0;';
+  el.dir = st.direction || 'auto';
+  if (st.language) el.lang = st.language;
 
   let front = el, copies = [];
   if (opts.extrude) {
@@ -197,6 +220,7 @@ export function textNode(parent, opts) {
   node.ax = ax;
   node.ay = (node.ink[1] + ay * (node.ink[3] - node.ink[1])) / h;
   node.string = string;
+  node.joinedWriting = joinedWriting(string);
   node.style = st;
   node.fontPx = st.size;
   node.letters = letters;
@@ -440,11 +464,23 @@ export function loopAround(outline, index, x, y) {
 // the caret sits (in the node's layout coordinates). Spaces are typed but are not letters.
 export function typed(node, chars) {
   const str = node.string;
-  const n = Math.max(0, Math.min(str.length, Math.floor(chars)));
+  const clusters = graphemes(str, node.style.language);
+  const n = Math.max(0, Math.min(clusters.length, Math.floor(chars)));
   let letters = 0;
-  for (let i = 0; i < n; i++) if (str[i] !== ' ') letters++;
+  if (node.joinedWriting) {
+    let consumed = 0;
+    for (const token of str.match(/\s+|\S+/gu) || []) {
+      consumed += graphemes(token, node.style.language).length;
+      if (!/^\s+$/u.test(token) && consumed <= n) letters++;
+    }
+  } else {
+    for (let i = 0; i < n; i++) if (!/^\s+$/u.test(clusters[i])) letters++;
+  }
   let x = 0;
-  if (letters > 0) { const b = node.letterBoxes[letters - 1]; x = b[0] + b[2]; }
-  if (n > 0 && str[n - 1] === ' ') x += (node.style.space ?? 0.26) * node.fontPx;
-  return { reveal: letters, caretX: x, done: n >= str.length };
+  if (letters > 0) {
+    const b = node.letterBoxes[letters - 1];
+    x = node.style.direction === 'rtl' ? b[0] : b[0] + b[2];
+  }
+  if (!node.joinedWriting && n > 0 && clusters[n - 1] === ' ') x += (node.style.space ?? 0.26) * node.fontPx;
+  return { reveal: letters, caretX: x, done: n >= clusters.length };
 }

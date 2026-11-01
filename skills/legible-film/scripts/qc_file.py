@@ -8,6 +8,7 @@ Runs ffprobe and ffmpeg on the exact file you will deliver and reports:
   - integrated loudness, loudness range and true peak (ITU-R BS.1770, via ffmpeg's ebur128);
   - with --lossy-check, the true peak after an AAC re-encode like the one a platform makes;
   - with --detect, candidate black, frozen and silent intervals to inspect.
+  - with --technical, crop, interlacing, freeze, sampled range and sound statistics in one decode.
 
 It does not judge picture, motion, sound quality, legibility, flashing (use flash_scan.py),
 claims or rights. Measurements describe the file; they are not a verdict on the film.
@@ -22,6 +23,7 @@ Exit codes: 0 every requested check passed (or none was requested), 1 a check fa
 """
 
 import argparse
+import importlib.util
 import json
 import math
 import os
@@ -31,7 +33,13 @@ import struct
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from fractions import Fraction
+from pathlib import Path
+
+_project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 
 
 def find_tool(name, explicit=None):
@@ -127,7 +135,7 @@ SUMMARY = {
 
 
 def loudness(ffmpeg, path, stream='0:a:0', pre_filter=''):
-    chain = (pre_filter + ',' if pre_filter else '') + 'ebur128=peak=true:framelog=quiet'
+    chain = (pre_filter + ',' if pre_filter else '') + 'ebur128=peak=true:framelog=verbose'
     result = run([ffmpeg, '-hide_banner', '-nostdin', '-nostats', '-progress', 'pipe:1', '-i', path,
                   '-map', stream, '-af', chain, '-f', 'null', '-'])
     if result.returncode:
@@ -168,24 +176,88 @@ def pcm_levels(ffmpeg, path, start_args, seconds, channels=1):
     first5 = samples[:240 * channels]
     last10 = samples[-480 * channels:]
     rms = math.sqrt(sum(s * s for s in samples) / len(samples))
+    def window_rms(window):
+        """RMS of interleaved channels without allowing opposite phases to cancel."""
+        return db(math.sqrt(sum(value * value for value in window) / len(window))) if window else None
+
+    edge = 96 * channels
+    reference = 960 * channels
     return {'peak_dbfs': db(max(abs(min(samples)), max(samples))), 'rms_dbfs': db(rms),
             'first_5ms_peak_dbfs': db(max(abs(min(first5)), max(first5))),
-            'last_10ms_peak_dbfs': db(max(abs(min(last10)), max(last10)))}
+            'last_10ms_peak_dbfs': db(max(abs(min(last10)), max(last10))),
+            'first_sample_peak_dbfs': db(max(abs(s) for s in samples[:channels])),
+            'last_sample_peak_dbfs': db(max(abs(s) for s in samples[-channels:])),
+            'first_2ms_rms_dbfs': window_rms(samples[:edge]),
+            'after_first_2ms_rms_dbfs': window_rms(samples[edge:edge + reference]),
+            'last_2ms_rms_dbfs': window_rms(samples[-edge:]),
+            'before_last_2ms_rms_dbfs': window_rms(samples[-edge - reference:-edge]),
+            'samples_per_channel': len(samples) // channels}
 
 
-def audio_edges(ffmpeg, path, channels):
-    """Levels at the head and tail: a sound at full level on sample 0, or a tail cut mid-sound, clicks."""
+def audio_end(ffprobe, path, decoded_end=None):
+    """The audio stream's end on FFmpeg's input clock, not the container's end."""
+    probe = run([ffprobe, '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+                 'stream=start_time,duration:stream_tags=DURATION:format=start_time', '-of', 'json', path])
+    if probe.returncode:
+        return None
+    info = json.loads(probe.stdout or '{}')
+    stream = (info.get('streams') or [{}])[0]
+    duration = as_float(stream.get('duration'))
+    origin = as_float((info.get('format') or {}).get('start_time')) or 0.0
+    start = as_float(stream.get('start_time'))
+    start = max(0.0, (start if start is not None else origin) - origin)
+    if duration is not None and duration > 0:
+        return start + duration
+    tag = (stream.get('tags') or {}).get('DURATION')
+    if tag:
+        spec = importlib.util.spec_from_file_location('lf_project_audio_end', Path(__file__).with_name('project.py'))
+        project = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(project)
+        try:
+            return max(0.0, project.parse_time(tag) - origin)
+        except ValueError:
+            pass
+    return decoded_end if decoded_end is not None and decoded_end > 0 else None
+
+
+def edge_is_hard(edge, reference, boundary):
+    """A near-zero crossing does not hide sustained sound at the boundary."""
+    if boundary is not None and boundary > -40:
+        return True
+    if edge is None or edge <= -50:
+        return False
+    return reference is None or edge - reference > -12
+
+
+def audio_edges(ffmpeg, path, channels, decoded_end=None, ffprobe=None):
+    """Compare a 2 ms edge with nearby sound, with a tail seek based on the audio stream."""
+    ffprobe = find_tool('ffprobe', ffprobe)
+    end = audio_end(ffprobe, path, decoded_end) if ffprobe else decoded_end
     head = pcm_levels(ffmpeg, path, [], 0.05, channels)
-    tail = pcm_levels(ffmpeg, path, ['-sseof', '-0.05'], 0.05, channels)
+    tail = pcm_levels(ffmpeg, path, ['-ss', f'{max(0, end - .05):.9f}'], .05, channels) if end else None
+    enough = lambda levels: levels is not None and levels['samples_per_channel'] >= 1056
     out = {'head_first_5ms_peak_dbfs': head and head['first_5ms_peak_dbfs'],
            'head_50ms_rms_dbfs': head and head['rms_dbfs'],
            'tail_50ms_rms_dbfs': tail and tail['rms_dbfs'],
-           'tail_last_10ms_peak_dbfs': tail and tail['last_10ms_peak_dbfs']}
+           'tail_last_10ms_peak_dbfs': tail and tail['last_10ms_peak_dbfs'],
+           'head_boundary_dbfs': head and head['first_sample_peak_dbfs'],
+           'tail_boundary_dbfs': tail and tail['last_sample_peak_dbfs'],
+           'head_2ms_rms_dbfs': head and head['first_2ms_rms_dbfs'],
+           'head_reference_rms_dbfs': head and head['after_first_2ms_rms_dbfs'],
+           'tail_2ms_rms_dbfs': tail and tail['last_2ms_rms_dbfs'],
+           'tail_reference_rms_dbfs': tail and tail['before_last_2ms_rms_dbfs'],
+           'audio_end_s': end,
+           'head_peak_available': bool(head and head['samples_per_channel'] >= 240),
+           'tail_peak_available': bool(tail and tail['samples_per_channel'] >= 480),
+           'tail_rms_available': tail is not None,
+           'measured': enough(head) and enough(tail)}
     notes = []
-    if out['head_first_5ms_peak_dbfs'] is not None and out['head_first_5ms_peak_dbfs'] > -40:
-        notes.append('sound at level in the first 5 ms: a click unless a hit is designed for frame 0')
-    if out['tail_last_10ms_peak_dbfs'] is not None and out['tail_last_10ms_peak_dbfs'] > -60:
-        notes.append('the last 10 ms is not near silence: check for a cut-off tail unless the ending is a designed hard stop')
+    if enough(head) and edge_is_hard(out['head_2ms_rms_dbfs'], out['head_reference_rms_dbfs'],
+                                     out['head_boundary_dbfs']):
+        notes.append('sound begins away from silence: listen for a click at the start')
+    if enough(tail) and edge_is_hard(out['tail_2ms_rms_dbfs'], out['tail_reference_rms_dbfs'],
+                                     out['tail_boundary_dbfs']):
+        notes.append('sound ends away from silence: listen for a click or cut-off tail')
     out['notes'] = notes
     return out
 
@@ -229,6 +301,151 @@ def detect(ffmpeg, path, has_audio, duration):
             'note': 'Candidates to inspect in context; designed holds, fades and pauses are expected.'}
 
 
+
+def border_picture(ffmpeg, path, when, width, height):
+    """Decode one small grayscale frame at a time; return None when it is unavailable."""
+    command = [ffmpeg, '-v', 'error', '-nostdin', '-ss', f'{when:.6f}', '-i', path, '-map', '0:v:0',
+               '-frames:v', '1', '-vf', f'scale={width}:{height}:flags=area,format=gray', '-f', 'rawvideo', '-']
+    result = subprocess.run(command, capture_output=True, check=False)
+    return result.stdout if result.returncode == 0 and len(result.stdout) == width * height else None
+
+
+def flat_dark_border(frame, width, rect):
+    """The proposed border must be dark and spatially uniform, with a small edge guard."""
+    left, top, right, bottom = rect
+    pixels = [frame[y * width + x] for y in range(top, bottom) for x in range(left, right)]
+    if len(pixels) < 16:
+        return False
+    mean = sum(pixels) / len(pixels)
+    variance = sum((value - mean) ** 2 for value in pixels) / len(pixels)
+    return mean <= 32 and variance <= 25
+
+
+def verify_borders(ffmpeg, path, width, height, crop, scenes, duration):
+    """Check uniform edge strips on both sides of a detected shot change."""
+    if not scenes:
+        return False, 'no shot change was detected; inspect the frame'
+    sample_w = min(320, width)
+    sample_h = max(2, round(height * sample_w / width / 2) * 2)
+    sample_w -= sample_w % 2
+    crop_w, crop_h, crop_x, crop_y = crop
+    left = round(crop_x * sample_w / width)
+    top = round(crop_y * sample_h / height)
+    right = round((crop_x + crop_w) * sample_w / width)
+    bottom = round((crop_y + crop_h) * sample_h / height)
+    guard = 2
+    regions = []
+    if left > guard + 1:
+        regions.append((0, 0, left - guard, sample_h))
+    if right < sample_w - guard - 1:
+        regions.append((right + guard, 0, sample_w, sample_h))
+    if top > guard + 1:
+        regions.append((0, 0, sample_w, top - guard))
+    if bottom < sample_h - guard - 1:
+        regions.append((0, bottom + guard, sample_w, sample_h))
+    if not regions:
+        return False, 'candidate edges are too narrow to measure'
+    for moment in scenes[:3]:
+        before = max(0.0, moment - .15)
+        after = min(duration - .05, moment + .15) if duration else moment + .15
+        if after <= before:
+            continue
+        frames = [border_picture(ffmpeg, path, when, sample_w, sample_h) for when in (before, after)]
+        if any(frame is None for frame in frames):
+            continue
+        if not all(flat_dark_border(frame, sample_w, rect) for frame in frames for rect in regions):
+            continue
+        inner = [y * sample_w + x for y in range(top, bottom) for x in range(left, right)]
+        difference = sum(abs(frames[0][index] - frames[1][index]) for index in inner) / max(1, len(inner))
+        if difference >= 10:
+            return True, f'uniform dark edges across a shot change at {moment:.2f} s'
+    return False, 'candidate edges were not verified across a shot change; inspect the frame'
+
+
+def technical_measurements(ffmpeg, path, has_audio, width, height, duration):
+    """Measure delivery risks in one decode; sampled picture statistics stay bounded in memory."""
+    graph = ("[0:v:0]split=2[full][sample];"
+             "[full]scdet=threshold=15,metadata=mode=print:key=lavfi.scd.time,idet,"
+             "scale=w='min(320,iw)':h=-2,freezedetect=n=-60dB:d=1[v];"
+             f"[sample]scale={width}:{height}:flags=lanczos,setsar=1,fps=1,"
+             "cropdetect=limit=24:round=2:reset=1:skip=0,"
+             "signalstats=stat=brng,metadata=mode=print:key=lavfi.signalstats.BRNG[s]")
+    maps = ['-map', '[v]', '-map', '[s]']
+    if has_audio:
+        graph += (';[0:a:0]aformat=sample_fmts=fltp,astats=reset=0:'
+                  'measure_perchannel=DC_offset+Peak_level+Peak_count:measure_overall=none[a]')
+        maps += ['-map', '[a]']
+    command = [ffmpeg, '-hide_banner', '-nostdin', '-nostats', '-i', path,
+               '-filter_complex', graph, *maps, '-f', 'null', '-']
+    counts = Counter()
+    scenes = []
+    range_count = 0
+    max_range = 0.0
+    frozen = []
+    freeze_start = None
+    counts_by_mode = {}
+    audio = []
+    channel = None
+    with tempfile.TemporaryFile(mode='w+t', encoding='utf-8', errors='replace') as log:
+        result = subprocess.run(command, stdout=subprocess.DEVNULL, stderr=log, check=False)
+        log.seek(0)
+        tail = []
+        for line in log:
+            tail.append(line.strip())
+            if len(tail) > 5:
+                tail.pop(0)
+            scene = re.search(r'lavfi\.scd\.time=([-+\d.eE]+)', line)
+            if scene:
+                scenes.append(float(scene.group(1)))
+            match = re.search(r'crop=(\d+):(\d+):(\d+):(\d+)', line)
+            if match:
+                counts[tuple(map(int, match.groups()))] += 1
+            match = re.search(r'lavfi\.signalstats\.BRNG=([-+\d.eE]+)', line)
+            if match:
+                value = as_float(match.group(1))
+                if value is not None:
+                    range_count += 1
+                    max_range = max(max_range, value)
+            match = re.search(r'freeze_start:\s*([-+\d.]+)', line)
+            if match:
+                freeze_start = float(match.group(1))
+            match = re.search(r'freeze_end:\s*([-+\d.]+)', line)
+            if match and freeze_start is not None:
+                frozen.append([freeze_start, float(match.group(1))])
+                freeze_start = None
+            match = re.search(r'(Single|Multi) frame detection:\s*TFF:\s*(\d+)\s+BFF:\s*(\d+)\s+'
+                              r'Progressive:\s*(\d+)\s+Undetermined:\s*(\d+)', line)
+            if match:
+                counts_by_mode[match.group(1)] = dict(zip(('tff', 'bff', 'progressive', 'undetermined'),
+                                                          map(int, match.groups()[1:])))
+            if 'Parsed_astats_' in line:
+                match = re.search(r'Channel:\s*(\d+)', line)
+                if match:
+                    channel = {'channel': int(match.group(1))}
+                    audio.append(channel)
+                elif channel is not None:
+                    for label, key in (('DC offset:', 'dc_offset'), ('Peak level dB:', 'peak_dbfs'),
+                                       ('Peak count:', 'peak_count')):
+                        if label in line:
+                            channel[key] = as_float(line.split(label, 1)[1].strip())
+    if result.returncode:
+        return {'error': '; '.join(tail[-3:]) or 'FFmpeg technical measurement failed'}
+    if freeze_start is not None and duration is not None:
+        frozen.append([freeze_start, duration])
+    # idet's multi-frame tally (the top-level counts) carries one guess across frames it cannot decide; its
+    # single-frame verdicts are kept beside it because they are what separates interlacing from fine detail.
+    idet = dict(counts_by_mode['Multi'], single=counts_by_mode.get('Single')) if 'Multi' in counts_by_mode else None
+    best, count = counts.most_common(1)[0] if counts else (None, 0)
+    confirmed, reason = False, 'no stable candidate crop'
+    if best and width and height and max((width - best[0]) / width, (height - best[1]) / height) >= .04:
+        confirmed, reason = verify_borders(ffmpeg, path, width, height, best, scenes, duration)
+    return {'version': 1, 'sampling_fps': 1, 'crop': {'width': width, 'height': height,
+            'crop': list(best) if best else None, 'samples': sum(counts.values()), 'matching': count,
+            'shot_changes': len(scenes), 'bars_confirmed': confirmed, 'verification': reason},
+            'idet': idet, 'frozen': frozen, 'range': {'samples': range_count,
+            'max_brng': max_range if range_count else None}, 'audio': audio}
+
+
 PATCH = re.compile(r'\s*([\d.]+)\s*@\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*=\s*#?([0-9a-fA-F]{6})\s*')
 
 
@@ -257,6 +474,13 @@ def parse_spec(spec):
     if not match:
         raise ValueError('spec must look like 1920x1080 or 1920x1080@60')
     return int(match.group(1)), int(match.group(2)), match.group(3)
+
+
+def edge_level_text(value, available):
+    """Distinguish a silent 16-bit decode from a missing measurement."""
+    if not available:
+        return 'unavailable'
+    return 'digital silence (16-bit decode)' if value is None else f'{value} dBFS'
 
 
 def main():
@@ -289,6 +513,7 @@ def main():
                         help='ceiling in dBTP after the re-encode; default 0.0 (no overs)')
     parser.add_argument('--faststart', action='store_true', help='require moov before mdat (web playback)')
     parser.add_argument('--detect', action='store_true', help='list black, frozen and silent candidates')
+    parser.add_argument('--technical', action='store_true', help='measure crop, interlacing, freezes, range and sound')
     parser.add_argument('--color-patch', action='append', default=[],
                         help='T@X,Y,W,H=#RRGGBB: a flat region at time T that must decode to this colour '
                              '(repeatable); decoded with the file\'s own colour tags')
@@ -298,6 +523,11 @@ def main():
     parser.add_argument('--ffmpeg')
     parser.add_argument('--ffprobe')
     args = parser.parse_args()
+    try:
+        project.refuse_overwriting_inputs([args.json], [args.file])
+    except ValueError as error:
+        print(f'qc_file.py: cannot run: {error}', file=sys.stderr)
+        return 2
     for key in ('max_level', 'max_size_mb'):
         value = getattr(args, key)
         if value is not None and (not math.isfinite(value) or value <= 0):
@@ -334,6 +564,18 @@ def main():
         print('no video stream found', file=sys.stderr)
         return 2
     v = videos[0]
+    try:
+        spec = importlib.util.spec_from_file_location('qc_render_common', Path(__file__).with_name('render_common.py'))
+        render_common = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(render_common)
+        geometry = render_common.display_geometry(v)
+    except ImportError as error:
+        name = 'PIL' if error.name and (error.name == 'PIL' or error.name.startswith('PIL.')) else 'numpy'
+        print(project.dependency_message(name), file=sys.stderr)
+        return 2
+    except (ValueError, KeyError, TypeError) as error:
+        print('cannot determine displayed geometry: ' + str(error), file=sys.stderr)
+        return 2
     fmt = info.get('format', {})
     avg = as_fraction(v.get('avg_frame_rate'))
     real = as_fraction(v.get('r_frame_rate'))
@@ -350,13 +592,14 @@ def main():
                   'level_display': (v['level'] / (30.0 if v.get('codec_name') == 'hevc' else 10.0)
                                     if v.get('codec_name') in ('h264', 'hevc') and
                                     isinstance(v.get('level'), (int, float)) and v['level'] > 0 else None),
-                  'width': v.get('width'),
-                  'height': v.get('height'), 'pix_fmt': v.get('pix_fmt'),
+                  'width': geometry['width'], 'height': geometry['height'],
+                  'coded_width': geometry['coded_width'], 'coded_height': geometry['coded_height'],
+                  'pix_fmt': v.get('pix_fmt'),
                   'sample_aspect_ratio': v.get('sample_aspect_ratio'),
                   'fps': str(fps) if fps else None, 'fps_float': round(float(fps), 6) if fps else None,
                   'variable_frame_rate_suspected': bool(avg and real and abs(float(avg - real)) > 0.001 * float(real)),
                   'frames_in_metadata': int(v['nb_frames']) if str(v.get('nb_frames', '')).isdigit() else None,
-                  'duration_s': duration, 'rotation_deg': rotation_of(v),
+                  'duration_s': duration, 'rotation_deg': rotation_of(v), 'field_order': v.get('field_order'),
                   'color_primaries': v.get('color_primaries'), 'color_transfer': v.get('color_transfer'),
                   'color_space': v.get('color_space'), 'color_range': v.get('color_range')},
         'audio': [{'codec': a.get('codec_name'), 'sample_rate': int(a['sample_rate']) if str(a.get('sample_rate', '')).isdigit() else None,
@@ -369,7 +612,8 @@ def main():
         report['decode'] = decode_all(ffmpeg, args.file)
     if audios:
         report['loudness'] = loudness(ffmpeg, args.file)
-        report['audio_edges'] = audio_edges(ffmpeg, args.file, audios[0].get('channels'))
+        report['audio_edges'] = audio_edges(ffmpeg, args.file, audios[0].get('channels'),
+                                            report['loudness'].get('decoded_audio_length_s'), ffprobe)
         if (audios[0].get('channels') or 0) >= 2:
             # Fold to mono and play it on both channels: a large loss against the stereo mix
             # suggests out-of-phase content that disappears on mono speakers.
@@ -384,6 +628,9 @@ def main():
             report['lossy_reencode'] = lossy_true_peak(ffmpeg, args.file, args.lossy_bitrate)
     if args.detect:
         report['detect'] = detect(ffmpeg, args.file, bool(audios), duration)
+    if args.technical:
+        report['technical'] = technical_measurements(ffmpeg, args.file, bool(audios), geometry['width'],
+                                                     geometry['height'], duration)
     if args.color_patch:
         report['color_patches'] = [color_patch(ffmpeg, args.file, spec, args.color_tolerance)
                                    for spec in args.color_patch]
@@ -394,9 +641,9 @@ def main():
         checks[name] = {'pass': bool(passed), 'expected': expected, 'actual': actual}
 
     if args.width is not None:
-        check('width', v.get('width') == args.width, args.width, v.get('width'))
+        check('width', geometry['width'] == args.width, args.width, geometry['width'])
     if args.height is not None:
-        check('height', v.get('height') == args.height, args.height, v.get('height'))
+        check('height', geometry['height'] == args.height, args.height, geometry['height'])
     if args.fps is not None:
         want = as_fraction(args.fps)
         check('fps', fps is not None and abs(float(fps - want)) < 0.001, str(want), str(fps) if fps else None)
@@ -531,8 +778,10 @@ def main():
               f"true peak {lv.get('true_peak_dbtp')} dBTP")
     if 'audio_edges' in report:
         e = report['audio_edges']
-        print(f"  edges: first 5 ms peak {e['head_first_5ms_peak_dbfs']} dBFS, last 10 ms peak "
-              f"{e['tail_last_10ms_peak_dbfs']} dBFS, last 50 ms RMS {e['tail_50ms_rms_dbfs']} dBFS")
+        first = edge_level_text(e['head_first_5ms_peak_dbfs'], e['head_peak_available'])
+        last = edge_level_text(e['tail_last_10ms_peak_dbfs'], e['tail_peak_available'])
+        rms = edge_level_text(e['tail_50ms_rms_dbfs'], e['tail_rms_available'])
+        print(f'  edges: first 5 ms peak {first}, last 10 ms peak {last}, last 50 ms RMS {rms}')
     if 'mono_fold_down' in report:
         print(f"  mono fold-down: {report['mono_fold_down']['integrated_lufs']} LUFS "
               f"({report['mono_fold_down']['drop_lu']} LU below stereo)")

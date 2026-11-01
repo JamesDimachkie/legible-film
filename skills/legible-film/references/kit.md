@@ -18,34 +18,39 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
   the picture's own timeline, and a cut-aware motion-blur render.
 - **Use another engine** ([engines](engines.md)) for real interface code, complex layout, live footage, 3D scenes or
   anything its blocks do not draw. A kit film can still include a picture or a rendered clip as a still or a plate.
+  When another engine draws the picture, the rest still applies: the score and its timing contract
+  ([timing](timing.md) §2), the checks, the review and the delivery.
 
 ## 2. Set up
 
-- Python 3.9+ with numpy and Pillow, FFmpeg, Node 18+, and Playwright with a Chromium (`npm install playwright-core`
-  in the project, or point `--playwright` or `LF_PLAYWRIGHT_MODULE` at an installed package; the tools reuse any
-  Chromium Playwright has already installed and never download one).
-- `python scripts/make_film.py --doctor` checks all of it and prints the one command that fixes each missing piece.
-  `python scripts/kit_selftest.py --require` runs synthetic capture and render contract checks on this machine (without
+- Python 3.9+ with numpy and Pillow, FFmpeg, Node 18+, and Playwright with a Chromium (`setup.py --install kit`
+  installs both where the tools look, with the person's yes; or `npm install playwright-core` in the project, or point
+  `--playwright` or `LF_PLAYWRIGHT_MODULE` at an installed package; the tools reuse any Chromium Playwright has
+  already installed and never download one themselves).
+- `make_film.py --doctor` checks all of it and prints the one command that fixes each missing piece.
+  `kit_selftest.py --require` runs synthetic capture and render contract checks on this machine (without
   `--require`, a missing dependency is a skip, not a failure). A pass does not establish a particular film's
   playback, colour or every delivery size.
 
 ## 3. The loop
 
-1. **Start a project:** `python scripts/new_film.py my-film --brand '#3D7BFF'` (or `--from atlasfold` for the
+1. **Start a project:** `new_film.py my-film --brand '#3D7BFF'` (or `--from atlasfold` for the
    showcase). It never overwrites a file.
 2. **Facts first:** replace `facts.json` with the product's facts ([claims-and-rights](claims-and-rights.md)) and
    bind each claim the film registers to its fact. Preflight checks registered text, not every picture or implied
    claim; review the whole film against the evidence.
 3. **Write `film.js`:** one block per scene, in beats when music is the clock (§4).
-4. **Preview:** serve the folder (`python -m http.server --directory my-film 8000`) and open it. Space plays; `,` and
-   `.` step a frame; the arrow keys step a beat; S shows the safe area, R the reading states, L the ground luminance.
-5. **Preflight** at every size you will deliver: `python scripts/film_check.py my-film --size 1920x1080`, then
+4. **Preview:** serve the folder with the Python `setup.py` names (`PY -m http.server --bind 127.0.0.1 --directory
+   my-film 8000`; `new_film.py` prints it) and open it. Space plays; `,` and `.` step a frame; the arrow keys step a
+   beat; S shows the safe area, R the reading states, L the ground luminance.
+5. **Preflight** at every size you will deliver: `film_check.py my-film --size 1920x1080`, then
    `--size 1080x1920` (add `--res N` when the render scales the frame, so type size and the large-text contrast rule
    are judged at the delivered size). Fix every error; read every warning.
 6. **Stills** of the hardest frames in every size, at full size and at feed size, judged as [picture](picture.md)
-   says: with the preview served, `node scripts/film_capture.mjs stills http://127.0.0.1:8000/?render --at 2.5,b12
-   --size 1080x1920 --out qa/stills`, or a quick `make_film.py --preview` and `frame_sheet.py` on its renders.
-7. **Make:** `python scripts/make_film.py my-film --sizes 1920x1080,1080x1920 --samples 4` runs preflight, sound,
+   says: with the preview served,
+   `node "<SKILL_DIR>/scripts/film_capture.mjs" stills http://127.0.0.1:8000/?render --at 2.5,b12 --size 1080x1920
+   --out qa/stills`, or a quick `make_film.py --preview` and `frame_sheet.py` on its renders.
+7. **Make:** `make_film.py my-film --sizes 1920x1080,1080x1920 --samples 4` runs preflight, sound,
    render, mux, the QC battery and the declared-cut check, and writes `deliver/` with a filled delivery report.
    `--preview` renders one sharp sample a frame for a quick look; `--resume` skips finished steps in the same
    output folder (a copied or moved folder runs every step again). `--res N` sets each output's short side (720
@@ -126,3 +131,6 @@ any element that moves so the motion checks see it. Measure layout once at build
   worker and keep 4K for when the destination needs it ([finishing](finishing.md) §2).
 - It draws type, simple interface, drawn devices and stills. Real product interfaces and footage come from their own
   engines and recordings, labelled for what they are ([product-demos](product-demos.md) §5).
+- Its renders are opaque, so a kit animation enters a film of footage as a cutaway or a picture line. A graphic
+  drawn over the footage comes from an engine that renders transparency ([engines](engines.md) §12) and goes in with
+  `~ over` ([paper-edit](paper-edit.md) §5).

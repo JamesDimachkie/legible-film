@@ -38,6 +38,7 @@ Exit code 0 nothing to fix (consistent lag within tolerance), 1 inspect or fix
 """
 
 import argparse
+import importlib.util
 import json
 import math
 import os
@@ -46,10 +47,15 @@ import shutil
 import subprocess
 import sys
 
+_project_spec = importlib.util.spec_from_file_location(
+    'lf_project', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 try:
     import numpy as np
-except ImportError:  # pragma: no cover
-    sys.exit('sync_check.py needs numpy: pip install numpy')
+except ImportError as missing:
+    print(project.dependency_message(missing.name or 'numpy'), file=sys.stderr)
+    sys.exit(2)
 
 RATE = 48000
 
@@ -254,6 +260,11 @@ def main():
     p.add_argument('--ffmpeg')
     p.add_argument('--ffprobe', help='optional, for the picture-duration repair recipe')
     a = p.parse_args()
+    try:
+        project.refuse_overwriting_inputs([a.json], [a.delivered, a.reference])
+    except ValueError as error:
+        print(f'sync_check.py: cannot run: {error}', file=sys.stderr)
+        return 2
     if (a.windows < 1 or not math.isfinite(a.window) or a.window <= 0 or
             not math.isfinite(a.max_lag_ms) or a.max_lag_ms <= 0 or
             not math.isfinite(a.tolerance_ms) or a.tolerance_ms < 0 or not 0 <= a.min_corr <= 1):

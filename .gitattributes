@@ -1,0 +1,10 @@
+# LF in every clone, whatever the platform; published agent run outputs are kept byte for byte.
+* text=auto eol=lf
+evals/results/**/runs/** -text
+*.mp4 binary
+*.mov binary
+*.gif binary
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.ttf binary
