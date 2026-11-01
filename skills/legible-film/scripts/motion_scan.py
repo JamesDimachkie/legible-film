@@ -43,6 +43,7 @@ than three frames.
 
 import argparse
 import csv
+import importlib.util
 import json
 import math
 import os
@@ -51,13 +52,21 @@ import shutil
 import subprocess
 import sys
 import threading
+from fractions import Fraction
 
+_project_spec = importlib.util.spec_from_file_location(
+    'lf_project', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 try:
     import numpy as np
-except ImportError:  # pragma: no cover
-    sys.exit('motion_scan.py needs numpy: pip install numpy')
+except ImportError as missing:
+    print(project.dependency_message(missing.name or 'numpy'), file=sys.stderr)
+    sys.exit(2)
 
 PTS = re.compile(r'pts_time:\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)')
+PTS_TICKS = re.compile(r'\bpts:\s*(-?\d+)\s+pts_time:')
+TIME_BASE = re.compile(r'config in time_base:\s*(\d+)/(\d+)')
 DUR = re.compile(r'duration_time:\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)')
 
 
@@ -81,22 +90,37 @@ def passthrough(ffmpeg):
 
 
 class Frames:
-    """Each decoded frame of the first video stream, once and in order, with its presentation time."""
+    """Decode the first video stream in order, with times; a null-output scan reads times without frame bytes."""
 
-    def __init__(self, ffmpeg, path, vf, frame_bytes, input_options=None):
+    def __init__(self, ffmpeg, path, vf, frame_bytes, input_options=None, timestamps_only=False):
+        """Start a raw-frame decoder or a null-output timestamp scan."""
         cmd = [ffmpeg, '-hide_banner', '-nostdin', '-nostats', *(input_options or []), '-i', path, '-map', '0:v:0',
-               '-vf', vf + ',showinfo', *passthrough(ffmpeg), '-f', 'rawvideo', 'pipe:1']
+               '-vf', vf + ',showinfo', *passthrough(ffmpeg)]
+        if timestamps_only:
+            cmd.extend(['-progress', 'pipe:1', '-f', 'null', '-'])
+        else:
+            cmd.extend(['-f', 'rawvideo', 'pipe:1'])
         self.size, self.pts, self.dur, self.log = frame_bytes, [], [], []
+        self.timestamps_only = timestamps_only
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.reader = threading.Thread(target=self._read_log, daemon=True)
         self.reader.start()
 
     def _read_log(self):
+        """Collect each frame's time from showinfo: its integer PTS times the filter's time base, which is exact.
+        The printed pts_time is a rounded decimal (FFmpeg 5.1 prints six significant digits, so 100.199733 s reads
+        100.2) and is used only when showinfo gives no time base."""
+        time_base = None
         for raw in self.proc.stderr:
             line = raw.decode('utf-8', 'replace').strip()
+            config = TIME_BASE.search(line) if 'showinfo' in line else None
+            if config and int(config.group(1)) and int(config.group(2)):
+                time_base = Fraction(int(config.group(1)), int(config.group(2)))
             m = PTS.search(line) if 'showinfo' in line else None
             if m:
-                self.pts.append(float(m.group(1)))
+                ticks = PTS_TICKS.search(line)
+                exact = ticks is not None and time_base is not None
+                self.pts.append(float(int(ticks.group(1)) * time_base) if exact else float(m.group(1)))
                 d = DUR.search(line)
                 self.dur.append(float(d.group(1)) if d else None)
             elif line:
@@ -111,6 +135,19 @@ class Frames:
         self.proc.stdout.close()
         self.proc.wait()
         self.reader.join()
+
+    def scan(self):
+        """Read a null-output pass and verify its output count against the showinfo timestamps."""
+        if not self.timestamps_only:
+            raise ValueError('timestamp scan requires null output')
+        count = 0
+        for line in self.proc.stdout:
+            if line.startswith(b'frame='):
+                count = int(line.partition(b'=')[2].strip())
+        self.proc.stdout.close()
+        self.proc.wait()
+        self.reader.join()
+        return self.times(count)
 
     def times(self, count):
         """Each frame's time on the film clock: seconds from the start of the file, as FFmpeg reads it."""
@@ -283,6 +320,11 @@ def main():
     p.add_argument('--ffmpeg')
     p.add_argument('--ffprobe')
     a = p.parse_args()
+    try:
+        project.refuse_overwriting_inputs([a.json, a.csv], [a.video])
+    except ValueError as error:
+        print(f'motion_scan.py: cannot run: {error}', file=sys.stderr)
+        return 2
     for key in ('change_level', 'still_area', 'still_min', 'bpm', 'beat_offset', 'start', 'end',
                 'max_still_share', 'max_still'):
         v = getattr(a, key)

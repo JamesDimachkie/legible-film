@@ -43,8 +43,13 @@ import tempfile
 import threading
 import time
 
-import numpy as np
-from PIL import Image
+try:
+    import numpy as np
+    from PIL import Image
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
@@ -254,14 +259,20 @@ def main():
                     raise ValueError('source contains a symlink; replace it with a local asset before rendering')
             shutil.copytree(source, frozen)
             hashes = {f.relative_to(frozen).as_posix(): C.sha256(f) for f in sorted(frozen.rglob('*')) if f.is_file()}
-            server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), functools.partial(QuietServer, directory=str(frozen)))
+            server = C.LocalServer(('127.0.0.1', 0), functools.partial(QuietServer, directory=str(frozen)))
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             if a.page.startswith(('/', '\\')) or '..' in a.page.split('?')[0].split('/') or '#' in a.page:
                 raise ValueError('--page must stay inside the film folder')
             page = a.page + ('&' if '?' in a.page else '?') + 'render'
             url = f'http://127.0.0.1:{server.server_port}/{page}'
-            r = subprocess.run(worker_command(a, 'info', url), capture_output=True, text=True, encoding='utf-8', errors='replace')
+            try:
+                # The worker has its own readiness deadline; this one also covers a browser that never starts.
+                r = subprocess.run(worker_command(a, 'info', url), capture_output=True, text=True, encoding='utf-8',
+                                   errors='replace', timeout=300)
+            except subprocess.TimeoutExpired:
+                raise RenderFailure('the capture worker did not report the page within 300 s; check that the page '
+                                    'loads and that window.__lf.ready resolves') from None
             if r.returncode:
                 if any(x in r.stderr for x in ('page error:', 'console error:', 'page.evaluate:', 'forbidden page request:')):
                     raise RenderFailure(r.stderr)

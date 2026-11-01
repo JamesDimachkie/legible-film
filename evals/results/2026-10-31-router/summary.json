@@ -1,0 +1,488 @@
+{
+  "models": [
+    "claude-opus-5-5"
+  ],
+  "trigger": {
+    "old": {
+      "should_trigger": {
+        "runs": 20,
+        "loaded": 17
+      },
+      "should_not_trigger": {
+        "runs": 20,
+        "loaded": 2
+      }
+    },
+    "new": {
+      "should_trigger": {
+        "runs": 20,
+        "loaded": 16
+      },
+      "should_not_trigger": {
+        "runs": 20,
+        "loaded": 0
+      }
+    },
+    "new2": {
+      "should_trigger": {
+        "runs": 20,
+        "loaded": 18
+      },
+      "should_not_trigger": {
+        "runs": 20,
+        "loaded": 0
+      }
+    }
+  },
+  "trigger_pass": true,
+  "per_query": {
+    "should_trigger/00": {
+      "query": "make a 30 second launch video for my app's new feature",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_trigger/01": {
+      "query": "can you check this mp4 before I upload it to youtube",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_trigger/03": {
+      "query": "add background music and a few sound effects to this demo video",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_trigger/04": {
+      "query": "there's a weird single frame flash in my hyperframes render around 12 seconds",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_trigger/05": {
+      "query": "turn these four screenshots into a 20 second product teaser",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_trigger/07": {
+      "query": "make a seamless looping hero animation for our landing page",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_trigger/06": {
+      "query": "the audio in my reel clips after instagram compresses it",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_trigger/08": {
+      "query": "the client wants the ending slower but everything else stays exactly as approved",
+      "old": 2,
+      "new": 2,
+      "new2": 2
+    },
+    "should_not_trigger/00": {
+      "query": "transcribe this podcast episode for me",
+      "old": 2,
+      "new": 0,
+      "new2": 0
+    },
+    "should_trigger/02": {
+      "query": "my exported video looks washed out in safari but fine in chrome, why",
+      "old": 1,
+      "new": 0,
+      "new2": 2
+    },
+    "should_not_trigger/01": {
+      "query": "download this youtube video as an mp4",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_trigger/09": {
+      "query": "what frame rate should I export a gif at so it plays at the right speed",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/02": {
+      "query": "write a blog post announcing our product launch",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/03": {
+      "query": "design a logo for my startup",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/04": {
+      "query": "compress this png so it loads faster",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/06": {
+      "query": "summarise the main points from this meeting recording",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/05": {
+      "query": "fix the failing test in my react component",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/07": {
+      "query": "convert this wav file to mp3",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/08": {
+      "query": "what is the resolution of this video file",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    },
+    "should_not_trigger/09": {
+      "query": "write a script for a podcast intro",
+      "old": 0,
+      "new": 0,
+      "new2": 0
+    }
+  },
+  "routing": {
+    "old": {
+      "quick-916": [
+        {
+          "rep": 1,
+          "command": "ffprobe",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "ffmpeg-cookbook.md",
+            "finishing.md",
+            "footage.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "ffprobe",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "ffmpeg-cookbook.md",
+            "footage.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "check-youtube": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "formats.md",
+            "qc.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "formats.md",
+            "qc.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "interview-story": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "film.md",
+            "finding-the-story.md",
+            "paper-edit.md",
+            "project.md",
+            "recipes.md",
+            "transcript.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "film.md",
+            "finding-the-story.md",
+            "paper-edit.md",
+            "project.md",
+            "recipes.md",
+            "transcript.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "premiere-stale": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "footage.md",
+            "qc.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "footage.md",
+            "qc.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        }
+      ]
+    },
+    "new2": {
+      "quick-916": [
+        {
+          "rep": 1,
+          "command": "ffmpeg",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "gotchas.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "ffmpeg",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "ffmpeg-cookbook.md",
+            "gotchas.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "interview-story": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "finding-the-story.md",
+            "footage.md",
+            "loop.md",
+            "paper-edit.md",
+            "project.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "finding-the-story.md",
+            "loop.md",
+            "paper-edit.md",
+            "project.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "check-youtube": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "gotchas.md",
+            "qc.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "gotchas.md",
+            "qc.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "premiere-stale": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "footage.md",
+            "recipes.md",
+            "review.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "gotchas.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        }
+      ]
+    },
+    "new3": {
+      "check-youtube": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "formats.md",
+            "gotchas.md",
+            "qc.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "formats.md",
+            "gotchas.md",
+            "qc.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "interview-story": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "finding-the-story.md",
+            "formats.md",
+            "loop.md",
+            "paper-edit.md",
+            "project.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "finding-the-story.md",
+            "formats.md",
+            "loop.md",
+            "paper-edit.md",
+            "project.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "quick-916": [
+        {
+          "rep": 1,
+          "command": "ffmpeg",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "formats.md",
+            "gotchas.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "ffmpeg",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "formats.md",
+            "gotchas.md",
+            "recipes.md"
+          ],
+          "reference_ok": true
+        }
+      ],
+      "premiere-stale": [
+        {
+          "rep": 1,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "gotchas.md",
+            "recipes.md",
+            "scripts.md"
+          ],
+          "reference_ok": true
+        },
+        {
+          "rep": 2,
+          "command": "setup.py",
+          "command_ok": true,
+          "forbidden": [],
+          "references": [
+            "gotchas.md",
+            "recipes.md",
+            "scripts.md"
+          ],
+          "reference_ok": true
+        }
+      ]
+    }
+  }
+}

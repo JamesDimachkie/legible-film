@@ -1,7 +1,7 @@
 # Kinetic type: films of big words on a beat
 
 A register for films made of large words, camera moves and hits on a beat grid: launch teasers, trailers, hype
-films, a manifesto of a few claims. It is a choice made in step 2 like any concept. The change sentence, the facts
+films, a manifesto of a few claims. It is a choice made during Plan like any concept. The change sentence, the facts
 file and every hard limit still apply, and words on a beat are not by themselves a concept. Numbers here describe
 films that were measured; a film adopts one only as its own declared contract.
 
@@ -82,8 +82,8 @@ still stretch 0.57 s, and 5.5 change events per 10 s.
 Declare the film's own pace contract in the brief, for example "40% still frames or fewer and no still stretch over
 0.6 s, outside the end card and the declared reading holds", and check the delivered file against it:
 
-```bash
-python scripts/motion_scan.py film.mp4 --end 21.0 --max-still 0.6 --max-still-share 0.4 --ignore 9.5-10.4 --json qa/pace.json
+```text
+motion_scan.py film.mp4 --end 21.0 --max-still 0.6 --max-still-share 0.4 --ignore 9.5-10.4 --json qa/pace.json
 ```
 
 A declared reading hold is a decision, not a defect ([picture](picture.md) §8). For a reference filmed off a screen

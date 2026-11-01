@@ -8,8 +8,8 @@
   "plugins": [
     {
       "name": "legible-film",
-      "description": "Plan, build, score, render, revise and quality-check short videos with a coding agent.",
-      "version": "1.2.5",
+      "description": "Edit, caption, score, check and revise video with a coding agent: the film as editable text, versions that never change, plain checks and a Screening Room to watch, note and approve.",
+      "version": "2.0.0",
       "source": "./",
       "category": "media",
       "author": {

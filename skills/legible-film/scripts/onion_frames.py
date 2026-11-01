@@ -13,13 +13,18 @@ written, 2 when an input is missing or unreadable or the output cannot be writte
 """
 
 import argparse
+import importlib.util
 import sys
 from pathlib import Path
 
+_project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 try:
     from PIL import Image
-except ImportError:  # pragma: no cover
-    sys.exit('onion_frames.py needs Pillow: pip install Pillow')
+except ImportError as missing:
+    print(project.dependency_message(missing.name or 'PIL'), file=sys.stderr)
+    sys.exit(2)
 
 
 def main():
@@ -31,8 +36,10 @@ def main():
         parser.error('supply at least two frames')
     if args.out.suffix.lower() != '.png':
         parser.error('the output must be a PNG')
-    if args.out.resolve() in {path.resolve() for path in args.frames}:
-        parser.error('the output must differ from the inputs')
+    try:
+        project.refuse_overwriting_inputs([args.out], args.frames)
+    except ValueError as error:
+        parser.error(str(error))
     for path in args.frames:
         if not path.is_file():
             parser.error(f'not a file: {path}')

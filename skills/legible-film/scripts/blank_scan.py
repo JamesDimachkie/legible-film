@@ -20,6 +20,7 @@ one does, 2 when the file cannot be scanned.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -27,14 +28,22 @@ import shutil
 import subprocess
 import sys
 import threading
+from fractions import Fraction
 
+_project_spec = importlib.util.spec_from_file_location(
+    'lf_project', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 try:
     import numpy as np
-except ImportError:  # pragma: no cover
-    sys.exit('blank_scan.py needs numpy: pip install numpy')
+except ImportError:
+    print(project.dependency_message('numpy'), file=sys.stderr)
+    sys.exit(2)
 
 W, H = 320, 180
 PTS = re.compile(r'pts_time:\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)')
+PTS_TICKS = re.compile(r'\bpts:\s*(-?\d+)\s+pts_time:')
+TIME_BASE = re.compile(r'config in time_base:\s*(\d+)/(\d+)')
 DUR = re.compile(r'duration_time:\s*(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)')
 
 
@@ -68,11 +77,19 @@ class Frames:
         self.reader.start()
 
     def _read_log(self):
+        """Frame times from showinfo's integer PTS and time base, as motion_scan.py reads them (FFmpeg 5.1 rounds
+        the printed pts_time to six significant digits); the printed decimal only when no time base appears."""
+        time_base = None
         for raw in self.proc.stderr:
             line = raw.decode('utf-8', 'replace').strip()
+            config = TIME_BASE.search(line) if 'showinfo' in line else None
+            if config and int(config.group(1)) and int(config.group(2)):
+                time_base = Fraction(int(config.group(1)), int(config.group(2)))
             m = PTS.search(line) if 'showinfo' in line else None
             if m:
-                self.pts.append(float(m.group(1)))
+                ticks = PTS_TICKS.search(line)
+                exact = ticks is not None and time_base is not None
+                self.pts.append(float(int(ticks.group(1)) * time_base) if exact else float(m.group(1)))
                 d = DUR.search(line)
                 self.dur.append(float(d.group(1)) if d else None)
             elif line:
@@ -142,6 +159,11 @@ def main():
     p.add_argument('--ffmpeg')
     p.add_argument('--ffprobe', help='used only to read the declared frame rate; timing comes from ffmpeg')
     a = p.parse_args()
+    try:
+        project.refuse_overwriting_inputs([a.json], [a.video])
+    except ValueError as error:
+        print(f'blank_scan.py: cannot run: {error}', file=sys.stderr)
+        return 2
     try:
         ignore = parse_ranges(a.ignore)
     except ValueError as e:

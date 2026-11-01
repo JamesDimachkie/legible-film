@@ -1,8 +1,9 @@
 # Story and score
 
 From a product and its context to one story, and from the story to a score: every moment planned across picture,
-motion, text, music, effects, voice and the product's truth. Use it in step 2, and again whenever a cut is busy
-and nobody can say what it is about.
+motion, text, music, effects, voice and the product's truth. Use it during Plan, and again whenever a cut is busy
+and nobody can say what it is about. For a recording (an interview, a podcast, an event), start from
+[finding-the-story](finding-the-story.md).
 
 The bar is one legible experience: the problem, the solution and the presentation work as a single story curve,
 carried by picture, sound, cues and the product itself, for the audience that will watch it. "Good" and

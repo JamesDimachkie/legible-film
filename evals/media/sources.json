@@ -1,0 +1,366 @@
+{
+  "schema_version": 1,
+  "note": "Only byte-identical downloads are listed; the NASA caption references and music rights retain the corpus caveats.",
+  "sources": [
+    {
+      "file": "speech/tale.mp3",
+      "title": "A Tale of Two Cities, chapter 1",
+      "creator": "Charles Dickens; read by Laurie Anne Walden",
+      "kind": "speech",
+      "source_url": "https://www.archive.org/download/firstchaptercollection001_1109_librivox/firstchapter001_02_taletwocities_dickens_law.mp3",
+      "licence": "Public domain (US)",
+      "licence_url": "https://librivox.org/pages/public-domain/",
+      "licence_evidence_url": "https://librivox.org/first-chapter-collection-001/",
+      "attribution": "Charles Dickens; read by Laurie Anne Walden; LibriVox, A Tale of Two Cities, chapter 1",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "transcription",
+        "captions"
+      ],
+      "reference_transcript": "references/tale.txt",
+      "reference_provenance": "Project Gutenberg ebook 98; complete book, select the chapter and align against the recording.",
+      "reference_exactness": "Source text, not a verified verbatim transcript; spoken introductions, edition differences, omissions, deviations and recording boundaries must be checked by listening.",
+      "changes": "Original download.",
+      "size_bytes": 6269262,
+      "sha256": "405dd1c09c0d21a6976a4eaeb8235a4594e557238931a1f6cefdf1b0a3f9e1af",
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "mp3",
+            "codec_type": "audio",
+            "channels": 1,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "disposition": {
+              "attached_pic": 0
+            }
+          }
+        ],
+        "format": {
+          "duration": "391.635782",
+          "size": "6269262"
+        }
+      }
+    },
+    {
+      "file": "references/tale.txt",
+      "title": "A Tale of Two Cities, chapter 1 source text",
+      "creator": "Charles Dickens",
+      "kind": "reference",
+      "source_url": "https://www.gutenberg.org/files/98/98-0.txt",
+      "licence": "Public domain text in US; Project Gutenberg edition carries trademark and redistribution terms",
+      "licence_url": "https://www.gutenberg.org/policy/license.html",
+      "licence_evidence_url": "https://www.gutenberg.org/ebooks/98",
+      "attribution": "Project Gutenberg ebook 98; Charles Dickens",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "source text for transcription reference"
+      ],
+      "exactness": "Full book, not aligned to recording; not verified verbatim.",
+      "size_bytes": 771600,
+      "sha256": "e3dfeb67feb904ac0f73a35204a175c58248422c2be8556802cb8820d958d67c",
+      "ffprobe": null
+    },
+    {
+      "file": "video/tears_of_steel_720p.mov",
+      "title": "Tears of Steel",
+      "creator": "Blender Foundation, Blender Institute; directed by Ian Hubert",
+      "kind": "video",
+      "source_url": "https://mirrors.dotsrc.org/blender/blender-demo/movies/ToS/tears_of_steel_720p.mov",
+      "licence": "CC BY 3.0",
+      "licence_url": "https://creativecommons.org/licenses/by/3.0/",
+      "licence_evidence_url": "https://mango.blender.org/about/",
+      "attribution": "(CC) Blender Foundation | https://mango.blender.org/ | CC BY 3.0: https://creativecommons.org/licenses/by/3.0/",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "dialogue",
+        "film editing",
+        "montage"
+      ],
+      "changes": "Original full film, including credits.",
+      "size_bytes": 372178639,
+      "sha256": "efa9062d9cdb7a338e40ad530dfdf234806743f29ae6a1a136b97ece4e588e8f",
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "h264",
+            "codec_type": "video",
+            "width": 1280,
+            "height": 534,
+            "r_frame_rate": "24/1",
+            "avg_frame_rate": "24/1",
+            "disposition": {
+              "attached_pic": 0
+            }
+          },
+          {
+            "index": 1,
+            "codec_name": "mp3",
+            "codec_type": "audio",
+            "channels": 2,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "disposition": {
+              "attached_pic": 0
+            }
+          }
+        ],
+        "format": {
+          "duration": "734.166667",
+          "size": "372178639"
+        }
+      }
+    },
+    {
+      "file": "video/earthrise_4k.webm",
+      "title": "Earthrise in 4K",
+      "creator": "NASA Goddard Space Flight Center; Ernie Wright and Dan Gallagher",
+      "kind": "video",
+      "source_url": "https://svs.gsfc.nasa.gov/vis/a000000/a004500/a004593/G2018_Earthrise_Master.webm",
+      "licence": "Public domain (NASA SVS, unless otherwise noted)",
+      "licence_url": "https://svs.gsfc.nasa.gov/help/",
+      "licence_evidence_url": "https://svs.gsfc.nasa.gov/4593/",
+      "attribution": "NASA's Goddard Space Flight Center; Earthrise in 4K",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "4K",
+        "captions",
+        "historical speech",
+        "montage"
+      ],
+      "reference_transcript": "references/earthrise.srt",
+      "reference_provenance": "NASA-provided captions paired with this video.",
+      "reference_exactness": "Publisher captions; not independently checked word-for-word against the recording.",
+      "changes": "Original download.",
+      "size_bytes": 112249780,
+      "sha256": "11ba14eab014cab2185996523a10b984535fad64ebe62adadab5825a55ea1b5c",
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "vp8",
+            "codec_type": "video",
+            "width": 3840,
+            "height": 2160,
+            "r_frame_rate": "30/1",
+            "avg_frame_rate": "30/1",
+            "disposition": {
+              "attached_pic": 0
+            }
+          },
+          {
+            "index": 1,
+            "codec_name": "opus",
+            "codec_type": "audio",
+            "channels": 2,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "disposition": {
+              "attached_pic": 0
+            }
+          }
+        ],
+        "format": {
+          "duration": "406.008000",
+          "size": "112249780"
+        }
+      }
+    },
+    {
+      "file": "video/mather_interview.webm",
+      "title": "Cosmic Dawn with Nobel Laureate John Mather",
+      "creator": "NASA Goddard Space Flight Center; Ryan Fitzgibbons; John Mather and Padi Boyd",
+      "kind": "video",
+      "source_url": "https://svs.gsfc.nasa.gov/vis/a010000/a014900/a014940/CU_Mather_ProRes.webm",
+      "licence": "Public domain (NASA SVS, unless otherwise noted)",
+      "licence_url": "https://svs.gsfc.nasa.gov/help/",
+      "licence_evidence_url": "https://svs.gsfc.nasa.gov/14940/",
+      "attribution": "NASA's Goddard Space Flight Center; Cosmic Dawn with Nobel Laureate John Mather",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "interview cut",
+        "transcription",
+        "captions"
+      ],
+      "reference_transcript": "references/mather.srt",
+      "reference_provenance": "NASA captions for the full interview; page separately identifies licensed music for a different short vertical excerpt.",
+      "reference_exactness": "Publisher captions; not independently checked word-for-word against recording.",
+      "changes": "Original full interview.",
+      "size_bytes": 137271938,
+      "sha256": "57306fa4989557db76a02311567526d00de021c7528c266de583ca997f616c08",
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "vp8",
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080,
+            "r_frame_rate": "30000/1001",
+            "avg_frame_rate": "30000/1001",
+            "disposition": {
+              "attached_pic": 0
+            }
+          },
+          {
+            "index": 1,
+            "codec_name": "opus",
+            "codec_type": "audio",
+            "channels": 2,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "disposition": {
+              "attached_pic": 0
+            }
+          }
+        ],
+        "format": {
+          "duration": "1020.227000",
+          "size": "137271938"
+        }
+      }
+    },
+    {
+      "file": "references/earthrise.srt",
+      "title": "Earthrise in 4K captions",
+      "creator": "NASA Goddard Space Flight Center",
+      "kind": "reference",
+      "source_url": "https://svs.gsfc.nasa.gov/vis/a000000/a004500/a004593/G2018_Earthrise_Master_Output.en_US.srt",
+      "licence": "Public domain (NASA SVS, unless otherwise noted)",
+      "licence_url": "https://svs.gsfc.nasa.gov/help/",
+      "licence_evidence_url": "https://svs.gsfc.nasa.gov/4593/",
+      "attribution": "NASA's Goddard Space Flight Center; Earthrise in 4K captions",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "captions",
+        "transcription reference"
+      ],
+      "exactness": "Publisher captions; not independently checked verbatim.",
+      "size_bytes": 6923,
+      "sha256": "0518c001b29ac66c4eba4195517bbcc8ade64eb8bfb4acfc257f936628474bdf",
+      "ffprobe": null
+    },
+    {
+      "file": "references/mather.srt",
+      "title": "Cosmic Dawn interview captions",
+      "creator": "NASA Goddard Space Flight Center",
+      "kind": "reference",
+      "source_url": "https://svs.gsfc.nasa.gov/vis/a010000/a014900/a014940/CU_Mather.en_US.srt",
+      "licence": "Public domain (NASA SVS, unless otherwise noted)",
+      "licence_url": "https://svs.gsfc.nasa.gov/help/",
+      "licence_evidence_url": "https://svs.gsfc.nasa.gov/14940/",
+      "attribution": "NASA's Goddard Space Flight Center; Cosmic Dawn interview captions",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "captions",
+        "transcription reference"
+      ],
+      "exactness": "Publisher captions; not independently checked verbatim.",
+      "size_bytes": 32133,
+      "sha256": "256e03dc87211f5e3b2c2c104351cf983918b1de7a0bb7efb82559f14936b859",
+      "ffprobe": null
+    },
+    {
+      "file": "music/energizing.mp3",
+      "title": "Energizing",
+      "creator": "Kevin MacLeod",
+      "kind": "music",
+      "source_url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Energizing.mp3",
+      "licence": "CC BY 3.0",
+      "licence_url": "https://creativecommons.org/licenses/by/3.0/",
+      "licence_evidence_url": "https://incompetech.com/music/royalty-free/index.html?feels%5B%5D=R&page=9",
+      "attribution": "\"Energizing\" Kevin MacLeod (incompetech.com), licensed under CC BY 3.0: https://creativecommons.org/licenses/by/3.0/",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "montage",
+        "beat cutting"
+      ],
+      "changes": "Original download; advertised tempo 90 bpm.",
+      "size_bytes": 3040798,
+      "sha256": "6b6f002c9721debbdb4a870fd7a084ec920761a064ca0333ad603e6348a538a4",
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "mp3",
+            "codec_type": "audio",
+            "channels": 2,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "disposition": {
+              "attached_pic": 0
+            }
+          },
+          {
+            "index": 1,
+            "codec_name": "mjpeg",
+            "codec_type": "video",
+            "width": 800,
+            "height": 800,
+            "r_frame_rate": "90000/1",
+            "avg_frame_rate": "0/0",
+            "disposition": {
+              "attached_pic": 1
+            }
+          }
+        ],
+        "format": {
+          "duration": "133.368163",
+          "size": "3040798"
+        }
+      }
+    },
+    {
+      "file": "music/evening_melodrama.mp3",
+      "title": "Evening Melodrama",
+      "creator": "Kevin MacLeod",
+      "kind": "music",
+      "source_url": "https://incompetech.com/music/royalty-free/mp3-royaltyfree/Evening%20Melodrama.mp3",
+      "licence": "CC BY 3.0",
+      "licence_url": "https://creativecommons.org/licenses/by/3.0/",
+      "licence_evidence_url": "https://incompetech.com/music/royalty-free/index.html?collection=039&page=1",
+      "attribution": "\"Evening Melodrama\" Kevin MacLeod (incompetech.com), licensed under CC BY 3.0: https://creativecommons.org/licenses/by/3.0/",
+      "retrieval_date": "2026-10-29",
+      "good_for": [
+        "montage",
+        "beat cutting"
+      ],
+      "changes": "Original download; advertised tempo 115 bpm.",
+      "size_bytes": 1609233,
+      "sha256": "0c37714173e82c426376b33aefcc4698fadf619ca5771b740aef22d97955d153",
+      "ffprobe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "index": 0,
+            "codec_name": "mp3",
+            "codec_type": "audio",
+            "channels": 2,
+            "r_frame_rate": "0/0",
+            "avg_frame_rate": "0/0",
+            "disposition": {
+              "attached_pic": 0
+            }
+          }
+        ],
+        "format": {
+          "duration": "40.176325",
+          "size": "1609233"
+        }
+      }
+    }
+  ]
+}

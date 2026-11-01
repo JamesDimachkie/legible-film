@@ -1,5 +1,263 @@
 # Changelog
 
+## 2.0.0 (2026-10-31)
+
+**Upgrading from 1.x.** Every 1.x command still works except `short`: `brief` and `film` open `plan`, `teaser` opens
+`kit`, `cutdown` opens `shorts`, `review` opens `screen`. A sting, loop or clip under 15 s, which `short` made, is now
+part of `kit`, and `shorts` now makes short clips from a long video. New commands: `quick`, `map`, `plan`,
+`screen`, `shorts`, `insert`, `premiere`, `grade`, `handoff`, `tighten`, `taste` and `spatial`. No script or
+reference was removed. FFmpeg 5.1 or later is now the minimum, and `setup.py --install core` installs numpy and
+Pillow.
+
+Video as legible as code. 2.0 reshapes the skill around one loop (Map, Plan, Cut, Check, Screen, Revise, Deliver)
+that a coding agent runs and a person can follow at every step: the film is written down as a script, every render is
+a version that never changes, checks run on the file a viewer receives, and the person watches, notes moments,
+scores and approves in one local page. 1.x's film kit, sound chain and checks are all still here, now inside the loop.
+
+**The loop**
+
+- **A project folder** (`references/project.md`, `project.py`) shared by every script: sources mapped under role
+  aliases (never file names), immutable versions in `cuts/vNNN/`, notes pinned to moments, an append-only decision
+  log, and a one-line status the agent posts after each stage (`v3 checked · 11 checks pass · 1 to look at · 2 need
+  you`). Writes are atomic and locked across processes; stages only move backwards when asked.
+- **The Map** (`map.py`, `transcribe.py`, `strip.py`): a local word-timed transcript (faster-whisper, or FFmpeg's
+  whisper filter, or an imported one; nothing uploaded), shots with contact sheets, loudness and silences, and
+  screening strips that draw a cut as frames, levels and words. Transcripts are never overwritten once a person may
+  have corrected them; `map.py fix` corrects a word and records it; review prompts mark places to listen, using a
+  local voice-activity model so a music bed no longer fills them (Tears of Steel: 29 prompts down to 3, with the same
+  deleted words found in a known-answer test).
+- **Direction before lines** (`references/finding-the-story.md`): a film states who it is for, what they should leave
+  with and its story in one sentence at the top of its script; `cut.py check` warns when a cut longer than 20 s does
+  not, the script review judges the cut against it, and the Screening Room shows it above the script. The reference
+  teaches finding the story in a recording (read everything, try the ending first, keep the speaker's meaning) and
+  finishing it as an editor would (covering jumps, naming the speaker once, endings that land).
+- **The paper edit** (`film.md`, `references/paper-edit.md`, `cut.py`): spoken lines, pictures, cutaways, titles,
+  holds and music in the order they play. Strike a word to cut it. Cuts land in pauses measured in the audio: on
+  test material 240 of 240 cuts fell in silence, where transcript timings alone put 52 in speech and 78 in breaths.
+  `cut.py diff` says exactly which lines, words and durations changed between versions.
+- **Checks** (`check.py`) in plain states (pass, look, fail, needs you, not assessed), each proving it ran now: spec,
+  sound edges, flashing, near-empty frames, captions as three items that say what they compared (reading rules;
+  following the edit; matching the speech, against a local transcript of the file's audio), burned-caption and title
+  contrast, and technical checks (stereo that cancels on a phone speaker, black bars, interlacing, frozen picture,
+  colour range, DC offset). Loudness is judged against a target only when one is named.
+- **The Screening Room** (`screen.py`): one page with the cut, its script (struck words struck, changes marked, and the
+  script's own notes on each beat and join in place), the timeline, checks, notes and versions; replay a moment, step
+  frames, leave notes with `N`, tick what only a person can judge, approve. Live mode runs on 127.0.0.1 behind a private
+  link made for that session and serves only the room's own files. It has light and dark modes, and every text measures
+  4.5:1 contrast or better.
+- **Reviewing together in Flask** (`references/review.md` §1): when the person reviews away from the machine or with
+  a client, an editor or a team, [Flask](https://flask.do) is the recommended collaboration and feedback layer. The
+  agent posts each version to one asset through Flask's MCP server, brings every note (its moment, words and
+  drawing) back into `notes.json`, fixes it at its cause and closes it with a reply in the next version; uploading
+  private material waits for the person's yes. The teaser in the README was revised this way through five versions.
+- **The scorecard** (`grade.py`, `references/grading.md`): fifteen dimensions in content, picture, sound and
+  delivery, each 0 to 10 with the moments behind it, scored by a reviewer who did not make the cut from a packet of
+  stills, scopes, the opening at ten frames a second, the transcript and measurements; the person's own scores take
+  precedence. Every dimension says how far it has been validated: in a blind degradation test on two real cuts,
+  hook, structure, ending and image passed on both, seven more on one, and four not yet. `grade.py paper`, `hooks`
+  and `thumbs` score the script before rendering, list opening lines and propose covers.
+- **Premiere** (`exchange.py`): reads Final Cut Pro 7 XML exports, places the transcript's words in the edit, and
+  follows each caption into the next revision (unchanged, moved, stale, split or removed), naming anything it cannot
+  map. On one professional editor's two-revision case: 78 of 78 and 81 of 81 clips, 479 of 479 and 462 of 462 words
+  within 1 ms; following captions through the edit flagged 5, all changed by the editor.
+
+**Cuts that work, not only cuts that pass**: an agent cannot watch its own cut, and reviewing its own work it sees
+what it meant. Blind tests with judges calibrated on deliberately broken versions of a good cut shaped what follows.
+- *Independent review before the person sees a cut* (`grade.py review`, `references/review.md` §4): a packet of the
+  joins at ten frames a second, the opening and ending, the transcript with source times and the measured checks; a
+  reviewer with no part in the cut (another model family when the person allows it) looks first as a viewer, then at every
+  join; the editor verifies, fixes and re-reviews once. On two first cuts it raised blind judges' scores from 5 to 7
+  and from 6 to 7 or 8, removing two events merged into one and an undefined "it". A person watching the four films
+  blind picked a reviewed cut as the best; the other reviewed cut was one of two the viewer found poorly composed.
+- *Meaning before words* (`references/finding-the-story.md` §4): join on a shared subject, situation, question,
+  cause or intended contrast, never because the words happen to fit; every shot tells the viewer something; keep the
+  viewer oriented; a note at every join says what links it. Cut for feeling (Murch's order), keep the setups, let
+  moments breathe, cut whole beats rather than breaths. Stories are chosen by comparing three spines.
+- *Sound across joins* (`{tail N}`, `{lead N}`, `{dissolve N}` crossfading sound too, `{sound -6dB}`) and a measured
+  report on every join (the background where nobody speaks on each side, its tone, its 20-100 Hz low end, what
+  bridges it). On a teaser, it flags every join a person heard as wrong, including effects booms before quiet
+  dialogue.
+- *Checks for what agents miss*: flash frames of another shot, holes of digital silence, title contrast, abrupt
+  sound at joins, busy cutting, interview lines played out of the order they were said, captions too small for a
+  phone feed, joins without a note, an opening that may start mid-sentence, a question answered before it can land
+  (no beat where the source had one), a film whose length cuts its last sound short.
+- *Tools that stopped getting in the way*: `project.py stage`, `map.py fix --start --end` for word timing, `map.py
+  words`, `map.py run --check`, a map that survives moving the skill, paper reviews that survive note edits,
+  `frame_sheet.py` reading only the windows it needs (63 s to 0.7 s on a 17-minute source), caption plates that fit
+  their words, the script's own notes shown in the Screening Room. `map.py words` shows the pauses under room tone
+  that a fixed silence threshold misses, `compare_versions.py --offset-at` compares versions that gained or lost
+  frames mid-film, `cut.py diff` names changed modifiers, and `render --resolves` prints the command that closes
+  each note.
+
+**From a working editor's review of the pre-release** (an editor's agent tested it on two real Premiere
+revisions: every clip and every placed word matched its own oracle, then it reproduced the gaps below):
+
+- *A transcript belongs to the file it was made from.* It records the file's SHA-256 and the sound stream; when the
+  file changes the transcript is stale, every `map.py` run says so, and `cut.py`, `exchange.py` and `check.py` will
+  not use its words until it is transcribed again or confirmed against the new file (`map.py confirm-words`).
+- *A word belongs to its recording.* `exchange.py` identifies a word by its source and ID, refuses repeated IDs, and
+  marks words under an audio transition as estimated, with the transition (on the editor's revisions: 33 of 33 and
+  66 of 66, where 3 in each had looked measured).
+- *An editor's export, checked as delivered.* `check.py --file` takes the export, its caption sidecar, the timeline
+  XML, the source transcripts and a transcript of the export, plus the expected delivery settings; anything it
+  cannot assess says "Not assessed". Every result records the hash of each file and tool it depends on and reads as
+  out of date when one changes (`check.py --verify`). `--final` takes the delivered `--captions`.
+- *Caption house styles.* `captions.py --profile` holds an editor's limits and the exceptions a person has reviewed
+  (on the editor's revisions, 183 and 156 default prompts became 38 and 23); `complete` and `--strict` say whether
+  the captions are done, not only whether a rule failed; an offset seen only on estimated word times is a prompt to
+  listen.
+- *No report overwrites its input*, in any script, by the same path, another spelling of it or a link.
+- *Cue matching* no longer picks digital silence after loud material (an onset 86 ms early at a correlation of 12.4,
+  now on cue at 1.0).
+- *Done is not accepted.* `project.py status --json` keeps stage progress, current checks, open review and the
+  person's approval of a file apart.
+- *Editor assist mode* in SKILL.md: when an editor's application holds the edit, the request sets the scope, with no
+  paper edit or planning loop; the privacy rule says what the skill does not remove from transcripts, captions and
+  reports.
+
+**From the editor's test of 2.0** (the same editor's agent, on a 2.0 pre-release build: a synthetic hand-off
+opened in Premiere Pro 26.3 on macOS, one real export checked as delivered, and a raw 72 s interview answer
+tightened):
+
+- *The hand-off opens in Premiere.* Every source came online with its handles; the five clips and the dissolve
+  landed where expected; chirps in each channel measured both J and L overlaps right; 6 of 6 markers and 10 of 10
+  captions matched. Two faults it found are fixed: the sequence now declares square, progressive pixels (Premiere had
+  chosen PAL-601, 35:32 pixels, for a landscape and a portrait 1080x1920 hand-off alike), and each channel of a
+  stereo source is panned to its side, as Final Cut Pro 7 writes a stereo pair (both had played centred). The pan is
+  not yet re-checked in Premiere.
+  The notes now name a source whose picture starts apart from its sound and non-square source pixels, and say to
+  compare WAV or PCM exports, since AAC adds 1,024 samples of encoder delay.
+- *A caption exception belongs to the caption it reviewed.* An exception keyed by rule and start alone had accepted
+  a different stale word after the caption at that start was edited. Exceptions now name the caption's start, end
+  and text, and may carry the result's `fingerprint` from the report, which also reopens them when a new word basis
+  changes the result; one without text and end is listed for review instead of applied.
+- *Counts say what they count.* A summary that read "8 caption words" for eight captions holding nine words now gives
+  captions (or places) and words apart.
+- *A stale transcript exits 1.* `map.py` warned and exited 0, so a caller reading only the exit code took the words
+  as usable.
+- *Tighten says what its reel holds and where the picture jumps.* On the raw interview it made 10 cuts (5.2 s, 7.3%),
+  kept all 184 words, aligned every join (correlation 0.996 or more), and no listening model found a clipped word, but
+  the reel played 5 of 11 listening prompts without saying so and two joins showed an arm jump. The report and output
+  now count cuts and prompts apart, and each join is scored by how much the picture changes across it against the
+  shot's own motion, ranked so the jumps are checked first.
+
+**Designed pictures over recordings**: `~ over` draws a graphic with transparency over a line while it plays, a
+lower third or title as a video at the film's frame rate (PNG MOV, ProRes 4444 or VP9 with alpha, frame for frame
+from its first frame) or a logo as one PNG, and refuses a file without transparency; a recipe for an animated insert
+in place of a passage's picture, on the source's exact clock and timed to its words; `frame_sheet.py --words` labels each frame with the word spoken then;
+a designed film's concept and score are reviewed before anything is built; `cut.py diff PROJECT vNNN` shows what
+changed in the paper edit since a render, so an agent builds on the person's own edits.
+
+**Footage the world actually shoots**: rotated phone video framed as shown, non-square pixels, variable frame rate
+cut on presentation timestamps, HDR converted before a caption burn, Arabic, Hebrew, Thai and Devanagari captions
+shaped through libass in bundled Noto Bold faces (a line mixing scripts names each script's face, so it renders on
+Linux too), MP4 edit lists decoded on the source clock, one audio stream chosen once and used everywhere, retimes
+that keep events within a frame.
+
+**Fixes found by real use and review**: proxied HD interviews render with their sound; burned captions at a
+readable weight on a plate; a 1x clip no longer passes through a time-stretch filter (it moved sounds 18 ms and
+dropped samples); mixes keep headroom in float (16-bit intermediates clipped); final renders show every source
+frame at 29.97 and 24 fps; the cookbook's trim keeps its sound and its 9:16 keeps HD colour; mixes that hung on
+FFmpeg 9 always end; a silent final passes its spec check (the re-encode peak check is asked of files with sound
+only); the interlacing check decides on idet's single-frame verdicts (its running tally called fine detail in
+progressive film interlaced for seconds at a time); a crop path file from `reframe.py --start` plays from the
+clip's in-point; burned captions no longer cost the picture a lossy generation (the caption-free area measured 39.6
+dB PSNR against an uncaptioned render, now 51.1 dB); caption lines follow the frame's shape (26 characters at 9:16)
+so vertical captions keep their size; screening strips made at render time show the timed words; a flash only the
+pattern detectors count (camera movement over fine detail triggers them) asks a person to look, and a general or red
+flash fails only when at least a quarter of a screening window (a third of the frame each way) changes together, in
+one direction, so fine moving detail no longer fails a film (it had failed the film kit's own showcase) and a failure
+names its own moment; a killed render or mapping no longer shows as running; a transparent PNG shown as a still
+shows the background colour where it is clear (it showed black), and `cut.py check` suggests `~ over` for one placed
+over a line.
+
+**Beyond the cut**:
+- *Hand a cut to an editor* (`exchange.py write`): a version becomes a Final Cut Pro 7 XML sequence that Premiere and
+  Resolve open, of the original clips with their full handles: picture, cutaways and graphics on their own tracks,
+  source-channel dialogue and music, dissolves and crossfades, J and L cuts as split edits, markers, and the captions
+  as SRT beside it. Picture follows the frames the render chose. What the format cannot carry (crops, speed changes,
+  the mix, spatial effects) is listed beside the XML. Read back by its own reader and OpenTimelineIO's on synthetic
+  projects, every cut within half a frame, and opened in Premiere in the editor's test below; Resolve is untested.
+- *Tighten* (`cut.py tighten`, `tighten.py FILE`): pauses shortened to a target where the sound is measured quiet,
+  relative to the recording's own room tone, written as a paper edit; a cut waits until a word's tail and the room
+  have died away to near room tone, and pauses under 0.12 s are left; named fillers struck only when asked; repeated
+  words and untranscribed sound flagged to hear, never cut; a reel that plays each cut before and after, in whole
+  words with soft edges, so a person can hear that no word went (after Auto-Editor's inverted edit). It is cautious:
+  on the first 120 s of a public-domain LibriVox reading (*Birdseye Views of Far Lands*, chapter 1) over a still, it
+  shortened 6 of 22 pauses longer than its 0.35 s target (2.8 s), and left a pause where it found no cut clear of a
+  word's tail and the room's echo; every cut sits within 8 dB of room tone. A music bed is not detected: declared with
+  `--music-bed`, pauses are left, and the report says why.
+- *Spatial layers* (`track.py`, `matte.py`, `spatial.py`, `references/spatial.md`): track a surface or a point, then
+  pin a graphic to it, put a title behind a person, or blur a moving face or plate; key, luma, difference and MODNet
+  subject mattes. Layers are files bound to their source, drawn through the renderer's own frame choice and framing,
+  recorded in each version, and checked on their line; a privacy blur that cannot cover a frame stops the render.
+  Measured on public footage: a sign in NASA's *Designing Webb* b-roll (public domain; 13-20.4 s) tracked on all 109
+  frames, feature agreement median 0.83 px and worst 5.2 px (no ground truth); on the Tears of Steel bridge scene a
+  region track on a face lost 202 of 288 frames (a face is not flat) and a point track drifted 9.4 px. MODNet on
+  the NASA Mather interview kept the speaker with a blue fringe at the hair.
+- *Your references, per film* (`look.py`, `references/look.md`): before the paper edit, the agent asks in one
+  message, each question with a default, for references (films, ads, channels, a frame, the product) and what to
+  take from each, or, with none, offers three directions with public examples or asks who it is for, the feeling,
+  the pace and what the person never wants. The answers become the project's `look.md`; references are copied
+  into `refs/` under stable names, drawn as one board, and set beside stills of the film with colour measured per
+  region. The plan and cut reviewers read it; references are never cut into the film (`map.py` refuses them),
+  delivered or uploaded. Drawn from Leon Lin's `cook` and his notes on prompting with references.
+- *Preferences the person confirms* (`taste.py`, `references/taste.md`): an agent proposes a preference with the notes
+  and changes it came from; only the person confirms it, in their words, and only they make it general. The Plan
+  step and both review briefs read the confirmed ones; those the kit can measure become looks, never failures or
+  edits. `screen.py import-notes` brings Flask notes in whole, once each.
+- *Smaller things agents tripped on*: J, K and L shuttle and frame steps in the Screening Room (`?` lists the keys);
+  `compare_versions.py` says where in the frame a version changed; an empty first frame is a look; a title below
+  contrast gets a colour and a plate that pass; a freeze followed by its own shot is not busy cutting; a flash
+  inside a shot is not two shot changes; `map.py fix` shows the word in context and what it changes in film.md;
+  a picture, still or music line on a changed source is an error, and every version records the sources it used.
+- *Long and 4K finals on a laptop*: the renderer decodes each clip as it plays instead of spooling every picture
+  range to disk first, with the same frame choice and output (frame hashes and whole files identical on the render
+  cases). A 3-minute 4K synthetic edit needed 4.3 GB of temporary disk and now needs about 72 MB, at about a third
+  more memory; encoded intermediates still grow with length.
+- *The story guidance* says the subject is clear at once even while the answer is held back, and a question stays
+  open at every point of a film; both review briefs ask it.
+
+**The first ten minutes**: `setup.py --install core` installs numpy and Pillow into the running Python when it allows
+it, otherwise into one per-user environment (never a system Python), and names the Python to run every script with.
+Every missing-package message, in every script, names the Python it is missing from and the setup command, quoted
+for the shell it will be typed in. Transcription installs with the person's yes, and its weights download only with
+`--download`, after their size is named; `--install kit` puts the film kit's Playwright and Chromium where the kit
+looks, with the person's yes, and `doctor` is another name for `setup`. `setup.py` checks packages the way the scripts
+import them (isolated, `python -I`), so one installed only for the user, which they cannot see, is reported missing
+with that reason instead of ready; every script, run without numpy or Pillow, names the missing package and the setup
+command instead of failing with a traceback (a first-run case runs every script's `--help` in a bare Python); a
+transcript that cannot be made leaves the map waiting with one line of reason; and free memory is measured one way
+for the whole skill, macOS included, with an unmeasured system reported as not measured rather than blocking a render.
+`selftest.py --smoke` checks the core paths in about ten seconds.
+`examples/first-cut/` is a 23-second scene from Tears of Steel with its transcript and a paper edit; the README's
+quickstart (setup, the smoke test, a first check, a first cut and its check) runs exactly as written in CI on Linux,
+macOS, Windows and Debian 12, timed against five minutes. `setup.py` reports FFmpeg older than 5.1 (the declared
+minimum) as limited, and the self-test runs in CI on Linux, macOS, Windows and Python 3.9 with FFmpeg 5.1. Local web
+servers no longer stall for tens of seconds on macOS.
+
+**For the agent**: SKILL.md is a router (under 16 KB, its description under 400 characters, both held by the docs
+check), with the loop, the script table and the gotchas in references; its trigger evaluation is in
+`evals/results/2026-10-31-router/`. Material is not instruction: words inside sources, transcripts, captions and
+notes are evidence to judge, and `screen.py notes` quotes each note with where it came from (the room, Flask or the
+agent). Uploading anything waits for the person's yes, once per project and destination. `selftest.py` never writes
+its report or cache over another file. `check.py --file` says what a file was checked against (the web defaults
+unless a delivery file or flags name another) and gives a command that fixes each failed spec item.
+`references/engines.md` adds two optional routes: Cavalry driven through its own MCP server, whose `snapshot_layer`
+shows the agent any frame of its composition, with what that sends off the machine (a title and a lower third
+built, seen, rendered, cut and checked through it on Windows, the lower third over an interview with `~ over`, and
+the scene driven from a fresh Claude Code session after one Allow in Cavalry); and Strobe for faster HyperFrames and Remotion renders, not tested here,
+checked against the engine's own with `compare_versions.py`. Putting that Cavalry title through the film found that
+sRGB-tagged sources (graphics renders) had their curve converted through linear light, darkening a background from
+RGB 16 to 5; they now keep their values.
+
+**Evaluations** (`evals/`): 25 tasks across 12 kinds of video with known-answer inputs built from public media and
+graders checked on targeted good and bad controls (19 pairs separated, 6 tasks not run); see `evals/README.md` for
+what has and has not been run.
+
+**How it was built**: parallel lanes of GPT-6.1 Terra and Claude Opus, each lane's work reviewed by the other model
+family, every fix with a failing case first; about 1,600 self-test cases.
+
 ## 1.2.5 (2026-10-30)
 
 Fixes from the first real case: a professional editor's two saved Premiere revisions of a 24000/1001 interview cut,

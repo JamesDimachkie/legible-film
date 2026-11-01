@@ -61,7 +61,10 @@ Rules that came from rendered defects; each is cheap to check on a full-resoluti
 - **Copy stays in its own column.** Measure the widest line and card in each scene against where the illustration
   lives; one scene's 84 px answers reached past the centre of the frame into the figures it was describing.
 - **A qualifier that changes a number's meaning sits beside the number** at label size, with the full condition in
-  the footnote. Footnotes and "illustrative" labels never shrink below footnote size or leave the frame early.
+  the footnote. Footnotes and "illustrative" labels never shrink below footnote size or leave the frame early. A
+  qualifier that cannot read at viewing size without dominating the frame is still blocking ([review](review.md)
+  §4): make room for it on screen (fewer elements, a shorter qualifier, more time), or put the choice to the person;
+  saying it aloud or in the post does not replace it beside the number.
 - **Comparable numbers share one size and one aligned column**, with tabular figures. Small print never swaps into
   big print.
 - **Text from two scenes never overlaps.** A simultaneous cross-fade printed one card over another for three frames;
@@ -94,7 +97,10 @@ available.
 
 **Motion makes claims.** People read simple shape motion as causal (one object meeting another before it moves) or
 as intentional (pursuit, self-directed turns). Check that a move does not credit the product with agency, speed or
-certainty it lacks, and show a real intermediate state when processing matters.
+certainty it lacks, and show a real intermediate state when processing matters. In one animated insert about a
+mechanism, reviewers found several rhythms locking together abstract; one chain of concrete things acting on each
+other (a late delivery stalling the next step, which stalled the one after) read as the cause, and the turn read best
+landing on the same things in the same framing.
 
 **Weight and cause:**
 
@@ -172,7 +178,9 @@ Choose the relationship first, then the technique:
   outgoing picture opaque and fade the incoming one over it.
 - Continuity editing hides cuts and even changes on screen (in one study viewers missed a quarter to a third of
   continuity edits while looking for them). Match action when the viewer should carry an event across; announce a
-  consequential change when seamlessness would hide it.
+  consequential change when seamlessness would hide it. When the subject widens (from one example to everyone like
+  it), give it a new view and a cue that names the new scope; the same view cut back to its earlier state reads as
+  the same place resetting.
 - A cut is a sound baseline. "Slideshow" pacing is repeated stop-start with nothing developing, not the use of cuts.
 - Too many identical whips read as a template; make some transitions object-led. A stock transition preset reads as
   a template unless the concept calls for exactly that texture.
@@ -244,7 +252,9 @@ primitives is not the fix. Defaults are where generated work looks generic, so q
 - an eyebrow label over a headline over a subhead; stacked taglines;
 - clip-art icons, glitter meant to say "intelligence", drifting particles, and gradients or glows with no job;
 - decorative captions, invented metrics and labels nobody needs (an invented number is an unsupported claim);
-- bounce on copy, and a new text trick on every card.
+- bounce on copy, and a new text trick on every card;
+- one easing curve on every move, and interface screens tilted in the same stock perspective, the two tells a
+  motion designer names first in generated launch films.
 
 Each is fine when it was chosen for this product and this moment.
 

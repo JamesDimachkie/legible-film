@@ -9,7 +9,6 @@
 renders/
 qa/
 review-output/
-.hyperframes/
 
 # Python, Node and OS clutter
 __pycache__/
@@ -25,5 +24,7 @@ Thumbs.db
 *.pem
 *.key
 
-# The README showcase is a deliberate exception
+# Deliberate exceptions: the README's media and the bundled example (Tears of Steel, CC BY 3.0; see NOTICE)
 !.github/media/atlasfold-showcase.mp4
+!.github/media/first-cut.gif
+!examples/first-cut/tears-of-steel-bridge.mp4

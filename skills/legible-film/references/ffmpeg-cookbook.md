@@ -212,18 +212,31 @@ ffmpeg -i film.mp4 -i captions.srt -map 0 -map 1 -c copy -c:s mov_text -metadata
 ## Cut and reframe
 
 ```bash
-# Frame-accurate trim with re-encode, and 15 ms audio fades so the edges do not click (here 3 s from 2 s)
-ffmpeg -i source.mp4 -ss 2.000 -t 3.000 -af "afade=t=in:d=0.015,afade=t=out:st=2.985:d=0.015" -c:v libx264 -crf 18 -c:a aac -b:a 192k trim.mp4
+# Frame-accurate trim with re-encode, and 15 ms audio fades so the edges do not click (here 3 s from 2 s).
+# -ss before -i, so filters run on the trimmed clock (output-side -ss left the fades on the source clock and
+# silenced everything after 1.0 s of a 3 s trim). The fade-out starts at the trim's length minus 15 ms.
+ffmpeg -ss 2.000 -i source.mp4 -t 3.000 -af "afade=t=in:d=0.015,afade=t=out:st=2.985:d=0.015" -c:v libx264 -crf 18 -c:a aac -b:a 192k trim.mp4
 
-# 9:16 from a 16:9 source, crop centred on a subject at x = 960 px (not the frame centre), Lanczos to 1080x1920
-ffmpeg -i wide.mp4 -vf "crop=ih*9/16:ih:960-ih*9/32:0,scale=1080:1920:flags=lanczos,setsar=1,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -c:v libx264 -crf 18 -c:a aac tall.mp4
+# 9:16 from a 16:9 source, crop centred on a subject at x = 960 px (not the frame centre), Lanczos to 1080x1920.
+# in_color_matrix=bt709 for an HD source (untagged HD is BT.709; scale otherwise assumes BT.601 and shifts colour,
+# measured U 128.1 to 127.4); use bt601 for SD or a source tagged BT.601.
+ffmpeg -i wide.mp4 -vf "crop=ih*9/16:ih:960-ih*9/32:0,scale=1080:1920:flags=lanczos:in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,setsar=1,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -c:v libx264 -crf 18 -c:a aac tall.mp4
+
+# Both at once: remove the first 3 s and make a 9:16 version in one encode. -ss before -i keeps everything after
+# 3 s; the 15 ms fade-in stops a click at the new start (the end is the source's own, so it needs no fade). The crop
+# is centred; replace (iw-ih*9/16)/2 with the subject's x minus ih*9/32 for an off-centre subject. On a 10 s
+# 1920x1080 30 fps source this gave 1080x1920, 210 frames, 7.000 s.
+ffmpeg -ss 3.000 -i clip.mp4 -vf "crop=ih*9/16:ih:(iw-ih*9/16)/2:0,scale=1080:1920:flags=lanczos:in_color_matrix=bt709:out_color_matrix=bt709:out_range=tv,setsar=1,format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv" -af "afade=t=in:d=0.015" -c:v libx264 -crf 18 -c:a aac -b:a 192k -movflags +faststart clip-9x16.mp4
 
 # Pauses in speech (start and end times on stderr): candidate cut points, never a transcript
 ffmpeg -hide_banner -nostats -i interview.wav -af "silencedetect=noise=-35dB:d=0.3" -f null - 2>&1 | grep silence_
 ```
 
-A crop that follows a moving subject needs a path, not one `x`: `scripts/reframe.py` proposes and checks one, and
-`scripts/assemble.py` renders it.
+A crop that follows a moving subject needs a path, not one `x`: `assemble.py` renders one from an edit file with
+`"crop": {"path": "auto"}`, following the largest frontal face when OpenCV is installed and sustained motion and
+detail otherwise
+([recipes](recipes.md#quick-edits) has a one-item edit file), and `reframe.py` proposes or checks one with a sheet of
+the crop over time.
 
 ## Compare
 

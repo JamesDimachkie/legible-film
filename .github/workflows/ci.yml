@@ -3,9 +3,16 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# A newer push to the same branch supersedes a run still in progress. macOS minutes cost about ten times Linux's on a
+# private repository, so there it runs only when started by hand (Run workflow); public runs always include it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   selftest:
@@ -13,12 +20,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: ${{ fromJSON(github.event.repository.private && github.event_name != 'workflow_dispatch'
+              && '["ubuntu-latest", "windows-latest"]'
+              || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.12"
       - name: Install FFmpeg (Linux)
@@ -32,9 +41,29 @@ jobs:
         run: choco install ffmpeg -y --no-progress
       - name: Python packages
         run: python -m pip install numpy Pillow
+      # Linux also runs the tracking cases (OpenCV); Windows and macOS keep the minimal install, where they skip.
+      - name: Optional OpenCV (Linux)
+        if: runner.os == 'Linux'
+        run: python -m pip install opencv-python-headless
       - name: FFmpeg version
         run: ffmpeg -hide_banner -version
       - name: Self-test
+        run: python skills/legible-film/scripts/selftest.py
+
+  floor:
+    name: "selftest (oldest supported: Python 3.9, FFmpeg 5.1)"
+    runs-on: ubuntu-latest
+    container: python:3.9-bookworm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - name: Install FFmpeg 5.1 (Debian 12)
+        run: apt-get update && apt-get install -y ffmpeg
+      - name: Python packages
+        run: python -m pip install numpy Pillow
+      - name: FFmpeg version
+        run: ffmpeg -hide_banner -version
+      - name: Self-test on the oldest supported Python and FFmpeg
         run: python skills/legible-film/scripts/selftest.py
 
   kit:
@@ -42,11 +71,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: "22"
       - name: Install FFmpeg
@@ -66,8 +95,8 @@ jobs:
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version: "3.12"
       - name: Python packages
@@ -76,8 +105,53 @@ jobs:
         run: python .github/scripts/check_docs.py
       - name: Agent Skills validator
         run: |
-          python -m pip install "git+https://github.com/agentskills/agentskills.git#subdirectory=skills-ref"
+          python -m pip install "git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref"
           skills-ref validate skills/legible-film
       - name: JSON templates parse
         run: |
           python -c "import json,glob; [json.load(open(p)) for p in glob.glob('skills/legible-film/assets/templates/*.json') + glob.glob('evals/*.json') + glob.glob('.claude-plugin/*.json')]; print('ok')"
+
+  # The README's quickstart, run as written on clean machines: no cached packages, no setup-python. first_value.py
+  # runs the system package line the quickstart gives for each system (timed, not counted), then times setup, the
+  # smoke test, the first check and the first cut, and fails when they take longer than 300 s.
+  first-value:
+    name: first value (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event.repository.private && github.event_name != 'workflow_dispatch'
+              && '["ubuntu-24.04", "windows-latest"]'
+              || '["ubuntu-24.04", "macos-latest", "windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - name: Quickstart (Linux, apt's python3)
+        if: runner.os == 'Linux'
+        run: /usr/bin/python3 .github/scripts/first_value.py --budget 300
+      - name: Quickstart (macOS, Homebrew Python)
+        if: runner.os == 'macOS'
+        run: python3 .github/scripts/first_value.py --budget 300
+      - name: Quickstart (Windows, PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The quickstart installs FFmpeg with winget. A runner image without winget gets the same Gyan build from
+          # Chocolatey, and the summary names the substitution.
+          $instead = @()
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            $instead = @('--instead', 'winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements', 'choco install ffmpeg -y --no-progress')
+          }
+          python .github/scripts/first_value.py --budget 300 @instead
+
+  first-value-debian:
+    name: "first value (debian:12, apt's python3)"
+    runs-on: ubuntu-latest
+    container: debian:12
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - name: What a Debian desktop already has (python3 to run the timer, sudo)
+        run: apt-get update && apt-get install -y --no-install-recommends python3 sudo ca-certificates
+      - name: Quickstart
+        run: python3 .github/scripts/first_value.py --budget 300

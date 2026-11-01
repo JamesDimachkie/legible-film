@@ -1,8 +1,8 @@
 {
   "name": "legible-film",
   "displayName": "Legible Film",
-  "version": "1.2.5",
-  "description": "Plan, build, score, render, revise and quality-check short videos with a coding agent: one story on one clock, every claim sourced, and the delivered file checked before it ships.",
+  "version": "2.0.0",
+  "description": "Video editing for coding agents: cut interviews, podcasts, tutorials and montages from their transcripts and shots; make launch films and kinetic type; caption, mix and check the delivered file. The film lives as text, every render is a version, and the person watches, notes and approves in a Screening Room.",
   "author": {
     "name": "James Dimachkie",
     "url": "https://github.com/JamesDimachkie"
@@ -10,5 +10,5 @@
   "homepage": "https://github.com/JamesDimachkie/legible-film",
   "repository": "https://github.com/JamesDimachkie/legible-film",
   "license": "Apache-2.0",
-  "keywords": ["video", "film", "launch film", "product demo", "motion graphics", "kinetic typography", "beat sync", "motion blur", "sound design", "ffmpeg", "quality control", "hyperframes", "remotion"]
+  "keywords": ["video", "video editing", "film", "interview", "podcast", "transcript", "paper edit", "captions", "screening room", "review", "launch film", "kinetic typography", "sound design", "ffmpeg", "quality control"]
 }

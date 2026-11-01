@@ -6,9 +6,22 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Licence: Apache-2.0"></a>
 </p>
 
-Video production for your coding agent. Build films in code, cut interviews into stories, score and mix the sound,
-and check every file before it ships. Name the job with a word like `cut`, `score` or `check`, and the agent follows
-a method written for it.
+<h3 align="center">Your coding agent edits the video. You can read every cut.</h3>
+
+Legible Film is an Agent Skill that makes Claude Code, Codex and other coding agents into video editors you can
+follow. The agent cuts interviews, podcasts, tutorials and montages from their transcripts and shots, makes launch
+films and kinetic type, captions and mixes, and checks the file a viewer will receive. The edit is a script you can
+read and change, every render is a version that never changes, and every check says what it looked at and what it
+could not.
+
+<p align="center">
+  <img src=".github/media/first-cut.gif" alt="A Claude Code run with the Legible Film skill, sped up: the request, the agent's steps, a frame of the cut and the check it printed" width="100%">
+</p>
+
+*One request in Claude Code, and the run that followed, 10 min 42 s shown in 8 s: the agent set up a project, mapped
+the clip, wrote and checked a paper edit, rendered it, had it reviewed by an agent that did not make it, rendered a
+fourth version and checked the file. The lines are excerpts, verbatim from the run. Footage: Tears of Steel
+(© Blender Foundation, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)).*
 
 In a terminal with Node.js, from your project folder:
 
@@ -16,210 +29,357 @@ In a terminal with Node.js, from your project folder:
 npx skills add JamesDimachkie/legible-film
 ```
 
-Then type `/legible-film` in Claude Code or `$legible-film` in Codex to see the commands. Cursor, Gemini CLI, GitHub
-Copilot, OpenCode and other agents that read Agent Skills load it too, from a plain request or their own skill syntax.
-[Install](#install) has the Claude Code plugin and the other ways in.
+Then ask your agent once, `/legible-film setup` (or `doctor`) in Claude Code or `$legible-film setup` in Codex, to
+check this machine; then the job, such as `/legible-film cut a 60-second story from interview.mp4` with a clip of your
+own, or describe it in your own words. Cursor, Gemini CLI, GitHub Copilot, OpenCode, Amp, Goose and other
+agents that read Agent Skills load it too. [Install](#install) has the Claude Code plugin and the other ways in.
 
-[![Six frames from Atlasfold, a 24-second launch film for a fictional product, made with the bundled film kit](.github/media/atlasfold-stills.jpg)](https://github.com/JamesDimachkie/legible-film/raw/main/.github/media/atlasfold-showcase.mp4)
+Created by James Dimachkie.
 
-*Atlasfold, a launch film for a fictional product, built with the bundled film kit and rendered with one command at
-16:9 and 9:16. [Watch it with sound](https://github.com/JamesDimachkie/legible-film/raw/main/.github/media/atlasfold-showcase.mp4)
-(24 s): every sound in it was synthesised by the skill's own sound kit. In a blind A/B listen, its author preferred it
-to the same film mixed with downloaded CC0 library sounds. It passes the skill's flash screen in both shapes.*
+## Try it
 
-Created by James Dimachkie. Licensed under Apache-2.0.
+The example lives in the repository, not in the installed skill: `git clone
+https://github.com/JamesDimachkie/legible-film`, then `cd legible-film`.
+
+<!-- first-value:start -->
+From a clone of this repository, a check and a first cut of the bundled example, a 23-second scene from
+[Tears of Steel](examples/first-cut/README.md). It takes a few minutes, most of them installing FFmpeg. CI runs these
+lines as written on fresh Linux, macOS and Windows machines and times them; a run fails if any check fails.
+
+First, FFmpeg 5.1 or later and Python 3.9 or later. Open the steps for your system:
+
+<details>
+<summary>Linux (tested on Ubuntu 24.04 and Debian 12)</summary>
+
+On Linux (Ubuntu 22.04 and Debian 11 ship an FFmpeg older than 5.1, which `setup.py` reports with what to do):
+
+```bash
+sudo apt-get update && sudo apt-get install -y ffmpeg python3 python3-venv
+```
+
+</details>
+<details>
+<summary>macOS (Homebrew)</summary>
+
+On macOS, with [Homebrew](https://brew.sh):
+
+```bash
+brew install ffmpeg python
+```
+
+</details>
+<details>
+<summary>Windows (PowerShell)</summary>
+
+On Windows, in PowerShell, with Python 3.9 or later installed. If `python --version` says Python was not found, install
+it from [python.org](https://www.python.org/downloads/) and tick "Add python.exe to PATH" (or type `py` in place of
+`python` in the first two lines of the Windows steps below). Install FFmpeg, then open a new PowerShell window so it
+finds `ffmpeg`:
+
+```powershell
+winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
+```
+
+</details>
+
+Then the skill, on Linux and macOS:
+
+```bash
+# Setup: numpy and Pillow, then the Python to use from here on, and what this machine can do
+python3 skills/legible-film/scripts/setup.py --install core --yes
+PY="$(python3 skills/legible-film/scripts/setup.py --json | python3 -c 'import json, sys; print(json.load(sys.stdin)["python"])')"
+"$PY" skills/legible-film/scripts/setup.py
+# Smoke test: one real case for each core path
+"$PY" skills/legible-film/scripts/selftest.py --smoke
+# First check: any video file, in plain states
+"$PY" skills/legible-film/scripts/check.py --file examples/first-cut/tears-of-steel-bridge.mp4
+# First cut: a project started from the example's paper edit, the clip and its transcript, a render and its checks
+"$PY" skills/legible-film/scripts/project.py init ~/legible-film-first-cut --title "The real reason" --film examples/first-cut/film.md
+"$PY" skills/legible-film/scripts/map.py add ~/legible-film-first-cut examples/first-cut/tears-of-steel-bridge.mp4 --role other
+"$PY" skills/legible-film/scripts/map.py run ~/legible-film-first-cut --alias src_01 --words import:examples/first-cut/tears-of-steel-bridge.words.json
+"$PY" skills/legible-film/scripts/cut.py render ~/legible-film-first-cut
+"$PY" skills/legible-film/scripts/check.py ~/legible-film-first-cut
+```
+
+<details>
+<summary>The same on Windows, in PowerShell</summary>
+
+On Windows, in PowerShell:
+
+```powershell
+# Setup: numpy and Pillow, then the Python to use from here on, and what this machine can do
+python skills/legible-film/scripts/setup.py --install core --yes
+$py = (python skills/legible-film/scripts/setup.py --json | Out-String | ConvertFrom-Json).python
+& $py skills/legible-film/scripts/setup.py
+# Smoke test: one real case for each core path
+& $py skills/legible-film/scripts/selftest.py --smoke
+# First check: any video file, in plain states
+& $py skills/legible-film/scripts/check.py --file examples/first-cut/tears-of-steel-bridge.mp4
+# First cut: a project started from the example's paper edit, the clip and its transcript, a render and its checks
+& $py skills/legible-film/scripts/project.py init $HOME/legible-film-first-cut --title "The real reason" --film examples/first-cut/film.md
+& $py skills/legible-film/scripts/map.py add $HOME/legible-film-first-cut examples/first-cut/tears-of-steel-bridge.mp4 --role other
+& $py skills/legible-film/scripts/map.py run $HOME/legible-film-first-cut --alias src_01 --words import:examples/first-cut/tears-of-steel-bridge.words.json
+& $py skills/legible-film/scripts/cut.py render $HOME/legible-film-first-cut
+& $py skills/legible-film/scripts/check.py $HOME/legible-film-first-cut
+```
+
+</details>
+
+The first check ends `14 checks pass · 2 need you · 1 not assessed`: the file measures clean, a person still has to
+watch and listen, and the captions it could not assess say what to give it. The cut is
+`legible-film-first-cut/cuts/v001/preview.mp4` in your home folder. The render and the last check exit 1, which in
+every script means it ran and left something to look at (here a join with no audible pause, at 0:14); 2 means it
+could not run. To watch it in the Screening Room, run
+`"$PY" skills/legible-film/scripts/screen.py serve ~/legible-film-first-cut --open` (in PowerShell, `& $py
+skills/legible-film/scripts/screen.py serve $HOME/legible-film-first-cut --open`).
+[The example's README](examples/first-cut/README.md) explains what the checks found.
+<!-- first-value:end -->
 
 ## Why
 
-A coding agent can build a launch film from code or cut an interview with FFmpeg. It can also ship one that passes
-every build check and still fails the viewer: a caption gone before anyone can read it, a brand colour shifted by the
-encoder, a soundtrack that clips after the platform re-encodes it, a claim the product can't back, an approved scene
-broken by a fix somewhere else. And it can't watch its own film at speed or hear it.
+An agent can assemble a video and inspect frames and measurements, but it cannot watch the cut at normal speed or
+hear it. You can watch and listen, and leave notes at the moments that need work, but you cannot easily see what the
+agent did. Mistakes slip through between the two: a cut lands in the middle of a word, a caption stays up after the
+line is gone, the music buries the voice, a revision quietly changes a scene you had approved, and nobody can say
+which version is which. Legible Film keeps the edit, the versions and the checks readable for both of you.
 
-- **A command for each job.** `/legible-film cutdown the approved cut to 9:16 and 15 seconds` starts the work a
-  cut-down needs: the shorter version gets its own timeline, the tall one reframes the approved edit, and each is
-  checked as a deliverable of its own. Sixteen commands cover planning, making, editing, sound, checking, revising
-  and delivering.
-- **Checks on the file that ships.** 28 scripts, each tested against synthetic media with known answers: flashing
-  (WCAG 2.3.1), colour tags, loudness and true peak after a lossy re-encode, near-empty frames, pace, a claim present
-  through every frame of its interval, sound on cue, audio drift, and the exact frames a revision changed.
-- **Honest about the rest.** Scripts measure; people watch and listen. Nothing is reported as watched or heard until a
-  person has, and every delivery report says what was checked, what wasn't, and the weakest point left. The agent asks
-  before it spends money, uploads private footage or publishes anything.
-
-The method comes from making launch films, product demos and client videos with coding agents in 2026: defects found
-in real cuts, notes from the people who watched and listened, measurements on delivered files, and published standards
-checked against their sources.
+- **For the agent, evidence it can read.** Each source is mapped by what it contains: a word-timed transcript made
+  locally for speech, shots with contact sheets for picture, loudness and silences for sound. A cut is drawn as a
+  strip of frames, levels and words. A cut inside a spoken line goes in a quiet stretch measured in the audio rather
+  than at the transcript's word edges; a join without one is flagged as a tight cut for a person to listen to, since
+  quiet is not proof of a pause.
+- **For you, a film you can read.** The edit is a script, `film.md`: who it is for, what it should leave them with
+  and its story in one sentence, then the lines in the order they play, with what is on screen beside them. Strike a
+  word to cut it. Every render is a new version; a diff lists the lines, words, durations and captions that changed, and
+  the agent compares the rendered picture and sound with the version you approved.
+- **Checks on the file a viewer receives,** in plain states: pass, look, fail, needs you, not assessed. Nothing is
+  called watched or heard until a person has watched or heard it.
 
 ## How it works
 
-Name a command and what it applies to:
+The loop is Map, Plan, Cut, Check, Screen, Revise, Deliver, sized to the job: a trim or a 9:16 crop is one step on
+one file; an interview cut gets the whole loop and a project folder the agent and you share.
+
+When a film's look is open (a designed film, titles, music, a grade), it starts from your taste. The agent asks in
+one message for references (films, ads, channels, a frame, your product) and what to take from each, each question
+with a default you can accept. With none to hand, it offers three directions with examples and a style frame of each,
+or asks who it is for, the feeling and what you never want. The answers become the project's `look.md`, which every
+later stage, and the reviewer, reads.
+
+A paper edit reads like a script. For example:
+
+```markdown
+## Hook
+> int_01 12:03.40-12:07.10 We tried everything. ~~Honestly,~~ nothing held up in the field.
+- broll_04 0:12.00-0:14.10 Crew unloading the van
+## Why
+> int_01 14:20.00-14:24.60 So we built the tool we needed, in six weeks.
+  ~ screen_02 0:41.00-0:47.00 x1.5 Dashboard loads, push in to the map
+```
+
+`>` is a spoken line, `-` a picture, `~` a cutaway over the line above. The agent writes it; you can change it in
+any text editor. After each stage the agent posts one line you can read at a glance:
 
 ```
-/legible-film brief a 30-second launch film for our 2.0 release; the facts are in docs/
-/legible-film kit the launch film at 16:9 and 9:16, with a draft soundtrack
+v3 checked · 11 checks pass · 1 to look at · 2 need you
+```
+
+`v3` is the third version, in `cuts/v003/`.
+
+Start with a command and what it applies to, or describe the job in your own words:
+
+```
 /legible-film cut a 60-second story from interview.mp4 and the b-roll in broll/
-/legible-film captions the cut, burned in for Reels, with an SRT
-/legible-film check final.mp4 before I post it
-/legible-film revise: the client says the ending feels rushed
+/legible-film look: three launch films I like are in refs/, match their pace, not their colour
+/legible-film shorts three 30-second clips from podcast.mp4 for Reels, captions burned in
+/legible-film quick trim the first 3 seconds of clip.mp4 and make a 9:16 version
+/legible-film grade final.mp4 for YouTube
+/legible-film premiere follow the editor's last two exports and tell me which captions are stale
+/legible-film tighten interview.mp4: take out the dead air, keep every word
+/legible-film handoff v003 to Premiere so the editor can finish it
 ```
 
-Or describe what you want in your own words; a plain request takes the same paths. Type `/legible-film` alone to see
-the list. More requests are in [examples/prompts.md](examples/prompts.md).
+B-roll is supplementary footage placed over the interview. Burned-in captions are written into the picture and cannot
+be switched off; they are for feeds that play muted.
 
-### 16 commands
-
-| Command | Use it to |
+| Command | For |
 |---|---|
-| **Plan** | |
-| `brief` | Turn a request into a brief, a facts file and a QC plan before anything is made |
-| `setup` | Choose the tools for a job and check your machine can run them |
-| **Make** | |
-| `film` | Make a new video on whichever engine fits: HyperFrames, Remotion, Blender, an editor or FFmpeg |
-| `kit` | Build a type-led film with the bundled film kit, taken to delivered files by one command |
-| `teaser` | Put big words on the beat: a teaser, trailer or hype film |
-| `short` | Make a logo sting, a loop or a clip under 15 seconds |
-| `studio` | Aim for the best film your budget allows |
-| **Edit** | |
-| `cut` | Edit interviews, talking heads, screen recordings and event footage |
-| `cutdown` | Make a new length or shape from an approved cut |
-| `captions` | Build, check or burn in captions |
-| **Sound** | |
-| `score` | Design sound and music on the picture's clock |
-| `mix` | Set a voice over music, cleaned and mastered for where it plays |
-| **Check** | |
-| `check` | Run every applicable check on a file before it ships, then hand it to a person to watch |
-| `review` | Run a review round: people's notes, and critics whose findings are verified before anything changes |
-| **Change and deliver** | |
-| `revise` | Change an approved cut and check that everything else still matches the approved version |
-| `deliver` | Encode for each platform, with hashes and a delivery report |
+| `setup` (also `doctor`) | What this machine can do and how to fix the rest; installs local transcription or the film kit's browser with your yes |
+| `quick` | A simple change to one file: trim, 9:16, convert, compress, GIF |
+| `map` | Make the sources readable: transcripts, shots, sound |
+| `look` (also `moodboard`) | Your references, or your expectations when you have none, for this film |
+| `plan` (also `brief`, `film`) | The brief when one is needed, and the paper edit |
+| `cut` | Render the paper edit into a version |
+| `check` | Check a version or any file |
+| `screen` (also `review`) | Open the Screening Room |
+| `revise` | Turn notes into a new version, and show what else changed |
+| `deliver` | Final files, captions, mastering and a delivery report |
+| `captions` | Captions for an existing video |
+| `shorts` (also `cutdown`) | Short clips from a long video, or a new length or shape |
+| `score`, `mix` | Sound to picture; a voice over music |
+| `kit` (also `teaser`) | A type-led film, a beat-cut teaser, a sting or a loop |
+| `insert` | An animation in place of a passage's picture, timed to its words |
+| `graphics` (also `cavalry`) | A lower third, logo or title over the footage, made in Cavalry (driven by the agent) or another engine |
+| `studio` | The best film a budget allows |
+| `premiere` | Follow an editor's Premiere timeline and captions through revisions |
+| `handoff` (also `export`) | A version as a timeline Premiere or Resolve opens, with its captions |
+| `tighten` | Shorten the dead air in a recording, as a paper edit you can read and undo |
+| `taste` (also `preferences`) | The preferences you have confirmed, read at Plan and checked where measurable |
+| `spatial` (also `track`, `blur`) | Pin a graphic to a moving surface, put a title behind a person, blur a moving face |
+| `grade` | A scorecard for a version or any video |
 
-`studio` can lead another command: `/legible-film studio film our launch, budget $800`. Each command takes its part of
-the same [nine-step method](#the-method).
+More requests are in [examples/prompts.md](examples/prompts.md).
+
+## The Screening Room
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset=".github/media/screening-room-dark.png">
+  <img src=".github/media/screening-room-light.png" alt="The Screening Room on a teaser: the film beside its script, which opens with the story, who it is for and what they should leave with, then the beats" width="100%">
+</picture>
+
+*The Screening Room on a one-minute teaser cut with the skill from
+[Tears of Steel](https://mango.blender.org/) (© Blender Foundation, [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/)).
+Agents with the skill made the first cut, re-planned it around one line of thought after the viewer's notes, and
+answered the later notes. Two small fixes (a dissolve and a replaced held frame) were made by hand. The script states
+its story, its audience and what they should leave with, and every join carries a note saying what links it.*
+
+One local page holds the cut, its script, the checks, your notes and every version. Play it, and the script follows
+along; click a line to jump to it. Press `N` to leave a note pinned to the moment and the words being spoken. Replay a
+moment or step through it frame by frame, or shuttle with J, K and L as in an editor (`?` lists the keys). Tick off what
+only you can judge (watched muted, heard with sound), and approve. In live mode your notes land in the project folder as
+you write them, and the page follows new versions as the agent renders them. It runs on your machine only, behind a
+private link made for that session; nothing is uploaded.
+
+<p>
+  <img src=".github/media/screening-room-checks.png" alt="Checks in plain states beside the viewer's notes on the teaser, each pinned to its moment and closed with a reply saying what changed" width="68%">
+  <img src=".github/media/screening-room-phone.png" alt="The Screening Room on a 390-pixel-wide phone screen" width="28%">
+</p>
+
+### Reviewing together: Flask
+
+When you review away from your machine, or with a client, an editor or a team, [Flask](https://flask.do) is the
+collaboration and feedback layer this project recommends. The agent posts each version to one Flask asset through
+Flask's MCP server; reviewers watch it at speed and leave notes pinned to moments, with drawings on the frame and
+replies. The agent brings every note back into the project, fixes it at its cause, answers it with what changed and
+posts the next version. The project folder stays the record, and the Screening Room stays the private, local option:
+nothing is uploaded without your yes. The teaser above was revised this way, through five versions of notes in Flask.
+
+## The scorecard
+
+A cut broken down the way an editor would: content (hook, structure, pacing, emotion, ending), picture (cover, cut
+rhythm, text and captions, lighting and image, framing), sound (voice, music and effects, mix) and delivery (platform
+fit, accessibility), each scored 0 to 10 with the moments that justify it.
+
+- `grade.py` gathers image, motion and audio diagnostics (exposure, blur and compression damage, cuts and motion,
+  black bars, frozen stretches, loudness, clipping, stereo that cancels on a phone speaker) and builds a reviewer
+  packet: the rubric, a dense sample of the opening, a loudness picture, scopes for sampled candidate shots, cover
+  candidates and the transcript. It does not turn the measurements into scores.
+- A reviewer who did not make the cut scores from the packet, citing times and packet evidence. The merge checks that
+  each citation exists, not that its interpretation is right.
+- Your own score for any dimension (a rating of the whole cut) takes precedence over the agent's, and both stay
+  visible.
+- It is a guide to what to change first, not a pass mark. Each dimension says how far it has been validated.
+- `grade.py paper` scores the script before anything renders, `grade.py hooks` lists the lines that could open the
+  film, and `grade.py thumbs` proposes covers.
+
+## Working with an editor in Premiere
+
+When a person edits in Premiere, their timeline stays the source of truth and the agent assists. `check.py --file` with
+the export's captions, its Final Cut Pro XML and the source transcripts checks the export as delivered, and
+`exchange.py` follows every caption into the next revision (unchanged, moved, stale, split or removed), naming what it
+cannot map rather than guessing.
+[Assisting an editor](skills/legible-film/references/recipes.md#assisting-an-editor-in-premiere) has the steps. The
+other way round, `exchange.py write` hands a version to an editor as a Final Cut Pro 7 XML sequence of the original
+clips with their handles, plus its captions and a list of what the XML cannot carry
+([Hand a cut to an editor](skills/legible-film/references/recipes.md#hand-a-legible-film-cut-to-an-editor)).
 
 ## What's inside
-
-**A film kit.** A small, dependency-free browser engine for type-led films, from a calm launch film to beat-cut
-kinetic type. `make_film.py` takes a film from preflight to delivered, checked files in one command: claims bound to a
-facts file, contrast and reading time checked on the film's own timeline, flashing predicted before a frame renders,
-motion blur that respects cuts, and one timeline rendered at 16:9, 9:16 and 1:1. `--sound-only` remixes the sound
-without re-rendering the picture: a new master for Atlasfold at both sizes took 82 seconds instead of the full make's
-39 minutes on the author's laptop, with the picture bit-identical.
-
-**Footage tools.** An edit lives in one `edit.json` that `assemble.py` renders frame-accurately: J and L cuts,
-dissolves, retimes, crop paths, overlays, and HDR phone footage tone-mapped for ordinary screens. `transcript_cut.py`
-proposes cuts in the gaps between words, `reframe.py` proposes a crop path for a tall frame from motion and detail,
-`captions.py` builds, checks and burns captions clear of faces and platform buttons, and `voice_clean.py` makes a
-conservative cleanup of a dialogue recording. Each proposal is for a person to review.
-
-**A sound chain.** It works from the picture's own cue list: spotting that merges collisions and thins dense runs,
-synthesised or licensed sounds, music that ducks under a voice phrase by phrase, mastering to the destination's
-loudness with a limiter checked after a lossy re-encode, and a blind, loudness-matched A/B pair so a person chooses by
-listening.
-
-**Checks.** The QC scripts above, run on the exact file a viewer receives, feeding a delivery report that records
-each result.
 
 <details>
 <summary>Every script, by stage</summary>
 
 | Stage | Scripts |
 |---|---|
-| Make a kit film | `new_film.py`, `film_check.py` (preflight), `make_film.py` (one command to delivered files), `film_render.py`, `motion_blur.py` |
-| Edit recordings | `transcript_cut.py`, `assemble.py`, `reframe.py`, `captions.py` |
-| Sound | `tempo_map.py`, `make_sound_kit.py`, `sound_library.py`, `spot_cues.py`, `mix_cues.py`, `sound_check.py`, `voice_clean.py` |
-| Check the delivered file | `qc_file.py`, `frame_sheet.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py`, `region_check.py`, `cue_onsets.py`, `sync_check.py`, `compare_versions.py`, `onion_frames.py` |
+| The loop | `setup.py`, `project.py`, `map.py`, `look.py`, `transcribe.py`, `cut.py`, `tighten.py`, `strip.py`, `check.py`, `screen.py`, `grade.py`, `exchange.py`, `taste.py` |
+| Footage | `assemble.py`, `reframe.py`, `transcript_cut.py`, `captions.py`, `track.py`, `matte.py`, `spatial.py` |
+| Sound | `tempo_map.py`, `spot_cues.py`, `make_sound_kit.py`, `sound_library.py`, `mix_cues.py`, `sound_check.py`, `voice_clean.py` |
+| Film kit | `new_film.py`, `film_check.py`, `make_film.py`, `film_render.py`, `motion_blur.py` |
+| Checks | `qc_file.py`, `frame_sheet.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py`, `region_check.py`, `cue_onsets.py`, `sync_check.py`, `compare_versions.py`, `onion_frames.py` |
 | The environment | `selftest.py`, `kit_selftest.py` |
 
-What each one answers is in [SKILL.md](skills/legible-film/SKILL.md#scripts). Every script explains itself with
-`--help`.
-
-```
-skills/legible-film/
-  SKILL.md            the method: principles, gates, commands and paths, nine steps, revisions, hard limits
-  references/         story and score, timing, picture, sound, footage, formats, finishing, QC, review, the film
-                      kit, kinetic type, studio grade, finding and making assets, claims and rights, and more
-  scripts/            the tools above, plus a self-test
-  assets/kit/         the film kit: engine, blocks, open-licence fonts, a starter film and the Atlasfold showcase
-  assets/templates/   brief, treatment, facts, score, cues, sound palette, asset register, budget, review log,
-                      critic brief, delivery report
-evals/                behaviour and trigger evaluations for the skill itself
-```
+What each one answers is in [references/scripts.md](skills/legible-film/references/scripts.md); every script
+explains itself with `--help`.
 
 </details>
 
-## See it check a file
+**The film kit** makes type-led films: a small browser engine, one command that takes a film from preflight to
+checked delivery files, and a synthesised sound kit.
 
-`evals/make_fixtures.py` builds a four-second clip with three planted defects. Asked to check it before posting, an
-agent following the skill runs the bundled scripts on that exact file:
+[![Six frames from Atlasfold, a 24-second launch film for a fictional product, made with the bundled film kit](.github/media/atlasfold-stills.jpg)](.github/media/atlasfold-showcase.mp4?raw=true)
 
-```
-python skills/legible-film/scripts/qc_file.py evals/files/check-me.mp4 --spec 640x360@30 --duration 4 \
-    --vcodec h264 --pix-fmt yuv420p --color bt709 --audio required
-python skills/legible-film/scripts/flash_scan.py evals/files/check-me.mp4
-```
+*Atlasfold, a launch film for a fictional product, made with the film kit at 16:9 and 9:16.
+[Watch it with sound](.github/media/atlasfold-showcase.mp4?raw=true)
+(24 s).*
 
-Their output, shortened to the findings:
+**Graphics from other engines** go over the footage with one `~ over` line when they have transparency: a lower
+third, logo or title made in Cavalry, After Effects or another engine that renders it. A full-frame piece, from
+HyperFrames, Remotion or the film kit, goes in as a cutaway, and the paper edit stays the film's one clock. With Cavalry 2.8 the agent builds the scene itself through
+Cavalry's own MCP server and looks at any frame of it, and you keep the scene to adjust by hand
+([engines](skills/legible-film/references/engines.md#cavalry-driven-through-its-mcp-server-checked-2026-10-31)).
 
-```
-check-me.mp4: h264 640x360 yuv420p @ 30 fps, 3.2 s; colour None/None/None; faststart False
-  loudness: -21.8 LUFS integrated, LRA 20.0 LU, true peak -20.8 dBTP
-  warning: colour primaries untagged: players will guess; tag them (e.g. bt709)
-  warning: sound at level in the first 5 ms: a click unless a hit is designed for frame 0
-  warning: the last 10 ms is not near silence: check for a cut-off tail unless the ending is a designed hard stop
-  FAIL duration: expected 4.0 +/- 0.0333 s, got 3.2
-  FAIL color_tags: expected ['bt709', 'bt709', 'bt709'], got [None, None, None]
-  not checked: picture content, motion at playback speed, text legibility at viewing size, flashing (flash_scan.py), how the sound sounds, sync to picture events, claims, rights
-check-me.mp4: 96 frames at 30 fps; busiest second: general 11 transitions (at 1.1 s), red 11 (at 1.1 s); FLAGGED
-```
+## What is tested, and what is still experimental
 
-All three defects are caught: muxing with `-shortest` cut the picture to 3.2 s, the colour tags are missing, and a
-5 Hz full-frame flash fails the WCAG 2.3.1 screen. The report also names what no script checked, which goes into the
-delivery report alongside who has watched and listened.
+| Part | State | What it rests on |
+|---|---|---|
+| Cutting recordings from a paper edit: cuts in measured pauses, immutable versions, diffs | Tested | 240 of 240 cuts in measured silence on test material; known-answer self-tests |
+| Checks on the delivered file (spec, loudness, true peak, flashing, holes, captions, contrast) | Tested on known answers | the self-test on Linux, macOS and Windows; every check says what it cannot see |
+| Following an editor's Premiere revisions and checking their export | Read-only; tested on one editor's real revisions | every clip and placed word matched |
+| Handing a cut to an editor as Final Cut Pro 7 XML (Premiere, Resolve) | Experimental | read back by OpenTimelineIO on synthetic projects, every cut within half a frame; opened in Premiere in one editor's synthetic test, whose pixel-aspect and stereo findings are fixed but not yet re-checked there; Resolve untested |
+| Spatial layers: tracking, pins, titles behind a person, tracked blur | Experimental | under 1 px on synthetic planes; on public footage a sign tracked every frame and a face did not; a blur stops the render rather than miss a frame |
+| Mattes (key, luma, difference, a subject model) | Experimental | the keys on known answers; the subject model misses people and fringes hair on hard frames |
+| Tightening a recording | Experimental | synthetic speech with decaying word tails; on a public reading, 6 of 22 long pauses shortened, every cut near room tone; on one editor's raw interview, 10 cuts (7.3% shorter), all 184 words kept, no clipped word found by listening models, two joins with a visible arm jump; a music bed must be declared |
+| Preferences the person confirms | Experimental | known-answer cases and a dry run on one person's notes; nothing shows they predict notes |
+| Captions against a transcript | Tested on synthetic cases and one editor's real captions | a transcript can mishear; a person reads every caption |
+| Local transcription | Works; accuracy on your audio not measured | transcripts are drafts until a person reads them |
+| The Screening Room | Used by one person on one film | no measurement yet |
+| Reviewing together in Flask | Used by one person on one teaser, through five versions | every note came back into the project and was closed with a reply in the next version |
+| The scorecard | Experimental | a blind test on real and damaged cuts: 4 dimensions told them apart on both, 7 on one, 4 not yet; printed beside every score |
+| Agents choosing the story (compared spines, an independent review of each cut) | Experimental | calibrated judges; review raised blind scores on two films; not yet shown on harder material |
+| The film kit | Tested | its own self-test in CI |
+| Graphics over footage (`~ over`), and Cavalry driven through its MCP server | Experimental | known-answer self-tests: PNG and PNG MOV overlays frame for frame through a cut, ProRes 4444 and VP9 decoded with their colours and transparency; one Cavalry title and one lower third built, seen, rendered, cut and checked on Windows, and Cavalry driven from a fresh Claude Code session; macOS untested |
 
-## The method
+## Evidence
 
-The commands draw on nine steps, each ending on a condition the agent can check:
+What has been measured, and on what:
 
-1. **Brief, facts and format.** Who it is for, where it plays, what must read muted, a facts file for every claim, and
-   a QC plan that maps each requirement to the check that measures it.
-2. **Story and score.** The change the film makes in its viewer, three concepts (or, for an edit of recordings, the
-   selects and an outline drawn from them), and a score that plans every moment across picture, motion, text, music,
-   effects and the product's truth.
-3. **The clock.** One timing source for picture and sound, sync points computed from the animation, and a reading
-   window for every essential text.
-4. **Picture.** A world with reasons, motion with weight and cause, joins chosen for what they mean, and craft rules
-   drawn from rendered defects.
-5. **Sound.** What leads each passage, which events sound, how it ends, and one hard rule: nothing jarring.
-6. **Render, finish and mux.** Frozen sources, correct colour conversion and tags, audio matched to picture.
-7. **QC the delivered file.** Spec, decode, colour, loudness, true peak after a platform re-encode, flashing, blank
-   frames, motion, sync and claims, run on the exact file a viewer will receive.
-8. **Review with people.** Muted at viewing size, then with sound, then pauses; synthetic critics verified before
-   anything changes; approved work kept approved.
-9. **Deliver.** The file, its hash, and a report that says what was checked, what was not, and who has watched and
-   listened.
+- **Cuts land in pauses.** On the paper edit's test material, all 240 cuts inside spoken lines fell in silence
+  measured in the audio. Cutting at the transcript's word edges instead put 52 cuts in speech and 78 in breaths, and
+  clipped 6 words.
+- **Every frame shown.** Final renders from MP4, WebM and MKV sources at 29.97, 24 and 25 fps showed every expected
+  source frame: 88 of 88 frame identities across 18 renders.
+- **Flashing.** `flash_scan.py` gives the known answer on 86 synthetic cases: general and saturated-red flashes
+  around the three-per-second limit, small and large areas, and alternating patterns.
+- **Premiere.** On one professional editor's two revisions, every clip (78 of 78, 81 of 81) and every placed word
+  (479 of 479, 462 of 462, within 1 ms) matched. The same editor's agent opened a hand-off (`exchange.py write`) of a
+  synthetic 300-frame project in Premiere Pro 26.3 on macOS: every source came online, the five clips and the
+  dissolve landed where expected, both J and L overlaps measured right, and 6 of 6 markers and 10 of 10 captions
+  matched. It also found the sequence imported with the wrong pixel aspect and stereo played as centred mono; the
+  hand-off now declares square pixels and pans each stereo channel, not yet re-checked in Premiere.
+- **The scorecard.** Validation per dimension, above.
+- **The scripts.** In CI on the 2.0.0 release candidate, 1,666 self-test cases pass on Windows (which also runs the
+  speech-synthesis cases), 1,659 on Linux (with OpenCV, so the tracking cases run), 1,656 on Python 3.9 with FFmpeg
+  5.1 (the oldest supported) and 1,633 on macOS, with none failing. The 65 that need faster-whisper, a browser or the
+  network are recorded as not run, and on macOS one HDR case its FFmpeg cannot run. On a Windows laptop with
+  faster-whisper and a browser, every case passed except the one that needs the network.
+- **First value.** On fresh CI machines the quickstart above, run as written, went from setup to a checked first cut
+  in 71 s on macOS, 92 s on Debian 12, 128 s on Ubuntu 24.04 and 151 s on Windows on the final run, the first check
+  18 to 39 s in, not counting installing FFmpeg. Over the last three runs the totals ranged from 67 to 71 s on macOS,
+  90 to 129 s on Debian, 88 to 130 s on Ubuntu and 127 to 151 s on Windows.
+- **Review.** Each part was reviewed by a model of the other family from the one that wrote it (GPT-6.1 Terra and
+  Claude), and the launch changes by three reviewers from both families. Each fix started from a case that failed.
 
-Until a named person has watched the delivered file, the agent reports it as unwatched; until someone has listened to
-a file with sound, as unheard.
-
-## Studio grade
-
-For the best film the budget allows, start with `studio` or ask for it by name: "Use Legible Film at studio grade for
-our launch film. Budget up to $800 for music, voice and stock." The agent then works the way a small studio would:
-
-- **It leads with the film.** Its first reply describes two or three directions you can picture, then what you will
-  see and decide at each step.
-- **It shows before it asks.** You choose between things you can watch and hear: rough idea videos with temporary
-  sound, sample stills of the look in every shape you will post, and a rough timed version of the whole film before
-  anything is polished.
-- **It spends on what the film needs most.** Purchases and generation runs are line items you approve against your
-  cap, with each licence checked for the real use ([finding assets](skills/legible-film/references/assets.md),
-  [making them](skills/legible-film/references/generation.md)).
-- **It keeps raising the weakest moment** until viewers can answer six questions with evidence (understanding,
-  specificity, experience, earned payoff, truth and afterimage) or you decide to stop.
-
-Nothing is bought, uploaded or published without you. The full method is in
-[studio](skills/legible-film/references/studio.md).
+Not yet measured: how often local transcription mishears (transcripts stay drafts until a person reads them), and
+film-level evaluations per kind of video ([evals/README.md](evals/README.md) says what has been run).
 
 ## Install
 
@@ -239,66 +399,71 @@ Add `-g` for a user-wide install or `-a codex` (or another agent name) to target
 /plugin install legible-film@jamesdimachkie
 ```
 
-The command is `/legible-film`; its full plugin name is `/legible-film:legible-film`.
+Claude Code names a plugin's skills by plugin and skill, so through the plugin the command is
+`/legible-film:legible-film` (for example `/legible-film:legible-film setup`).
 
 **By hand:** copy `skills/legible-film/` into `~/.claude/skills/` for Claude Code, or into `.agents/skills/` (project)
 or `~/.agents/skills/` (user) for most other agents.
 
-**Requirements:** Python 3.9 or later, FFmpeg and ffprobe on `PATH`, and `pip install numpy Pillow` (into whichever
-Python environment the agent will use) for the scripts. The film kit also needs Node.js 18 or later with Playwright and
-Chromium. `/legible-film setup` checks all of it and prints the one command that fixes each missing piece; or ask your
-agent: "Install Legible Film, check its requirements and run its self-test; ask me before changing anything that needs
-my permission."
+**Requirements:** Python 3.9 or later and FFmpeg and ffprobe 5.1 or later on `PATH`. `setup.py --install core` installs
+`numpy` and `Pillow`, into that Python when it allows it, otherwise into a private environment in your user data folder
+(it never changes a system Python), and names the Python to run the scripts with. `/legible-film setup` checks
+everything else and gives each missing piece a fix command for your shell. Local transcription uses faster-whisper
+(`--install transcription`, with your yes); a model is downloaded only when you allow it, after its size is named.
+Tracking and mattes use OpenCV and onnxruntime (`--install spatial`; the 26 MB subject model with `--download`), and
+automatic crops follow faces with OpenCV (`--install faces`). The film kit also needs Node.js 18 or later; with it,
+`--install kit` adds Playwright and Chromium (about 160 MB), with your yes.
 
-**Check the installation.** From a clone of this repository:
+**Check the installation.** From a clone of this repository (in an installed copy, run `scripts/selftest.py` from
+the skill's folder), with the Python `setup.py` names (`$PY`, as in [Try it](#try-it); in PowerShell, `& $py`):
 
 ```
-git clone https://github.com/JamesDimachkie/legible-film
-cd legible-film
-python skills/legible-film/scripts/selftest.py
+"$PY" skills/legible-film/scripts/selftest.py --smoke
+"$PY" skills/legible-film/scripts/selftest.py --force --json selftest-report.json
 ```
 
-If you installed through a plugin or `npx skills`, the same script sits in the installed skill's `scripts/` folder;
-ask your agent to run the Legible Film skill's self-test. It builds synthetic media with known answers in a temporary
-folder and runs about 400 checks across every script in a few minutes. It counts any case it could not run (the
-film-kit cases need Playwright) and records a passing environment in your user cache, so the next run can skip it;
-`--quick` checks the dependencies in seconds.
-
-## Evidence
-
-- **Behaviour (1.0.0).** In a small blind-graded test (five requests, one run per arm on one model), agents with the
-  skill met 35 of 35 expectations and agents without it met 10 of 35. Three of the requests were rewritten and run
-  again after a first round in which both arms lacked their input files; both rounds are published. Every prompt, output and grade is
-  [published](evals/results/2026-10-27/README.md), with what the test could not control.
-- **Studio grade (1.1.0).** In a blind comparison with 1.0.1, which has the method but not studio grade, the plans
-  1.1.0 made won all four pairs: two studio-grade requests, two runs each, one model, judged by a different model
-  family at medium confidence. The 1.0.1 plans were more concrete about what appears on screen
-  ([evidence](evals/results/2026-10-28-studio-vs-1.0.1/README.md)). That measures plans, not finished films.
-- **The showcase.** Atlasfold above was watched by its author after its final revision, and its sound chosen in a
-  blind A/B listen.
-
-What has not been measured is in [Limits](#limits).
+`--smoke` decodes, checks, imports a transcript, renders a cut and checks its captions on synthetic media, in
+about ten seconds. The full run builds synthetic media with known answers and runs every script's cases, about 1,600
+of them: 10 to 20 minutes on CI's machines, and 20 to 45 on a laptop. It records any case it could not run, with the
+reason (some need faster-whisper, a browser or Windows speech synthesis). Without
+`--force`, a run may reuse an earlier pass on the same environment; `--quick` checks the dependencies in a second. A
+pass shows the scripts measure these synthetic answers on your machine; it says nothing about the quality of a
+particular film.
 
 ## Limits
 
-- The scripts measure; they do not watch or listen. Rhythm, feel, comprehension and how the sound sounds are decided
-  by people, and the skill says so in every report.
-- `flash_scan.py` screens for WCAG 2.3.1 flashing. It is not a Harding, IRIS or broadcast PSE certification.
-- Tool versions, platform specs and provider terms in the references were checked between 2026-10-27 and 2026-10-29
-  and change often; each is dated, and linked to its source wherever a stable page exists, so it can be re-checked.
-- Evaluations are small: seven requests on one model, one or two runs per arm, graded blind by another model family
-  against expectations written by the skill's author. They measure plans and behaviour, not how good a finished film
-  is. Evals 8-11, added in 1.2.0 for the film kit, footage editing and dialogue, have not been run yet, and no edit of
-  real footage made with the skill has been watched by a person. Whether agents load the skill unprompted has not
-  been tested. Details are in [evals/README.md](evals/README.md).
-- The footage tools work on measurements, not understanding: `reframe.py` follows sustained motion and detail, not a
-  recognised subject, so its path is a proposal to review; `transcript_cut.py` proposes cuts in word gaps for a person
-  to listen to; the burned-caption check estimates text from frame changes, which moving faces and cuts can confuse.
-  `voice_clean.py` is a conservative starting point, never an automatic fix.
-- Edits don't round-trip to editing applications yet: `edit.json` is rendered by `assemble.py`, and there is no
-  Premiere, Final Cut or Resolve exchange.
-- The film kit renders through a headless browser and is built for type-led motion graphics, not photoreal or 3D
-  work; the references route those to other engines.
+- The scripts measure; they do not watch or listen. Whether a cut works is decided by people, and every report says
+  what was checked and what was not.
+- Transcripts are drafts until a person has read them against the audio, names and numbers first.
+- The scorecard's judgments come from an agent reading stills, scopes and words; it does not experience motion or
+  sound, and each dimension says how far it has been validated.
+- `flash_scan.py` screens for WCAG 2.3.1 flashing; it is not a broadcast PSE certification.
+- A cut handed to Premiere or Resolve (`exchange.py write`) carries the clips, joins, sound and markers, not crops,
+  speed changes, fade curves or the mix (it lists each). It has been opened in Premiere in one synthetic test, not
+  in Resolve; a variable-frame-rate source did not transfer identically there, and transitions do not round-trip
+  exactly (Premiere's own re-export replaced custom audio fades).
+- Rendering passes every frame through Python: a plain 1080p30 cut with sound rendered at about 15 frames a second on
+  a 16-core laptop (one measured run), about half real time, so a 30-minute film takes about an hour; 4K runs at
+  about 4 frames a second. Previews render from smaller proxies.
+- A graphic goes over footage when it has transparency: a PNG, or a video at the film's size and frame rate (`~ over`,
+  from Cavalry, After Effects or another engine). Pins and titles behind a person take still images only, and the film
+  kit's renders are opaque, so a kit animation enters as a full-frame cutaway.
+- The self-test runs on Windows, Linux and macOS with Python 3.12, and on Linux with Python 3.9 and FFmpeg 5.1,
+  the oldest supported; Python 3.13 passes its quick and smoke checks on Windows. Other versions are untested.
+
+## Related tools
+
+- [Auto-Editor](https://github.com/WyattBlue/auto-editor) cuts by silence or motion thresholds from the command line
+  and exports timelines to editing applications.
+- [Editly](https://github.com/mifi/editly) renders a video from a declarative JSON timeline.
+- [cook](https://github.com/Leonxlnx/cook) runs long visual builds in code against reference images and videos; the
+  look step here (references first, motion studied frame by frame, stills beside their references) draws on it.
+- [Strobe](https://github.com/hridaya423/strobe) renders HyperFrames and Remotion projects on the GPU, several times
+  faster on macOS and Windows; it is new and not tested here, and
+  [engines](skills/legible-film/references/engines.md#faster-renders-of-hyperframes-and-remotion-projects-checked-2026-10-31)
+  says how to check its output against the engine's own.
+
+Legible Film is for an agent and a person working on one readable edit, with checks on the delivered file.
 
 ## Contributing
 

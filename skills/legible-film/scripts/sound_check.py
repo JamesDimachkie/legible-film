@@ -41,7 +41,13 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-import numpy as np
+import os
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 
 def load(name):
@@ -52,6 +58,7 @@ def load(name):
 
 
 io, spotting, dialogue = load("sound_io"), load("spot_cues"), load("dialogue_io")
+project = load("project")
 RATE = 48000
 
 
@@ -263,6 +270,8 @@ def main():
     p.add_argument("--ffmpeg")
     a = p.parse_args()
     try:
+        inputs = [a.mix, a.cues, a.palette, a.voice, *(a.stems or []), *(a.bed or [])]
+        project.refuse_overwriting_inputs([a.json], inputs)
         ffmpeg = io.find_tool("ffmpeg", a.ffmpeg)
         if not ffmpeg:
             raise ValueError("FFmpeg is required (PATH, FFMPEG, or --ffmpeg)")

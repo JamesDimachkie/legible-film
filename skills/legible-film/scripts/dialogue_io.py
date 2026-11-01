@@ -7,7 +7,14 @@ noise or quiet speech can defeat this detector. All measurements need listening.
 """
 
 import argparse
-import numpy as np
+import os
+import sys
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 
 def frames(x, rate, ms=20):

@@ -24,7 +24,13 @@ import sys
 import tempfile
 import threading
 
-import numpy as np
+import os
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
@@ -88,7 +94,12 @@ def main():
         film = work / "film"
         shutil.copytree(HERE / "testpages", film)
         handler = functools.partial(Quiet, directory=str(film))
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        import importlib.util
+
+        common_spec = importlib.util.spec_from_file_location("render_common", HERE / "render_common.py")
+        common = importlib.util.module_from_spec(common_spec)
+        common_spec.loader.exec_module(common)
+        server = common.LocalServer(("127.0.0.1", 0), handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         url = f"http://127.0.0.1:{server.server_port}/?render"
@@ -139,7 +150,7 @@ def main():
         )
         if proc.returncode:
             return 1
-        manifest = json.loads((work / "cut.mkv.manifest.json").read_text())
+        manifest = json.loads((work / "cut.mkv.manifest.json").read_text(encoding="utf-8"))
         record(
             "render decoded frame count / source manifest",
             manifest["decoded_frames"] == 8 and "index.html" in manifest["frozen_sha256"],

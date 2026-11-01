@@ -66,8 +66,12 @@ def run_cases(scripts, work, record):
            abs(pace['still_share'] - 28/59) < 1e-6 and len(pace['still_stretches']) == 2 and
            abs(pace['longest_still_s'] - 14/30) < .001,
            f"share {pace['still_share']}; longest {pace['longest_still_s']}")
+    window = pace['window_s'][1] - pace['window_s'][0]
     record('pace: one known cut / 2 seconds and zero-based beat',
-           pace['cuts_per_10s'] == 5 and abs(pace['still_stretches'][1]['beat'] - 2.066666) < .001)
+           abs(window - 2) <= .0011 and len(pace['change_events']) == 1
+           and abs(pace['cuts_per_10s'] - 10 / window) < .000001
+           and abs(pace['still_stretches'][1]['beat'] - 2.066666) < .001,
+           f"window={window}; rate={pace['cuts_per_10s']}; beat={pace['still_stretches'][1]['beat']}")
     code, _ = tool('motion_scan.py', j('pace.mkv'), '--max-still', .4)
     record('pace: undeclared 0.467-second stretch fails 0.4-second gate', code == 1)
     code, _ = tool('motion_scan.py', j('pace.mkv'), '--ignore', '0-0.6,1-1.6', '--max-still', .01,
@@ -194,15 +198,23 @@ def run_cases(scripts, work, record):
         except ValueError:
             refused.append(value)
     record('exact_rate: refuses zero, negative, non-numeric and non-finite rates', len(refused) == 7, str(refused))
-    if sys.platform != 'darwin':
-        available = c.free_memory()
-        record('memory guard: measured free memory is a positive int',type(available) is int and available > 0,
-               str(available))
+    available = c.free_memory()
+    record('memory guard: measured free memory is a positive int, macOS included',
+           type(available) is int and available > 0, str(available))
+    # The one probe lives in setup.py (render_common and make_film call it); a system that cannot say is None.
+    spec = importlib.util.spec_from_file_location('render_memory_setup', scripts/'setup.py')
+    setup = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(setup)
     for error in (ValueError,AttributeError,OSError):
-        def unavailable(_name, error=error):
-            raise error('memory measurement unavailable')
-        with patch.object(c,'os',SimpleNamespace(name='posix',sysconf=unavailable)):
-            record(f'memory guard: {error.__name__} means unmeasurable',c.free_memory() is None)
+        class Unreadable:
+            def __init__(self, *_args, error=error):
+                self.error = error
+
+            def read_text(self, *_args, **_kwargs):
+                raise self.error('memory measurement unavailable')
+        with patch.object(setup,'os',SimpleNamespace(name='posix')), patch.object(setup.sys,'platform','linux'), \
+                patch.object(setup,'Path',Unreadable):
+            record(f'memory guard: {error.__name__} means unmeasurable',setup.free_memory() is None)
     for w,h,fps,expected in [(720,480,30,'3.0'),(1280,720,30,'3.1'),(1280,720,60,'3.2'),
                               (1920,1080,30,'4.0'),(1920,1080,60,'4.2'),(3840,2160,60,'5.2')]:
         actual = c.auto_level(w,h,fps)
@@ -329,6 +341,142 @@ def run_render_cases(tool, record, j, scripts_dir):
     """Entry point for selftest.py: the same cases, in a folder of their own."""
     run_cases(scripts_dir, j('render-cases'), record)
     change_events_case(tool, record, j)
+    check_grapheme_render(tool, record, j)
+    check_determinism_probe(tool, record, j)
+    check_wave2_preflight(tool, record, j, scripts_dir)
+    check_round2_preflight(record, scripts_dir)
+
+
+def playwright_core():
+    """playwright-core beside the Playwright that LF_PLAYWRIGHT_MODULE names (as the Screening Room cases use it)."""
+    module = os.environ.get('LF_PLAYWRIGHT_MODULE')
+    return Path(module).parent / 'playwright-core' if module else Path('no-playwright-module')
+
+
+def check_grapheme_render(tool, record, j):
+    """Compare settled kit text with unsplit text in the local Chromium render path."""
+    from PIL import ImageChops, ImageFilter
+    root = Path(j('kit-graphemes'))
+    root.mkdir(parents=True, exist_ok=True)
+    package = playwright_core()
+    cache = Path(os.environ.get('LOCALAPPDATA', '')) / 'ms-playwright'
+    browsers = sorted(cache.glob('chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe'))
+    if not package.exists() or not browsers or not shutil.which('node'):
+        print('SKIP  kit graphemes: LF_PLAYWRIGHT_MODULE, Node or Chromium is unavailable')
+        return
+    kit = Path(__file__).resolve().parent.parent.parent / 'assets' / 'kit' / 'lf'
+    html = root / 'text.html'
+    document = '''<!doctype html><html><body style="background:white;margin:20px">
+<div id="stage" style="position:relative;height:100px"></div>
+<div style="position:relative;height:100px"><div id="reference"></div></div>
+<script type="module">
+import {Node} from NODE_MODULE;
+import {textNode, styleCss} from TEXT_MODULE;
+window.makeText = (text, direction) => {
+  const stage = document.getElementById('stage'); stage.innerHTML = '';
+  const root = new Node({el:stage});
+  const style = {string:text, font:'Arial', size:48, weight:400, anchor:[0,0], direction};
+  const node = textNode(root, style); node.flush();
+  const ref = document.getElementById('reference');
+  ref.style.cssText = styleCss(style) + ';position:absolute;left:0;top:0;transform-origin:0 0;'
+    + 'color:black;transform:' + node.el.style.transform;
+  ref.dir = direction; ref.textContent = '';
+  if (direction === 'ltr') {
+    const word = document.createElement('span'); word.style.display = 'inline-block';
+    word.textContent = text; ref.appendChild(word);
+  } else { ref.textContent = text; }
+  return {letters:node.letters.map(element => element.textContent), text:node.front.textContent};
+};
+window.ready = true;
+</script></body></html>'''
+    document = document.replace('NODE_MODULE', json.dumps((kit / 'node.js').as_uri()))
+    document = document.replace('TEXT_MODULE', json.dumps((kit / 'text.js').as_uri()))
+    html.write_text(document, encoding='utf-8')
+    script = r'''const { chromium } = require(PACKAGE);
+const { pathToFileURL } = require('node:url');
+(async () => {
+  const browser = await chromium.launch({executablePath:BROWSER, args:['--allow-file-access-from-files']});
+  try {
+    const page = await browser.newPage({viewport:{width:1000,height:300}});
+    await page.route(/^https?:/, route => route.abort());
+    await page.goto(pathToFileURL(HTML).href);
+    await page.waitForFunction(() => window.ready === true);
+    const cases = [['emoji','\u{1f469}\u200d\u{1f4bb}','ltr'],
+                   ['accent','e\u0301','ltr'], ['arabic','\u0645\u0631\u062d\u0628\u0627 OpenAI','rtl']];
+    const out = [];
+    for (const [name,text,dir] of cases) {
+      const value = await page.evaluate(([text,dir]) => window.makeText(text,dir), [text,dir]);
+      await page.locator('#stage .lf-node').screenshot({path:DIR + '/' + name + '-kit.png'});
+      await page.locator('#reference').screenshot({path:DIR + '/' + name + '-reference.png'});
+      out.push({name,original:text,...value});
+    }
+    process.stdout.write(JSON.stringify(out));
+  } finally { await browser.close(); }
+})().catch(error => { console.error(error); process.exit(2); });'''
+    for key, value in ({'PACKAGE': str(package), 'BROWSER': str(browsers[-1]),
+                        'HTML': str(html), 'DIR': str(root)}.items()):
+        script = script.replace(key, json.dumps(value))
+    js = root / 'probe.cjs'
+    js.write_text(script, encoding='utf-8')
+    result = subprocess.run(['node', str(js)], capture_output=True, text=True, encoding='utf-8', errors='replace',
+                            timeout=90)
+    if result.returncode:
+        record('kit: graphemes and joined text match unsplit settled frames', False, result.stderr[-500:])
+        return
+    rows = json.loads(result.stdout)
+    details = []
+    for row in rows:
+        with Image.open(root / (row['name'] + '-kit.png')) as kit_image, \
+                Image.open(root / (row['name'] + '-reference.png')) as reference:
+            exact = kit_image.size == reference.size and ImageChops.difference(kit_image, reference).getbbox() is None
+            same = False
+            if kit_image.size == reference.size:
+                a = kit_image.convert('L').point(lambda value: 255 if value < 230 else 0)
+                b = reference.convert('L').point(lambda value: 255 if value < 230 else 0)
+                # Chromium can move antialiased edges by a pixel when a bidi run crosses span boundaries.
+                missing = ImageChops.subtract(a, b.filter(ImageFilter.MaxFilter(3))).getbbox()
+                extra = ImageChops.subtract(b, a.filter(ImageFilter.MaxFilter(3))).getbbox()
+                same = missing is None and extra is None
+        details.append((row['name'], same, exact, len(row['letters']), row['text'] == row['original']))
+    ok = all(same and count == (2 if name == 'arabic' else 1) and intact
+             for name, same, exact, count, intact in details)
+    record('kit: graphemes and joined text match unsplit settled frames', ok, str(details))
+
+
+def check_determinism_probe(tool, record, j):
+    """Offline pages with pure and history-dependent frames give different probe results."""
+    package = playwright_core()
+    cache = Path(os.environ.get('LOCALAPPDATA', '')) / 'ms-playwright'
+    browsers = sorted(cache.glob('chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe'))
+    if not package.exists() or not browsers or not shutil.which('node'):
+        print('SKIP  determinism probe: LF_PLAYWRIGHT_MODULE, Node or Chromium is unavailable')
+        return
+    root = Path(j('determinism-probe'))
+    for kind in ('pure', 'stateful'):
+        folder = root / kind
+        folder.mkdir(parents=True, exist_ok=True)
+        page = '''<!doctype html><html><body style="margin:0"><script>
+let count = 0;
+window.__lf = {ready:Promise.resolve(), info:() => ({title:'probe', width:160, height:90, fps:10, frames:10,
+duration:1}), analyse:() => ({errors:[],warnings:[],texts:[]}), frame:() => {}, seek:(t) => {
+const n = MODE; document.body.style.background = `rgb(${n}, ${n}, ${n})`;
+}};
+</script></body></html>'''
+        page = page.replace('MODE', 'Math.round(t * 200)' if kind == 'pure' else '(++count * 23) % 255')
+        (folder / 'index.html').write_text(page, encoding='utf-8')
+        report = folder / 'result.json'
+        code, output = tool('film_check.py', folder, '--size', '160x90', '--file-only', '--determinism',
+                            '--playwright', package, '--browser', browsers[-1], '--json', report)
+        data = json.loads(report.read_text(encoding='utf-8')) if report.is_file() else {}
+        result = data.get('determinism') or {}
+        if kind == 'pure':
+            record('kit: deterministic frame probe passes a pure local page',
+                   code == 0 and result.get('status') == 'same', output[-400:])
+        else:
+            differences = result.get('differences') or []
+            record('kit: deterministic frame probe names history-dependent times',
+                   code == 1 and result.get('status') == 'different'
+                   and any(isinstance(row.get('time_s'), (int, float)) for row in differences), output[-400:])
 
 
 def change_events_case(tool, record, j):
@@ -365,3 +513,70 @@ def change_events_case(tool, record, j):
     ok = len(events) == 5 and events[2]['frames'] == 4 and starts == [1.0, 2.0, 2.97, 4.0, 5.0]
     record('motion_scan pace: change events merge a whip and count each cut once', ok,
            f"{len(events)} events at {starts}; {pace['change_events_per_10s']:.2f} per 10 s")
+
+
+def check_wave2_preflight(tool, record, j, scripts_dir):
+    """A missing-filter list names every affected capability."""
+    import re
+    spec = importlib.util.spec_from_file_location('wave2_selftest', Path(scripts_dir) / 'selftest.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    real_run = subprocess.run
+    filters = real_run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True, check=True)
+    removed = set(module.FILTER_LIMITS)
+
+    def remaining():
+        return '\n'.join(line for line in filters.stdout.splitlines()
+                         if not ((match := re.match(r'^\s*[TSC.]{2,3}\s+(\S+)', line))
+                                 and match.group(1) in removed))
+
+    def fake_run(command, *args, **kwargs):
+        if '-filters' in command:
+            return SimpleNamespace(returncode=0, stdout=remaining(), stderr='')
+        return real_run(command, *args, **kwargs)
+
+    with patch.object(module.subprocess, 'run', side_effect=fake_run):
+        try:
+            module.environment()
+            message = ''
+        except RuntimeError as error:
+            message = str(error)
+    record('render: quick preflight names missing filters and the capabilities they limit',
+           all(name in message and limit in message for name, limit in module.FILTER_LIMITS.items()), message)
+    removed = set(module.OPTIONAL_FILTERS)
+    with patch.object(module.subprocess, 'run', side_effect=fake_run):
+        identity = module.environment()
+    limitations = {item['filter']: item['limitation'] for item in identity['filter_limitations']}
+    record('render: optional missing filters report limitations without blocking other work',
+           limitations == {name: module.FILTER_LIMITS[name] for name in removed}, str(limitations))
+
+
+def check_round2_preflight(record, scripts_dir):
+    """The filters used by picture, burn and map are reported with their feature limitations."""
+    spec = importlib.util.spec_from_file_location('round2_selftest', Path(scripts_dir) / 'selftest.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    needed = {'colorspace', 'tonemap', 'bwdif', 'minterpolate', 'tpad', 'setsar', 'volume', 'pad', 'fade',
+              'overlay', 'scdet', 'loop', 'ametadata', 'aphasemeter', 'waveform', 'vectorscope', 'siti',
+              'entropy', 'blurdetect', 'blockdetect', 'afftdn', 'deesser', 'acompressor', 'whisper'}
+    missing = needed - set(module.FILTERS)
+    unnamed = {name for name in needed if not module.FILTER_LIMITS.get(name)}
+    record('render: preflight covers picture, caption, scene and retime filters',
+           not missing and not unnamed, f'missing={missing}; undescribed={unnamed}')
+    record('render: an absent fixture-only LUT does not block editing',
+           'lut' in module.OPTIONAL_FILTERS and 'fixture' in module.FILTER_LIMITS['lut'],
+           str(module.OPTIONAL_FILTERS))
+    optional = {'filter_limitations': [{'filter': 'whisper', 'limitation': module.FILTER_LIMITS['whisper']}]}
+    with patch.object(module, 'environment', return_value=optional), patch.object(sys, 'argv', ['selftest', '--quick']):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = module.main()
+    record('render: quick probe passes with a limited note for an optional missing filter',
+           result == 0 and 'LIMITED' in output.getvalue() and 'whisper' in output.getvalue(), output.getvalue())
+    with patch.object(module, 'environment', side_effect=RuntimeError('missing required filter scale')), \
+            patch.object(sys, 'argv', ['selftest', '--quick']):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = module.main()
+    record('render: quick probe fails for a required missing filter',
+           result == 2 and 'scale' in output.getvalue(), output.getvalue())

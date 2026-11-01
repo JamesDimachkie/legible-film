@@ -1,6 +1,7 @@
 """Regressions for review findings in the footage and dialogue tools."""
 import importlib.util
 import json
+import subprocess
 import time
 import wave
 from pathlib import Path
@@ -80,8 +81,9 @@ def run_reviewfix_cases(tool, record, j, scripts_dir):
     fade_ok = False
     stem = directory / 'dialogue.wav'
     if stem.exists():
-        with wave.open(str(stem), 'rb') as file:
-            samples = np.frombuffer(file.readframes(file.getnframes()), '<i2').reshape(-1, file.getnchannels())
+        decoded = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(stem), '-ac', '2', '-f', 'f32le', '-'],
+                                 capture_output=True, check=True)
+        samples = np.frombuffer(decoded.stdout, '<f4').reshape(-1, 2)
         tail = np.sqrt(np.mean(samples[-240:].astype(np.float64) ** 2))
         before = np.sqrt(np.mean(samples[-4800:-2400].astype(np.float64) ** 2))
         fade_ok = tail < before * .3

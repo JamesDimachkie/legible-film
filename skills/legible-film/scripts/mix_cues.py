@@ -47,7 +47,13 @@ import math
 import sys
 import tempfile
 from pathlib import Path
-import numpy as np
+import os
+try:
+    import numpy as np
+except ImportError as missing:
+    import runpy
+    project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
+    sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
 _spec = importlib.util.spec_from_file_location("sound_io", Path(__file__).with_name("sound_io.py"))
 io = importlib.util.module_from_spec(_spec)
@@ -55,6 +61,9 @@ _spec.loader.exec_module(io)
 _dspec = importlib.util.spec_from_file_location("dialogue_io", Path(__file__).with_name("dialogue_io.py"))
 dialogue = importlib.util.module_from_spec(_dspec)
 _dspec.loader.exec_module(dialogue)
+_project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 
 
 def numeric(obj, key, default=0, minimum=None):
@@ -372,6 +381,25 @@ def mix_voice(ffmpeg, voice_spec, root, music, bed, a, warnings):
     return voice, report
 
 
+def mix_files(a, palette, roles, root):
+    """The files a mix writes and the files it reads, so that no output replaces an input."""
+    out = Path(a.out_dir)
+    voice = palette.get("voice") if palette.get("version", 1) == 2 else None
+    names = ("effects", "music", "bed", "mix") + (("voice",) if voice is not None else ())
+    outputs = [out / (name + ".wav") for name in names] + [out / "mix-report.json", a.json]
+    inputs = [a.cues, a.palette, a.music]
+    music = palette.get("music")
+    if isinstance(music, dict) and isinstance(music.get("file"), str):
+        inputs.append(root / music["file"])
+    for rs in roles.values():
+        if isinstance(rs, dict) and isinstance(rs.get("takes"), list):
+            inputs.extend(root / take for take in rs["takes"] if isinstance(take, str))
+    for entry in voice if isinstance(voice, list) else [voice]:
+        if isinstance(entry, dict) and isinstance(entry.get("file"), str):
+            inputs.append(root / entry["file"])
+    return outputs, inputs
+
+
 def mix(a):
     ffmpeg = io.find_tool("ffmpeg", a.ffmpeg)
     if not ffmpeg:
@@ -402,6 +430,7 @@ def mix(a):
     if preset != "none" and a.gain_to_lufs is not None:
         raise ValueError("--gain-to-lufs and mastering cannot be combined")
     root = Path(a.palette).resolve().parent
+    project.refuse_overwriting_inputs(*mix_files(a, palette, roles, root))
     placed, missing, silence, dips, warnings = [], [], [], [], []
     cache, rotation, timed = {}, {}, []
     expanded = []

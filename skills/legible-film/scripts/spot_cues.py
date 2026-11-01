@@ -43,6 +43,9 @@ from pathlib import Path
 _spec = importlib.util.spec_from_file_location('sound_io', Path(__file__).with_name('sound_io.py'))
 io = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(io)
+_project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
+project = importlib.util.module_from_spec(_project_spec)
+_project_spec.loader.exec_module(project)
 
 
 def finite(value, name, minimum=None):
@@ -263,6 +266,9 @@ def main():
     p.add_argument('--palette'); p.add_argument('--json')
     a = p.parse_args()
     try:
+        out = Path(a.out_dir) if a.out_dir else Path(a.cues).resolve().parent
+        project.refuse_overwriting_inputs([out / 'cues.spotted.json', out / 'spotting.csv', a.json],
+                                          [a.cues, a.edits, a.palette])
         spec, events, fps = read_cues(a.cues)
         palette = json.loads(Path(a.palette).read_text(encoding='utf-8')) if a.palette else {}
         if not isinstance(palette, dict):
@@ -276,7 +282,6 @@ def main():
         if isinstance(edits, dict) and 'edits' in edits:
             edits = edits['edits']
         result = spot(spec, events, fps, roles, edits)
-        out = Path(a.out_dir) if a.out_dir else Path(a.cues).resolve().parent
         io.save_json(out / 'cues.spotted.json', result)
         with (out / 'spotting.csv').open('w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)

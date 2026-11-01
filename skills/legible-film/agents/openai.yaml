@@ -1,5 +1,5 @@
 interface:
   display_name: "Legible Film"
-  short_description: "Plan, build, score, render, revise and quality-check short videos"
+  short_description: "Cut, caption, check and revise video, with an edit you can read"
 policy:
   allow_implicit_invocation: true

@@ -1,7 +1,7 @@
 # Timing: one clock for picture and sound
 
 How each passage keeps time, how picture and sound share events, where a sound sits against a picture event, and
-how long text needs on screen. Use it in step 3 and whenever something "feels off" without an obvious cause.
+how long text needs on screen. Use it during Plan and whenever something "feels off" without an obvious cause.
 
 Contents: [1. Choose the clock](#1-choose-the-clock-for-each-passage) · [2. The cue list is a contract](#2-the-cue-list-is-a-contract) ·
 [3. Where a sound sits](#3-where-a-sound-sits-against-a-picture-event) · [4. Tolerances](#4-tolerances) ·
@@ -14,7 +14,9 @@ Contents: [1. Choose the clock](#1-choose-the-clock-for-each-passage) · [2. The
 Each passage follows one clock, and choosing it is a creative decision:
 
 - **Action:** a chain of visible causes sets the timing (a silent demo, a product action).
-- **Speech:** narration or dialogue sets it; picture events land on words.
+- **Speech:** narration or dialogue sets it; picture events land on words. Transcript word starts are estimates, often off
+  by a few frames: put an anchor's first visible change on its word's start or up to a frame before, confirm
+  timing-critical anchors against the source audio, and list the anchors for the person's pass with sound.
 - **Music:** a beat grid sets it; changes land on bars, beats or the music's own events.
 - **Deliberate silence:** nothing new arrives, so a result or a sentence can be read.
 
@@ -98,9 +100,12 @@ the frame nearest the measured beat time, and note why; never retime the music t
 `at(bar, beat, sixteenth)` that returns a whole frame keeps every cue on the grid; a cue deliberately off it gets a
 written reason beside it.
 
-Two more pieces of arithmetic: a dissolve or crossfade of `d` seconds between clips shortens the timeline by `d`
-and shifts every later cue by `d` (FFmpeg's `xfade` takes `offset = first clip length − d`); and converting 24 fps
-material to 60 fps repeats frames in an uneven 2-3 cadence that reads as judder in slow pans.
+Two more pieces of arithmetic. A conventional FFmpeg `xfade` overlap of `d` seconds shortens the combined
+timeline by `d` and shifts every later cue by `d` (`xfade` takes `offset = first clip length − d`). The paper edit's
+`dissolve` works differently: it extends the outgoing picture under the incoming line and keeps the line's start
+time, and when the outgoing source lacks that much picture the join shortens and `cut.py check` warns
+([paper-edit](paper-edit.md#8-timing-rules)). And converting 24 fps material to 60 fps repeats frames in an uneven
+2-3 cadence that reads as judder in slow pans.
 
 ## 6. Reading windows
 
