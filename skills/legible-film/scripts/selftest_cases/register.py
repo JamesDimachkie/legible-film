@@ -362,7 +362,7 @@ def run_register_cases(tool, record, j, scripts_dir, skip=None):
                          '--render', stub_cmd('--fetch', 'https://example.com/lf-during-render.json'))
         record('register: a render that fetches an outside URL (never at export) is caught by the block and binds unverified',
                code == 1 and manifest(root / 'project-fetch', 'v001')['identity']['binding'] == 'unverified'
-               and 'blocked' in text and 'example.com' in text, text[-300:])
+               and 'the network (blocked): example.com:443' in text, text[-300:])
         code, text = add(root / 'project-fetch', '--cues', hf_fetch / 'cues.json', '--file', root / 'renders' / 'fetch-b.mp4',
                          '--render', stub_cmd('--browser', browser['chrome'], '--goto', 'https://example.com/lf-browser'))
         record('register: a browser the render launches goes through the refusing proxy: the request is recorded and the '
