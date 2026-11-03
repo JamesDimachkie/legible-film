@@ -18,3 +18,7 @@ Open Font License 1.1; each licence is in the adjacent *-LICENSE.txt file.
 
 Some of the Screening Room's colour and size values are adapted from Rune (https://github.com/anomalyco/rune,
 copyright (c) 2026 Christopher Langton, MIT licence).
+
+The sound measurements in skills/legible-film/scripts/listen.py follow the shape of earshot's reports, and
+its launch-film reference ranges (PROFILE) are the 10th to 90th percentiles from earshot's launch profile.
+earshot: https://github.com/Leonxlnx/earshot, copyright (c) 2026 Leon Lin, MIT licence.

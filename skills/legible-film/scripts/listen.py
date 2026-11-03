@@ -21,6 +21,7 @@ except ImportError as missing:
 
 HERE = Path(__file__).resolve().parent
 RATE = 48000
+# 10th to 90th percentiles from earshot's launch profile (Leon Lin, MIT; see NOTICE).
 PROFILE = {
     'integrated_lufs': [-19.32, -9.16], 'true_peak_dbtp': [-0.26, 1.52],
     'lra_lu': [2.66, 9.08], 'side_to_mid_db': [-11.8, -5.78],
