@@ -243,7 +243,8 @@ def main(argv=None):
                 print(f'note: references/scripts.md has no row for scripts/{name} yet (accepted until --final)')
             else:
                 problems.append(f'references/scripts.md has no row for scripts/{name}')
-    # One version wherever a person or an installer reads it: SKILL.md, both plugin manifests, the newest CHANGELOG entry.
+    # One version wherever a person or an installer reads it: SKILL.md, both plugin manifests, the newest released
+    # CHANGELOG entry (an Unreleased section above it is not a version).
     versions = {}
     found = re.search(r'^\s*version:\s*"?([^"\n]+?)"?\s*$', skill, re.MULTILINE)
     versions['SKILL.md'] = found.group(1) if found else 'none'
@@ -251,7 +252,7 @@ def main(argv=None):
         with open(os.path.join(ROOT, '.claude-plugin', name), encoding='utf-8') as fh:
             versions[name] = ', '.join(sorted(set(re.findall(r'"version":\s*"([^"]+)"', fh.read())))) or 'none'
     with open(os.path.join(ROOT, 'CHANGELOG.md'), encoding='utf-8') as fh:
-        found = re.search(r'^## (\S+)', fh.read(), re.MULTILINE)
+        found = re.search(r'^## (?!Unreleased\b)(\S+)', fh.read(), re.MULTILINE)
     versions['CHANGELOG.md'] = found.group(1) if found else 'none'
     if len(set(versions.values())) != 1:
         problems.append('versions disagree: ' + ', '.join(f'{name} {value}' for name, value in versions.items()))

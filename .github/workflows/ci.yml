@@ -44,7 +44,7 @@ jobs:
       # Linux also runs the tracking cases (OpenCV); Windows and macOS keep the minimal install, where they skip.
       - name: Optional OpenCV (Linux)
         if: runner.os == 'Linux'
-        run: python -m pip install opencv-python-headless
+        run: python -m pip install "opencv-python-headless>=4.8,<5"
       - name: FFmpeg version
         run: ffmpeg -hide_banner -version
       - name: Self-test

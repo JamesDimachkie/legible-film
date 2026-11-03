@@ -3,7 +3,7 @@
 
 Run it once after installing, and after changing any script:
 
-  python selftest.py             # full suite: 10-20 minutes on CI's machines, 20-45 on a laptop
+  python selftest.py             # full suite: 16-32 minutes on CI's machines, 20-45 on a laptop
   python selftest.py --quick     # dependency probe only, about a second
   python selftest.py --smoke     # synthetic media, check and edit, about ten seconds
   python selftest.py --force     # rerun even when the environment cache matches

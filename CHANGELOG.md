@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **OpenCV stays below 5 everywhere.** 2.1.0 pinned `opencv-python>=4.8,<5` in `setup.py`, because OpenCV 5.0 ships
+  no `cv2.data.haarcascades` and `crop auto` and the scorecard then lose face detection without saying so. The install
+  hints in `grade.py`, `reframe.py` and `check.py` now give the same pin, and CI installs
+  `opencv-python-headless>=4.8,<5`, so the tracking cases run on the same OpenCV major version users get.
+- The self-test's measured CI time reads 16 to 32 minutes in the README and `selftest.py --help`.
+
 ## 2.1.0 (2026-11-03)
 
 **Upgrading from 2.0.** Every 2.0 command still works, and each now opens one of six paths

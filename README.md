@@ -449,7 +449,7 @@ the skill's folder), with the Python `setup.py` names (`$PY`, as in [Try it](#tr
 
 `--smoke` decodes, checks, imports a transcript, renders a cut and checks its captions on synthetic media, in
 about ten seconds. The full run builds synthetic media with known answers and runs every script's cases, about 2,150
-of them: 17 to 32 minutes on CI's Linux and Windows machines. It records any case it could not run, with the
+of them: 16 to 32 minutes on CI's Linux and Windows machines. It records any case it could not run, with the
 reason (some need faster-whisper, a browser or Windows speech synthesis). Without
 `--force`, a run may reuse an earlier pass on the same environment; `--quick` checks the dependencies in a second. A
 pass shows the scripts measure these synthetic answers on your machine; it says nothing about the quality of a
