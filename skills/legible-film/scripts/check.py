@@ -114,7 +114,7 @@ READING_RULES = {'invalid timing', 'lines', 'line length', 'overlap', 'minimum d
                  'orphan', 'gap'}
 WORD_PROMPTS = {'spelled differently from the words', 'contraction differs from the words', 'spoken but not captioned',
                 'speech with no caption', 'apparent offset from estimated word times: listen'}
-PACKAGES = {'PIL': 'Pillow', 'cv2': 'opencv-python', 'faster_whisper': 'faster-whisper'}
+PACKAGES = {'PIL': 'Pillow', 'cv2': '"opencv-python>=4.8,<5"', 'faster_whisper': 'faster-whisper'}
 QA_FILES = ('qc.json', 'flash_scan.json', 'blank_scan.json', 'captions-rules.json', 'captions-edit.json',
             'captions-speech.json', 'speech-words.json', 'captions-check.json', 'captions-contrast.json',
             'titles-contrast.json', 'technical.json')

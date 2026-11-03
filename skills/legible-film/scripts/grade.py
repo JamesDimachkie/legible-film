@@ -416,7 +416,7 @@ def face_samples(frames):
     try:
         import cv2
     except ImportError:
-        return {'state': 'not_run', 'reason': 'Optional OpenCV missing: pip install opencv-python',
+        return {'state': 'not_run', 'reason': 'Optional OpenCV missing: pip install "opencv-python>=4.8,<5"',
                 'note': 'No face inference; inspect the frames.'}
     directory = getattr(getattr(cv2, 'data', None), 'haarcascades', None)
     model = Path(directory or '') / 'haarcascade_frontalface_default.xml'

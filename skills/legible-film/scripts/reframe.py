@@ -10,7 +10,7 @@ or identity detection. The path applies a deadband, smoothing and a speed limit.
 seconds; end is exclusive. A path it writes is marked
 "clock": "source" and assemble.py converts it to the clip's time; a path written by hand counts seconds from --start.
 Flags and sheets need review; they do not prove that the intended subject is visible.
-Needs numpy, Pillow, FFmpeg and ffprobe. Optional face detection: pip install opencv-python.
+Needs numpy, Pillow, FFmpeg and ffprobe. Optional face detection: pip install "opencv-python>=4.8,<5".
 Exit 0 for no flags, 1 for flags, 2 on error.
 """
 import argparse
