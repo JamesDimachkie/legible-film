@@ -39,7 +39,7 @@ reason. Exit codes are shared: 0 nothing found, 1 something to inspect or fix, 2
 by default it expects H.264, `yuv420p`, BT.709 tags, fast start and a sound track (`--vcodec`, `--pix-fmt`, `--color`
 or a `--delivery` JSON state another spec; a silent file or a GIF fails its spec item otherwise), takes no declared
 ranges, and does not check the audio codec or sample rate. With `--captions` (and `--timeline` for an editor's
-export) it adds the caption items ([recipes](recipes.md#assisting-an-editor-in-premiere)). For anything else the brief states, run the battery: `qc_file.py` with the spec's codec, pixel format, colour,
+export) it adds the caption items ([editor](../paths/editor.md)). For anything else the brief states, run the battery: `qc_file.py` with the spec's codec, pixel format, colour,
 audio codec and sample-rate flags; `blank_scan.py` and `motion_scan.py` with the designed ranges as `--ignore`; and
 `flash_scan.py` over the whole file. Keep each exit status, and explain every flag inside a declared range. For a
 1920x1080, 60 fps, 45 s H.264 file with AAC at 48 kHz:
@@ -52,7 +52,7 @@ qc_file.py deliver/film-v6.mp4 --spec 1920x1080@60 --duration 45 --vcodec h264 -
 |---|---|---|---|---|
 | 1 | Spec, decode, colour, loudness | `qc_file.py film.mp4 --spec 1920x1080@60 --duration 32 --vcodec h264 --pix-fmt yuv420p --color bt709 --audio required --acodec aac --sample-rate 48000 --faststart --lossy-check --detect --json qa/qc.json` | size, rate, duration, codecs, sample rate, decoded frame count, clean decode, colour tags, fast start, integrated loudness, true peak before and after an AAC re-encode, audio and video lengths agree, head and tail levels, the mono fold-down loss; black, frozen and silent candidates | that the picture is right, that it looks or sounds good |
 | 2 | Brand colour survives | add `--color-patch 4.0@120,80,40,40=#3080C0` (a flat region at a time) | the region decodes to the brand colour under the file's own tags | how every player will show it |
-| 3 | Flashing (hard limit) | `flash_scan.py film.mp4 --json qa/flash.json` | no candidate WCAG 2.3.1 general or red flash sequence was found; in `check.py` a percentile or red flash fails, and a window only the same-pixel pattern detectors counted (`classic_max_per_s` at most 6) is a look, since camera movement over fine detail also triggers them: watch that moment, and a pattern that really flashes fails | certification (Harding, IRIS, broadcast PSE) |
+| 3 | Flashing (hard limit) | `flash_scan.py film.mp4 --json qa/flash.json` | no candidate WCAG 2.3.1 general or red flash sequence was found; in `check.py` a percentile or red flash fails, and a window only the same-pixel pattern detectors counted (`classic_max_per_s` at most 6), or swings no opposite swing reverses in the same pixels (shapes sliding or morphing; `coherent_max_per_s`), is a look, since camera movement over fine detail and moving shapes also trigger them: watch that moment, and a pattern that really flashes fails | certification (Harding, IRIS, broadcast PSE) |
 | 4 | Near-empty frames | `blank_scan.py film.mp4 --ignore <designed> --json qa/blank.json` | runs of flat or failed frames outside declared ranges; `check.py` also makes frame 0 black, white or one colour a look (most feeds use it as the thumbnail and autoplay frame), with when the picture first shows and a designed fade in named as the cause | that a declared breath reads as intended |
 | 5 | Cuts, one-frame intrusions, stutter, holds, pace, loop seam | `motion_scan.py film.mp4 [--loop] --ignore <designed> --json qa/motion.json`; with a declared pace contract add `--end <end card> --max-still 0.6 --max-still-share 0.4`; on camera footage add `--footage` | where the cuts are, stray single frames, repeated frames inside motion (with `--footage`, only exact duplicates), when motion first starts, long holds, still share and still stretches, cuts per 10 s, seam continuity; the moving area, with pace inside it when it is small | whether a move or a hold feels right at speed |
 | 6 | Overview | `frame_sheet.py film.mp4 --every 0.5 --out qa/overview.png` | what is on screen every half second | anything between the samples |
@@ -67,6 +67,27 @@ qc_file.py deliver/film-v6.mp4 --spec 1920x1080@60 --duration 45 --vcodec h264 -
 Run 1-9 on every delivered rendition (each aspect ratio, the loop, the alpha version, the GIF), adapted as above;
 10-11 when there is sound; the change proof in §6 on every revision. Add `--max-level` (4.2 for 1080p60, 5.2 for
 2160p60) and `--max-size-mb` to check 1 when a player or platform sets those limits.
+
+**An edit checked against its input.** After a quick edit, `check.py --file OUT --against IN --edit KIND` checks
+the invariants of that kind of edit as well as the file: `trim:A,B` lasts B minus A within one frame with the audio
+offset unchanged; `speed:X` scales the duration by X; `reframe` keeps duration and sound; `convert` keeps duration
+and the stream count for its destination; `extract-audio` has no video stream and the source's duration; `captions`
+changes no stream; `compress` keeps duration and streams.
+
+**The context and sync groups.** Inside a project, `check.py` adds two groups. Their `unconfirmed` and
+`not assessed` items leave the exit code alone unless `--strict` is given; a stale cue list is a `fail` either way.
+
+| Group | Items | States |
+|---|---|---|
+| Context | each frame field present, and its state; `knows_by` has a second and a channel; the cold read with its model and file hash; a waiver with its reason | `pass` (confirmed), `unconfirmed` (assumed or missing, saying which), `look` (cold read mismatched), `not assessed` (cold read not run) |
+| Sync | the cue list present and fresh against this version; the binding (`receipt` and `plan-bound` pass; `screened`, `overridden` and `unverified` are looks that say why) and the render receipt; the version's picture packets, timing and geometry against its manifest; every turn decided; **frame change at cue**; **sound follows the list**; turn leads measured, and each follow span screened against an uncalibrated null (`listen.py sync`; context, never significance); silence scopes; masking pairs answered; conform and mix bound to this list and their media; transport and mux offset against the master; the `listen.py transcript` measured | `pass`, `look`, `fail` (stale, or missing or unbound where the path requires a bound list), `not assessed` (no list on a path that allows none, a plan not yet bound, an inconclusive measure) |
+| Stress (`--stress`) | `delivery_check.py`'s low-bitrate proxy re-encode, CAMBI and VMAF worst windows | `look`; `not assessed` when the screen cannot run or its metrics are unavailable (no libvmaf) |
+
+**Frame change at cue** is a screen. The delivered video's frame-to-frame difference within one frame of each turn
+and contact must exceed three times the median difference over the surrounding second (a starting value). It says a
+change happened, not that it is the intended one; the person and the cold read carry that. Cues declared
+`picture: none` or `picture: held` are skipped, and the held ones listed. **Sound follows the list** compares onsets
+with cue times against chance (`cue_onsets.py --chance`). Neither is a pass mark for congruence; listening is.
 
 A film made with the kit also has a check before any render: `film_check.py <film>` reports facts
 mismatches, contrast, reading windows and predicted flashing from the film's own timeline, and writes the cue list,
@@ -138,8 +159,12 @@ diagnostic image does not establish how visible a defect is at normal viewing.
   where: `--offset-frames 18 --offset-at 10.1` (negative for removed frames) pairs frames directly before that point
   and shifted after it, moves to the frame within a second where the pictures match, and reports the added frames or
   the removal point as a change (name it in `--expect` when intended).
-- **Cue list:** after a picture-only change, re-export the cue list and compare it byte for byte with the one
-  the mix used; reuse the mix only when they are identical.
+- **Cue list:** after a picture change, re-export the cue list from the owner. A list, bed or mix made before the
+  change is refused as stale; spot, conform and mix again from the new list.
+- **Outside a declared change:** `sync_check.py NEW OLD --outside A,B` compares the sound outside A..B (the old file's
+  seconds) in aligned 50 ms windows (`--window-ms`), judges each against the reference's own level there, and states its
+  detection limit; a window under the codec's noise floor reads not assessed. Pair it with `compare_versions.py --expect
+  A-B` for the picture.
 - **Sound that should be unchanged:** hash the decoded audio of both files in one stated format (see the
   cookbook). For an intended sound edit, compare the unchanged intervals on the masters before encoding: once
   the master changes at all, the encoder's noise changes across the whole file. Previews keep no master: measure
@@ -174,7 +199,9 @@ These need a person ([review](review.md)). Report each as checked by a named per
 
 Report what was produced and what was checked, with numbers (duration, frame count, loudness, true peak before
 and after re-encode, file size, bitrate), every check not run and why, confirmed and unresolved findings, the
-weakest remaining point, and who has watched and listened to which version under which conditions. Keep
+weakest remaining point, and who has watched and listened to which version under which conditions. Print the
+context and sync groups' states as they were written, in the delivery report's Context and Sync sections, with the
+frame change at cue and sound follows the list under their own labels. Keep
 subjective ratings in the scorecard ([grading](grading.md)), each with its reviewer, evidence and confidence; a
 rating is not a QC pass.
 

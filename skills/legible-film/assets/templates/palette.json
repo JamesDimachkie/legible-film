@@ -383,5 +383,17 @@
     "licence": "generated for this project",
     "label": "Temp track for timing and animatics; unheard; a person decides whether it can ship."
   },
-  "example_note": "Filled version-2 example. Generate matching WAVs with make_sound_kit.py --out DIR --seed 91 --temp-bpm 150. Paths are relative to DIR/palette.json. Unheard; a person decides suitability."
+  "voice": [
+    {
+      "file": "voice/line-01.wav",
+      "at_s": 0.8,
+      "gain_db": 0
+    },
+    {
+      "file": "voice/line-02.wav",
+      "at_s": 6.4,
+      "gain_db": -1
+    }
+  ],
+  "example_note": "Filled version-2 example. Generate matching WAVs with make_sound_kit.py --out DIR --seed 91 --temp-bpm 150. Paths are relative to DIR/palette.json. voice holds the person's recorded or approved narration, one entry per file: file (relative to this palette), at_s (where it starts on the film clock) and gain_db. make_sound_kit.py writes no voice; remove the voice list for a film without one. mix_cues.py ducks the music under the voice and reports each phrase. Unheard; a person decides suitability."
 }

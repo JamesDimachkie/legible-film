@@ -148,8 +148,9 @@ def run_chain_cases(tool, record, j, scripts_dir):
         {'id': 'quiet', 't': .52, 'sound': 'silent', 'window_ms': 5},
         {'id': 'read', 't': 1.5, 'role': 'hold', 'reading_hold': True}]
     events += [{'id': 'key' + str(i), 't': 2 + i * .1, 'role': 'key'} for i in range(5)]
-    events += [{'id': 'same' + str(i), 't': 4 + i * .25, 'role': 'tick'} for i in range(3)]
-    events += [{'id': 'total' + str(i), 't': 6 + i * .15, 'role': 'r' + str(i)} for i in range(6)]
+    # The per-role and total caps thin optional choices; a required or hero event is kept with a look (runs cases).
+    events += [{'id': 'same' + str(i), 't': 4 + i * .25, 'role': 'tick', 'sound': 'optional'} for i in range(3)]
+    events += [{'id': 'total' + str(i), 't': 6 + i * .15, 'role': 'r' + str(i), 'sound': 'optional'} for i in range(6)]
     spot_source = save('spot-source.json', {'duration': 8, 'events': events})
     before = spot_source.read_bytes()
     code, out = tool('spot_cues.py', spot_source, '--out-dir', path('spot'))
@@ -222,8 +223,8 @@ def run_chain_cases(tool, record, j, scripts_dir):
     boundaries = save('boundaries.json', {'events': [
         {'id': 'm0', 't': 0, 'role': 'a'}, {'id': 'm60', 't': .06, 'role': 'b'},
         {'id': 'r0', 't': 2, 'role': 'r'}, {'id': 'r120', 't': 2.12, 'role': 'r'},
-        {'id': 'w0', 't': 4.8, 'role': 'w'}, {'id': 'w1', 't': 5.1, 'role': 'w'},
-        {'id': 'w2', 't': 5.4, 'role': 'w'}, {'id': 'w3', 't': 5.8, 'role': 'w'}]})
+        {'id': 'w0', 't': 4.8, 'role': 'w', 'sound': 'optional'}, {'id': 'w1', 't': 5.1, 'role': 'w', 'sound': 'optional'},
+        {'id': 'w2', 't': 5.4, 'role': 'w', 'sound': 'optional'}, {'id': 'w3', 't': 5.8, 'role': 'w', 'sound': 'optional'}]})
     code, _ = tool('spot_cues.py', boundaries, '--out-dir', path('boundaries'))
     rows = {e['id']: e for e in read('boundaries/cues.spotted.json')['events']}
     record('chain: spotting boundaries at 60/120 ms and rolling one-second limits', code == 0 and
@@ -233,7 +234,7 @@ def run_chain_cases(tool, record, j, scripts_dir):
     # there is only one visible event. Omit nested role layers by contract.
     density_palette = save('density-palette.json', {'version': 2, 'roles': {'a': {
         'layers': [{'role': 'b'}, {'role': 'c'}]}, 'b': {'layers': [{'role': 'nested'}]}}})
-    dense = save('layer-density.json', {'events': [{'id': 'layers', 't': 1, 'role': 'a',
+    dense = save('layer-density.json', {'events': [{'id': 'layers', 't': 1, 'role': 'a', 'sound': 'optional',
         'layers': [{'role': 'd'}, {'role': 'e'}, {'role': 'f'}]}]})
     code, r, _ = check('palette-density', stereo, '--cues', dense, '--palette', density_palette)
     record('chain: sound_check includes non-recursive palette and event layers', code == 1 and

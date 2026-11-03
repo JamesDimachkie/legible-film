@@ -337,8 +337,10 @@ if __name__=='__main__':
     sys.exit(main())
 
 
-def run_render_cases(tool, record, j, scripts_dir):
+def run_render_cases(tool, record, j, scripts_dir, skip=None):
     """Entry point for selftest.py: the same cases, in a folder of their own."""
+    global SKIP
+    SKIP = skip
     run_cases(scripts_dir, j('render-cases'), record)
     change_events_case(tool, record, j)
     check_grapheme_render(tool, record, j)
@@ -347,10 +349,25 @@ def run_render_cases(tool, record, j, scripts_dir):
     check_round2_preflight(record, scripts_dir)
 
 
-def playwright_core():
-    """playwright-core beside the Playwright that LF_PLAYWRIGHT_MODULE names (as the Screening Room cases use it)."""
-    module = os.environ.get('LF_PLAYWRIGHT_MODULE')
-    return Path(module).parent / 'playwright-core' if module else Path('no-playwright-module')
+_browser_spec = importlib.util.spec_from_file_location('selftest_browser', Path(__file__).with_name('_browser.py'))
+BROWSER = importlib.util.module_from_spec(_browser_spec)
+_browser_spec.loader.exec_module(BROWSER)
+SKIP = None
+
+
+def skipped(name, reason, count):
+    """A counted skip through selftest.py's skip(), or a printed one when run alone."""
+    if SKIP:
+        SKIP(name, reason, count)
+    else:
+        print(f'SKIP  {name} ({reason})')
+
+
+def browser_parts():
+    """(playwright-core folder, Chromium executable, reason when either or Node is missing), found as the kit finds
+    them (selftest_cases/_browser.py)."""
+    found = BROWSER.discover()
+    return found['core'], found['chrome'], found['missing']
 
 
 def check_grapheme_render(tool, record, j):
@@ -358,12 +375,11 @@ def check_grapheme_render(tool, record, j):
     from PIL import ImageChops, ImageFilter
     root = Path(j('kit-graphemes'))
     root.mkdir(parents=True, exist_ok=True)
-    package = playwright_core()
-    cache = Path(os.environ.get('LOCALAPPDATA', '')) / 'ms-playwright'
-    browsers = sorted(cache.glob('chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe'))
-    if not package.exists() or not browsers or not shutil.which('node'):
-        print('SKIP  kit graphemes: LF_PLAYWRIGHT_MODULE, Node or Chromium is unavailable')
+    package, browser, missing = browser_parts()
+    if missing:
+        skipped('kit graphemes', missing, 1)
         return
+    browsers = [browser]
     kit = Path(__file__).resolve().parent.parent.parent / 'assets' / 'kit' / 'lf'
     html = root / 'text.html'
     document = '''<!doctype html><html><body style="background:white;margin:20px">
@@ -445,12 +461,11 @@ const { pathToFileURL } = require('node:url');
 
 def check_determinism_probe(tool, record, j):
     """Offline pages with pure and history-dependent frames give different probe results."""
-    package = playwright_core()
-    cache = Path(os.environ.get('LOCALAPPDATA', '')) / 'ms-playwright'
-    browsers = sorted(cache.glob('chromium_headless_shell-*/chrome-headless-shell-win64/chrome-headless-shell.exe'))
-    if not package.exists() or not browsers or not shutil.which('node'):
-        print('SKIP  determinism probe: LF_PLAYWRIGHT_MODULE, Node or Chromium is unavailable')
+    package, browser, missing = browser_parts()
+    if missing:
+        skipped('determinism probe', missing, 2)
         return
+    browsers = [browser]
     root = Path(j('determinism-probe'))
     for kind in ('pure', 'stateful'):
         folder = root / kind

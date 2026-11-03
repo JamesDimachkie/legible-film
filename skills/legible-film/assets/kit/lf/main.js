@@ -65,6 +65,7 @@ function info(f) {
     cuts: f.reg.cuts, seams: f.reg.seams, blanks: f.reg.blanks, changes: f.reg.changes.map(c => c[0]), change_windows: f.reg.changes, smears: f.reg.smears.slice().sort((a, b) => a[0] - b[0]),
     fast: f.reg.fast.slice().sort((a, b) => a[0] - b[0]), rests, flashes: f.reg.flashes,
     music: musicInfo(f), pace: legacyPace(f.spec.pace) || null, loop: f.loop, cues, captions: f.reg.captions,
+    frame: f.spec.frame || null,
     texts: f.reg.texts.map(x => ({ id: x.id, role: x.role, string: x.string, fact: x.fact, scene: x.scene + 1 })),
     grounds: f.reg.grounds.map(g => [+g.t.toFixed(6), g.colour, g.fade]),
     warnings: f.reg.warnings.slice(),

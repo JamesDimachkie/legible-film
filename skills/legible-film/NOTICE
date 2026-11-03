@@ -14,3 +14,6 @@ Open Font License 1.1; each licence is in the adjacent *-LICENSE.txt file.
 
 Some of the Screening Room's colour and size values are adapted from Rune (https://github.com/anomalyco/rune,
 copyright (c) 2026 Christopher Langton, MIT licence).
+
+Listening measurements in scripts/listen.py are adapted from earshot, copyright (c) 2026 Leon Lin,
+licensed under the MIT License. The full licence is in scripts/NOTICE.

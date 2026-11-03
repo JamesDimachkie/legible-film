@@ -298,10 +298,287 @@ def main():
                'deliver/note.txt' in meta['files_written_or_changed'] and
                graded['checks'][0]['state'] == 'pass' and graded['overall'] == 'inconclusive')
     R.cli = original_cli
+    routing_cases(record, root)
     summary = {'passed': len(passes), 'failed': len(failures), 'not_run': 0, 'passes': passes, 'failures': failures}
     G.P.save_json(root / 'selftest-results.json', summary)
     print(f'{len(passes)} passed, {len(failures)} failed, 0 not run; {root}')
     return 1 if failures else 0
+
+
+def routing_cases(record, root):
+    """The reshape routing scorer and plan-mode guard on synthetic streams, against the frozen 2.0.0 skill files
+    (fixtures/legible-film-2.0.0.json; no paths/, so the 2.0.0 map), not the live skill the reshape rewrites."""
+    import subprocess
+    rs = load('routing_score')
+    spec = json.loads((HERE / 'reshape-routing.json').read_text(encoding='utf-8'))
+    frozen = json.loads((HERE / 'fixtures' / 'legible-film-2.0.0.json').read_text(encoding='utf-8'))
+    skill = root / '2.0.0' / 'legible-film'
+    for rel, text in frozen['files'].items():
+        (skill / rel).parent.mkdir(parents=True, exist_ok=True)
+        (skill / rel).write_text(text, encoding='utf-8', newline='\n')
+    base = str(skill).replace('\\', '/') + '/'
+    case = {c['id']: c for c in spec['cases']}
+
+    def asst(mid, *parts):
+        return json.dumps({'type': 'assistant', 'message': {'id': mid, 'content': list(parts)}})
+
+    def use(i, name, args):
+        return {'type': 'tool_use', 'id': i, 'name': name, 'input': args}
+
+    def said(text):
+        return {'type': 'text', 'text': text}
+
+    end = json.dumps({'type': 'result', 'subtype': 'success'})
+    load_skill = asst('m1', use('t1', 'Skill', {'skill': 'legible-film'}))
+    partial = [load_skill, asst('m2', use('t2', 'Read', {'file_path': base + 'references/recipes.md', 'offset': 16,
+                                                         'limit': 30})),
+               asst('m3', use('t3', 'Bash', {'command': 'python scripts/cut.py render P'})),
+               asst('m4', said('Should I keep the centre? Who is the audience?')), end]
+    score = rs.score_session(rs.claude_events(partial, {'t3': True}), case['P07'], spec, skill)
+    record('routing: a partial recipes.md read routes by its section; build attempt and frame question counted',
+           score['route'] == 'quick' and score['right'] and score['build_attempts'] == 1 and
+           any(f['hit'] == 'asked a frame question' for f in score['forbidden']) and
+           [r['file'] for r in score['reads_before_action']] == ['SKILL.md', 'references/recipes.md'], score['route'])
+    top = rs.heading_at(skill, 'references/recipes.md', 1, 90)
+    lines = (skill / 'references' / 'recipes.md').read_text(encoding='utf-8').splitlines()
+    target = next(i for i, line in enumerate(lines) if line == '## Launch film or kinetic type') + 1
+    lead = [load_skill, asst('m2', use('t2', 'Read', {'file_path': base + 'references/recipes.md',
+                                                      'offset': target - 5, 'limit': 60})), end]
+    score = rs.score_session(rs.claude_events(lead, {}), case['P02'], spec, skill)
+    record('routing: a partial read that starts a few lines above a heading routes by that heading; '
+           'a read of the top of the file is on no recipe',
+           score['route'] == 'create' and top is None, score['route_evidence'])
+    filtered = [json.dumps({'type': 'item.completed', 'item': {
+                    'type': 'command_execution', 'exit_code': 0,
+                    'command': 'Get-Content .agents/skills/legible-film/SKILL.md'}}),
+                json.dumps({'type': 'item.completed', 'item': {
+                    'type': 'command_execution', 'exit_code': 0,
+                    'command': "Get-Content .agents/skills/legible-film/references/recipes.md | Select-String "
+                               "-Pattern '^## Graphics over footage' -Context 0,20 | Select-Object -First 1"}})]
+    score = rs.score_session(rs.codex_events(filtered), case['P04'], spec, skill)
+    record('routing: a filtered read of one recipe routes by it and counts only its lines',
+           score['route'] == 'insert' and score['reads_before_action'][1]['words'] < 1000, score['route_evidence'])
+    grep = [load_skill, asst('m2', use('t2', 'Grep', {'pattern': '^## Tighten a talking head', 'output_mode': 'content',
+                                                      'path': base + 'references/recipes.md', '-A': 60})), end]
+    score = rs.score_session(rs.claude_events(grep, {}), case['P05'], spec, skill)
+    record('routing: a Grep that shows one recipe with lines after it is a read of that recipe',
+           score['route'] == 'cut' and score['reads_before_action'][1]['words'] < 1500, score['route_evidence'])
+    record('routing: tighten.py is a heavy step the guard denies; asking a script for --help never is',
+           'heavy' in rs.classify('python scripts/tighten.py recording.mp4', spec['actions']['classes']) and
+           rs.classify('cat a.js; $PY scripts/make_film.py --help | head -80; tsrct --help',
+                       spec['actions']['classes']) == [])
+    record('routing: reading, listing or searching for a script or a service is never an attempt',
+           rs.classify('env | grep -iE "api_key|fal|replicate|suno" | sed "s/=.*//"; ls scripts/make_film.py; '
+                       'sed -n 1,40p scripts/mix_cues.py', spec['actions']['classes']) == [] and
+           rs.classify('python scripts/mix_cues.py P', spec['actions']['classes']) == ['build'] and
+           rs.classify('curl -s https://api.elevenlabs.io/v1/x | grep id', spec['actions']['classes']) ==
+           ['spend', 'network'])
+    ranged = [load_skill, asst('m2', use('t2', 'Bash', {'command': (
+        "S=.claude/skills/legible-film; sed -n 1,15p $S/references/recipes.md; "
+        f"sed -n {target},{target + 22}p $S/references/recipes.md")})), end]
+    score = rs.score_session(rs.claude_events(ranged, {}), case['P01'], spec, skill)
+    record('routing: a read of the preamble shows no recipe; the next ranged read of recipes.md does',
+           score['route'] == 'create', score['route_evidence'])
+    inside = [load_skill, asst('m2', use('t2', 'Bash', {'command': (
+        'cd "C:/p/.claude/skills/legible-film/references" && sed -n 1,15p recipes.md && '
+        f'sed -n {target},{target + 22}p recipes.md && cat kit.md')})), end]
+    score = rs.score_session(rs.claude_events(inside, {}), case['P01'], spec, skill)
+    record('routing: bare file names read after cd into the skill folder are skill reads',
+           score['route'] == 'create' and [r['file'] for r in score['reads_before_action']] ==
+           ['SKILL.md', 'references/recipes.md', 'references/recipes.md', 'references/kit.md'],
+           score['route_evidence'])
+    bare_grep = [load_skill, asst('m2', use('t2', 'Grep', {'pattern': 'Assisting an editor in Premiere',
+                                                           'output_mode': 'content', '-A': 50,
+                                                           'path': base + 'references/recipes.md'})),
+                 asst('m3', use('t3', 'Bash', {'command': 'python scripts/map.py add P a.mp4 --role interview'})),
+                 end]
+    score = rs.score_session(rs.claude_events(bare_grep, {}), case['P09'], spec, skill)
+    record('routing: a Grep for a recipe heading without its ## is a read of that recipe',
+           score['route'] == 'editor', score['route_evidence'])
+    def codex_cmd(command):
+        return json.dumps({'type': 'item.completed', 'item': {'type': 'command_execution', 'exit_code': 0,
+                                                              'command': command}})
+
+    skill_line = codex_cmd('cat .agents/skills/legible-film/SKILL.md')
+    spliced = codex_cmd('"C:\\\\Tools\\\\pwsh.exe" -Command \'$f=\'"\'"\'.agents/skills/legible-film/references/'
+                        'recipes.md\'"\'"\'; $t=Get-Content $f; $t | Select-String \'"\'"\'^## Graphics over footage'
+                        '\'"\'"\' -Context 0,12\'')
+    score = rs.score_session(rs.codex_events([skill_line, spliced]), case['P04'], spec, skill)
+    record('routing: a POSIX-quoted pwsh wrapper with spliced quotes and a $variable path is decoded and read',
+           score['route'] == 'insert', score['route_evidence'])
+    nested = codex_cmd("bash -lc 'pwsh -Command \"Get-Content .agents/skills/legible-film/references/recipes.md "
+                       "| Select-String -Pattern ''^## Captions only'' \"'")
+    score = rs.score_session(rs.codex_events([skill_line, nested]), case['P07'], spec, skill)
+    record('routing: a shell inside a shell is unwrapped, and a Select-String for a heading without -Context is a '
+           'read of that recipe', score['route'] == 'quick', score['route_evidence'])
+    alternation = codex_cmd("rg -n -A 40 '^## Music or lyric video|^## Generated clips' "
+                            ".agents/skills/legible-film/references/recipes.md")
+    score = rs.score_session(rs.codex_events([skill_line, alternation]), case['P03'], spec, skill)
+    record('routing: an rg with context lines and an alternation of headings reads the first heading',
+           score['route'] == 'create', score['route_evidence'])
+    arrayed = codex_cmd('$lines = gc .agents/skills/legible-film/references/recipes.md; $lines[226..250]')
+    score = rs.score_session(rs.codex_events([skill_line, arrayed]), case['P04'], spec, skill)
+    record('routing: a literal index range on a loaded file is a ranged read (0-based)',
+           score['route'] == 'insert' and score['reads_before_action'][1]['first'] == 227, score['route_evidence'])
+    classes = spec['actions']['classes']
+    record('routing: an environment check (--doctor) and a loop header that lists script names are not attempts; '
+           'a loop body that renders is',
+           rs.classify('"$PY" scripts/kit_tool.py --doctor 2>&1 | tail -5', classes) == [] and
+           rs.classify('"$PY" scripts/make_film.py --doctor 2>&1', classes) == [] and
+           rs.classify('for f in cut.py mix_cues.py; do python scripts/$f --help | head -3; done', classes) == [] and
+           rs.classify('for f in a b; do python scripts/cut.py render P; done', classes) == ['build'])
+    halted = [skill_line, json.dumps({'type': 'item.started', 'item': {'id': 'x9', 'type': 'command_execution',
+                                                                      'command': 'python scripts/make_film.py P'}})]
+    score = rs.score_session(rs.codex_events(halted), case['P05'], spec, skill)
+    record('routing: a Codex command that started and was stopped before completing is recorded as an attempt',
+           score['build_attempts'] == 1 and any(f['hit'].startswith('ran make_film.py') for f in score['forbidden']),
+           score['attempts'])
+    record('routing: a PowerShell if whose test and body only read is a look; with a script run it is not',
+           rs.is_look('if (Test-Path notes.md) { Get-Content notes.md }') and
+           not rs.is_look('if (Test-Path a.mp4) { python scripts/cut.py render P }'))
+    diagnose = [skill_line, codex_cmd('Get-Content .agents/skills/legible-film/references/recipes.md -TotalCount 40'),
+                codex_cmd('python .agents/skills/legible-film/scripts/setup.py'),
+                codex_cmd("Get-Content .agents/skills/legible-film/references/recipes.md | Select-String "
+                          "'^## Screen-recorded tutorial' -Context 0,9")]
+    score = rs.score_session(rs.codex_events(diagnose), case['P05'], spec, skill)
+    record('routing: a read of the top of recipes.md is on no recipe, and setup.py does not end the search for '
+           'the first recipe read', score['route'] == 'cut' and 'Screen-recorded tutorial' in score['route_evidence'],
+           score['route_evidence'])
+    whole = [load_skill, asst('m2', use('t2', 'Read', {'file_path': base + 'references/recipes.md'})),
+             asst('m3', said('Following Animated insert over a recording.')), end]
+    score = rs.score_session(rs.claude_events(whole, {}), case['P04'], spec, skill)
+    record('routing: a whole recipes.md read routes by the recipe the agent names after it',
+           score['route'] == 'insert' and score['right'], score['route_evidence'])
+    bare = [load_skill, asst('m2', said('Which file?')), end]
+    score = rs.score_session(rs.claude_events(bare, {}), case['P10'], spec, skill)
+    record('routing: a loaded skill with no path-mapped read is unscored, never a pass',
+           score['route'] is None and not score['scored'] and score['right'] is None)
+    never = [asst('m1', said('I can do that without a skill.')), end]
+    score = rs.score_session(rs.claude_events(never, {}), case['P01'], spec, skill)
+    record('routing: a session that never loads the skill routes to no-skill and is wrong for a skill prompt',
+           score['route'] == 'no-skill' and score['right'] is False)
+    words = rs.words_in(skill, 'SKILL.md') + rs.words_in(skill, 'references/loop.md')
+    record('routing: words are whitespace-separated, SKILL.md plus loop.md counted whole', words > 4000, words)
+    classes = spec['actions']['classes']
+    record('routing: map.py run is heavy unless words are skipped; render and npx are denied',
+           rs.classify('python map.py run P', classes) == ['heavy'] and
+           rs.classify('python map.py run P --words skip', classes) == [] and
+           'build' in rs.classify('npx hyperframes render', classes))
+    codex = [json.dumps({'type': 'item.completed', 'item': {
+                 'type': 'command_execution', 'exit_code': 0,
+                 'command': '"pwsh.exe" -Command \'Get-Content -Raw .agents/skills/legible-film/SKILL.md\''}}),
+             json.dumps({'type': 'item.completed', 'item': {
+                 'type': 'command_execution', 'exit_code': 0,
+                 'command': '"pwsh.exe" -Command "Get-Content .agents/skills/legible-film/references/sound.md"'}}),
+             json.dumps({'type': 'turn.completed'})]
+    score = rs.score_session(rs.codex_events(codex), case['P06'], spec, skill)
+    record('routing: a Codex trace loads the skill and routes from its shell reads',
+           score['skill_loaded'] and score['route'] == 'sound', score['route_evidence'])
+    tr = load('trigger_run')
+    record('routing sessions take no heavy-job lock: a met memory floor returns at once with the MiB free',
+           tr.wait_for_memory(0) >= 0 and not hasattr(tr, 'HeavyLock'))
+    route_check_cases(record, root, rs, spec, asst, use, said, end)
+    project = root / 'guard-project'
+    project.mkdir()
+    log = root / 'guard.jsonl'
+    decisions = []
+    for tool, args in (('Bash', {'command': 'python scripts/cut.py render P'}), ('Bash', {'command': 'ffprobe a.mp4'}),
+                       ('Write', {'file_path': str(root / 'outside.md'), 'content': 'x'}),
+                       ('Write', {'file_path': str(project / 'film.md'), 'content': 'x'})):
+        done = subprocess.run([sys.executable, '-I', str(HERE / 'trigger_run.py'), 'guard', '--cases',
+                               str(HERE / 'reshape-routing.json'), '--project', str(project), '--log', str(log)],
+                              input=json.dumps({'tool_name': tool, 'tool_input': args}), capture_output=True,
+                              text=True)
+        decisions.append('deny' if '"deny"' in done.stdout else 'allow')
+    record('routing guard: denies a render and a write outside the project; allows a probe and a write inside',
+           decisions == ['deny', 'allow', 'deny', 'allow'], decisions)
+
+
+def route_check_cases(record, root, rs, spec, asst, use, said, end):
+    """Route checks 16-20 on stub streams against a small synthetic candidate skill; no session, no fixture build."""
+    import xml.etree.ElementTree as ET
+    rc = load('route_checks')
+    cand = root / 'candidate' / 'legible-film'
+    (cand / 'paths').mkdir(parents=True)
+    (cand / 'references').mkdir()
+    (cand / 'SKILL.md').write_text('---\nname: legible-film\n---\n# Synthetic candidate\nPick a path.\n', encoding='utf-8')
+    for name in ('create', 'cut', 'insert', 'sound', 'editor', 'quick'):
+        (cand / 'paths' / f'{name}.md').write_text(f'# {name}\nSteps for {name}.\n', encoding='utf-8')
+    engines = ['# Engines', '', '## 1. Choose', 'pick one', ''] + [f'line {i}' for i in range(20)] + \
+              ['', '## Tesseract', 'hand the build to its skills', 'the frame stays here', '', '## 6. Other', 'x']
+    (cand / 'references' / 'engines.md').write_text('\n'.join(engines) + '\n', encoding='utf-8')
+    tess = engines.index('## Tesseract') + 1
+    base = str(cand).replace('\\', '/') + '/'
+    cases = {c['id']: c for c in spec['route_checks']}
+    load_skill = asst('m1', use('t1', 'Skill', {'skill': 'legible-film'}))
+
+    def run(case_id, lines, project=None, fixture=None):
+        events = rs.claude_events(lines, {u: True for u in ('tx',)})
+        score = rs.score_session(events, cases[case_id], spec, cand)
+        return rc.check(cases[case_id], events, score, project, fixture, cand)
+
+    frame = 'audience: builders on X\ntakeaway: picture and sound on one clock\nwhere it plays: the feed\n'
+    plan = json.dumps({'version': 'v2', 'picture': {'kind': 'plan', 'sha256': None}, 'events': []})
+    r16 = [load_skill, asst('m2', use('t2', 'Read', {'file_path': base + 'paths/create.md'})),
+           asst('m3', use('t3', 'Read', {'file_path': base + 'references/engines.md', 'offset': tess - 3,
+                                         'limit': 8})),
+           asst('m4', use('t4', 'Write', {'file_path': 'C:/p/film.md', 'content': frame})),
+           asst('m5', use('t5', 'Write', {'file_path': 'C:/p/film/plan.json', 'content': plan})),
+           asst('m6', said('The frame and the plan list are written; the build hands off to Tesseract here.')), end]
+    good = run('R16', r16)
+    bad = run('R16', r16[:5] + [asst('m6', use('tx', 'Bash', {'command': 'tsrct new launch'})), end])
+    record('route check 16: engines.md read over its Tesseract section, frame, plan list, stop at the hand-off; '
+           'a tsrct attempt fails it', good['passed'] and not bad['passed'], [n for n in bad['requirements']
+                                                                             if not n['met']])
+    r17 = [load_skill, asst('m2', use('t2', 'Read', {'file_path': base + 'paths/quick.md'})),
+           asst('m3', use('t3', 'Bash', {'command': 'python .claude/skills/legible-film/scripts/listen.py '
+                                                    'transcript drop.mp4'})),
+           asst('m4', said('Around 0:16 the level rises; these are hints from a measurement, not a listening.')),
+           end]
+    no_listen = [load_skill, asst('m2', use('t2', 'Read', {'file_path': base + 'paths/quick.md'})),
+                 asst('m3', said('The level rises at the drop; these are hints.')), end]
+    record('route check 17: quick, listen.py transcript run, hints called hints; without listen.py it fails',
+           run('R17', r17)['passed'] and not run('R17', no_listen)['passed'])
+    r18 = [load_skill, asst('m2', use('t2', 'Read', {'file_path': base + 'paths/quick.md'})),
+           asst('m3', said('Captions written beside the file.')), end]
+    triad = r18[:2] + [asst('m3', use('t3', 'Read', {'file_path': base + 'references/finding-the-story.md'})),
+                       asst('m4', said('Captions written.')), end]
+    record('route check 18: quick with no paper edit and no triad; reading finding-the-story.md fails it',
+           run('R18', r18)['passed'] and not run('R18', triad)['passed'])
+    r19 = [load_skill, asst('m2', use('t2', 'Bash', {'command': 'python .claude/skills/legible-film/scripts/'
+                                                                'screen.py build .'})), end]
+    with_cut = [load_skill, asst('m2', use('t2', 'Bash', {'command': 'python .claude/skills/legible-film/scripts/'
+                                                                     'cut.py check .'})), end]
+    record('route check 19: screen.py run and cut.py never; running cut.py fails it',
+           run('R19', r19)['passed'] and not run('R19', with_cut)['passed'])
+    project = root / 'r20-project'
+    (project / 'handoff').mkdir(parents=True)
+    fixture = {'kind': 'paper', 'version': 'v001', 'clips': 3, 'duration_s': 7.72}
+
+    def handoff(path, clips, frames):
+        seq = ET.Element('sequence')
+        ET.SubElement(seq, 'duration').text = str(frames)
+        rate = ET.SubElement(seq, 'rate')
+        ET.SubElement(rate, 'timebase').text = '25'
+        ET.SubElement(rate, 'ntsc').text = 'FALSE'
+        track = ET.SubElement(ET.SubElement(ET.SubElement(seq, 'media'), 'video'), 'track')
+        for i in range(clips):
+            ET.SubElement(track, 'clipitem', {'id': f'c{i}'})
+        root_xml = ET.Element('xmeml', {'version': '4'})
+        root_xml.append(seq)
+        ET.ElementTree(root_xml).write(path, encoding='utf-8', xml_declaration=True)
+
+    handoff(project / 'handoff' / 'v001.xml', 3, 193)
+    r20 = [load_skill, asst('m2', use('t2', 'Bash', {'command': 'python .claude/skills/legible-film/scripts/'
+                                                                'exchange.py write . v001 --out handoff/v001.xml'})),
+           end]
+    good = run('R20', r20, project, fixture)
+    handoff(project / 'handoff' / 'v001.xml', 2, 193)
+    short = run('R20', r20, project, fixture)
+    record('route check 20: exchange.py write, and its XML parses with the paper edit\'s clip count and duration; '
+           'a missing clip fails it', good['passed'] and not short['passed'], good['requirements'][-1]['evidence'])
+    record('route checks run on a candidate only (a skill with paths/)',
+           rc.applies(cand) and not rc.applies(root / '2.0.0' / 'legible-film'))
 
 
 if __name__ == '__main__':

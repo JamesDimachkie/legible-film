@@ -22,8 +22,12 @@ A unique, close translation is compensated for the pattern detectors; ambiguous 
 be flagged. Scaling or point sampling can miss or exaggerate fine detail or threshold-area changes;
 pixels that change in different directions or move between samples may remain ambiguous. This is
 a screen for review, not a guarantee that all dangerous flashes have been detected.
-A flash is a pair of opposing transitions, so a window with more than six transitions inside one
-second (more than three flashes) is flagged.
+A flash is a pair of opposing transitions in the same place, so a classic or red transition counts
+only when an opposite one within a second moves at least a quarter of the window back in the same
+pixels. A shape that slides or morphs darkens some pixels and brightens others; its unpaired swings
+are reported with the pattern detectors for review (coherent_max_per_s), not counted as flashes. A
+window with more than six counted transitions inside one second (more than three flashes) is
+flagged.
 
 Every frame is decoded once, without duplication or dropping, and timed by its own presentation
 timestamp, so variable frame timing (screen recordings, GIFs) is screened on the clock it plays on.
@@ -186,26 +190,40 @@ def linear(c8):
 
 
 class CoherentZig:
-    """Count directional swings only when enough corresponding pixels change together."""
+    """Count directional swings only when enough corresponding pixels change together.
 
-    def __init__(self, threshold=.10, area=.25, darker_below=.80, ambiguous_patterns=True):
+    With `paired` (the default) a swing is a flash transition only when an opposite swing within `pair_window`
+    (the clock `resolve` is given; seconds) moves at least the required fraction of the same pixels back: a flash
+    is a pair of opposing changes in one place. A shape sliding or morphing through the window darkens some pixels
+    and brightens others, so its swings stay unpaired; every same-direction swing is kept in `coherent_ends`."""
+
+    def __init__(self, threshold=.10, area=.25, darker_below=.80, ambiguous_patterns=True, paired=True,
+                 pair_window=1.0):
         self.threshold = threshold
         self.area = area
         self.darker_below = darker_below
         self.ambiguous_patterns = ambiguous_patterns
+        self.paired = paired
+        self.pair_window = pair_window
         self.pivot = None
         self.extreme = None
         self.extreme_time = None
         self.direction = 0
         self.ends = []
         self.ambiguous_ends = []
+        self.coherent_ends = []
+        self.swings = []
+
+    def moved(self, earlier, later, direction):
+        """The pixels that changed by the threshold in one direction."""
+        moved = (later - earlier) * direction >= self.threshold
+        if self.darker_below is not None:
+            moved &= np.minimum(earlier, later) < self.darker_below
+        return moved
 
     def changed(self, earlier, later, direction):
         """Whether at least the required fraction changed in one direction."""
-        changed = (later - earlier) * direction >= self.threshold
-        if self.darker_below is not None:
-            changed &= np.minimum(earlier, later) < self.darker_below
-        return np.count_nonzero(changed) >= self.area * earlier.size
+        return np.count_nonzero(self.moved(earlier, later, direction)) >= self.area * earlier.size
 
     def push(self, when, values, motion=None):
         image = np.asarray(values, dtype=np.float32)
@@ -240,20 +258,43 @@ class CoherentZig:
     def finish(self):
         if self.direction:
             self.record_extreme()
+            self.direction = 0
+        self.resolve()
 
     def record_extreme(self):
-        """Keep simultaneous large opposite changes for pattern review."""
-        if not self.changed(self.pivot, self.extreme, self.direction):
+        """Keep simultaneous large opposite changes for pattern review; keep the rest for pairing."""
+        moved = self.moved(self.pivot, self.extreme, self.direction)
+        if np.count_nonzero(moved) < self.area * moved.size:
             return
-        ambiguous = self.ambiguous_patterns and self.changed(self.pivot, self.extreme, -self.direction)
-        (self.ambiguous_ends if ambiguous else self.ends).append(self.extreme_time)
+        classic = not (self.ambiguous_patterns and self.changed(self.pivot, self.extreme, -self.direction))
+        (self.coherent_ends if classic else self.ambiguous_ends).append(self.extreme_time)
+        if self.paired:
+            self.swings.append((self.extreme_time, self.direction, np.packbits(moved), moved.size, classic))
+        elif classic:
+            self.ends.append(self.extreme_time)
+
+    def resolve(self, clock=None):
+        """Set `ends` to the classic swings an opposite swing within `pair_window` reverses in the same pixels."""
+        if not self.paired:
+            return
+        clock = clock or (lambda when: when)
+        kept = [False] * len(self.swings)
+        for i, (when, direction, moved, size, _) in enumerate(self.swings):
+            for k in range(i - 1, -1, -1):
+                other_when, other_direction, other_moved, _, _ = self.swings[k]
+                if clock(when) - clock(other_when) > self.pair_window + 1e-9:
+                    break
+                if (other_direction == -direction and
+                        int(np.unpackbits(moved & other_moved).sum()) >= self.area * size):
+                    kept[i] = kept[k] = True
+        self.ends = [swing[0] for swing, keep in zip(self.swings, kept) if keep and swing[4]]
 
 
 class RedZig(CoherentZig):
     """Count changes in saturated-red amount across a coherent area."""
 
-    def __init__(self, threshold=20.0, area=.25):
-        super().__init__(threshold=threshold, area=area, darker_below=None, ambiguous_patterns=False)
+    def __init__(self, threshold=20.0, area=.25, paired=True):
+        super().__init__(threshold=threshold, area=area, darker_below=None, ambiguous_patterns=False, paired=paired)
 
 
 def translated(values, motion, fill):
@@ -455,7 +496,7 @@ def screen(a, ffmpeg, ffprobe):
     wins = [(x + mode * W, y) for mode in range(2) for y in ys for x in xs]
     n = 0
     classic_zigs = [CoherentZig() for _ in wins]
-    candidate_zigs = [CoherentZig() for _ in wins]
+    candidate_zigs = [CoherentZig(paired=False) for _ in wins]
     red_zigs = [RedZig() for _ in wins]
     general_zigs = [GeneralZig() for _ in wins]
     area_zigs = [AreaTransitions() for _ in wins]
@@ -482,23 +523,32 @@ def screen(a, ffmpeg, ffprobe):
     for k, (x, y) in enumerate(wins):
         for z in (classic_zigs[k], candidate_zigs[k], red_zigs[k], general_zigs[k]):
             z.finish()
+        for z in (classic_zigs[k], red_zigs[k]):
+            z.resolve(lambda index: times[index])
         classic = busiest_second([times[index] for index in classic_zigs[k].ends], 1e-9)
         patterns = [busiest_second([times[index] for index in detector.ends], 1e-9)
                     for detector in (general_zigs[k], area_zigs[k])]
         if candidate_zigs[k].ambiguous_ends:
             candidate_ends = candidate_zigs[k].ends + candidate_zigs[k].ambiguous_ends
             patterns.append(busiest_second([times[index] for index in candidate_ends], 1e-9))
+        # Same-direction swings no opposite swing reverses in the same pixels are moving or morphing shapes: shown
+        # for review with the pattern detectors, not counted as flashes.
+        coherent = busiest_second([times[index] for index in classic_zigs[k].coherent_ends], 1e-9)
+        patterns.append(coherent)
         pattern = max(patterns, key=lambda result: result[0])
         g = max((classic, pattern), key=lambda result: result[0])
         r = busiest_second([times[index] for index in red_zigs[k].ends], 1e-9)
+        red_coherent = busiest_second([times[index] for index in red_zigs[k].coherent_ends], 1e-9)
         # Pattern detectors also fire on movement over fine detail; check.py makes those a look.
         row = {'window': [x % W, y, ww, wh], 'sampling': 'area' if x < W else 'point',
                'general_max_per_s': g[0], 'general_at_s': g[1],
                'classic_max_per_s': classic[0], 'classic_at_s': classic[1],
                'pattern_max_per_s': pattern[0], 'pattern_at_s': pattern[1],
-               'red_max_per_s': r[0], 'red_at_s': r[1]}
+               'red_max_per_s': r[0], 'red_at_s': r[1],
+               'coherent_max_per_s': coherent[0], 'coherent_at_s': coherent[1],
+               'red_coherent_max_per_s': red_coherent[0], 'red_coherent_at_s': red_coherent[1]}
         rows.append(row)
-        if g[0] > 6 or r[0] > 6:
+        if g[0] > 6 or r[0] > 6 or red_coherent[0] > 6:
             flagged.append(row)
     gb = max(rows, key=lambda r: r['general_max_per_s'])
     rb = max(rows, key=lambda r: r['red_max_per_s'])

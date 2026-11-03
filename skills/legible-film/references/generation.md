@@ -187,6 +187,9 @@ required.
 - **Stock licences can forbid AI processing:** check before uploading a licensed asset to a generator or upscaler.
 - **Provenance:** keep visible marks and content credentials, and keep a manifest of which portions are generated,
   stock, captured or rendered, with model, version, date, prompt and licence basis.
+- **Generated output stays with the project.** Keep generated takes (an Eleven Music bed, generated effects, a
+  synthetic voice) in the project folder, and never commit them to a public repository, the skill's own fixtures or
+  examples included, since a plan's terms can allow use in a film and still forbid redistribution of the file.
 - **Disclose** realistic generated or altered people, products, events or behaviour where a viewer could take them as
   evidence, and follow each platform's labelling rules
   ([YouTube disclosure policy](https://support.google.com/youtube/answer/14328491?hl=en-GB)).

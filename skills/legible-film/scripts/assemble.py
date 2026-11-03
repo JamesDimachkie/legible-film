@@ -58,6 +58,9 @@ project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
 
 CAPTIONS = Path(__file__).with_name('captions.py')
+_cue_spec = importlib.util.spec_from_file_location('lf_cue_list', Path(__file__).with_name('cue_list.py'))
+cue_list = importlib.util.module_from_spec(_cue_spec)
+_cue_spec.loader.exec_module(cue_list)
 # Audio fade shapes an edit.json audio item may ask for (FFmpeg afade curves): tri is linear, qsin equal power.
 FADE_CURVES = ('tri', 'qsin')
 
@@ -608,14 +611,14 @@ def audio_rate(ffprobe, filename, stream=None):
     streams = probe_data.get('streams') or []
     if not streams:
         raise ValueError(f'no audio stream {stream} in {filename}; choose a source with sound')
-    stream = streams[0]
-    rate = int(stream['sample_rate'])
+    info = streams[0]
+    rate = int(info['sample_rate'])
     if rate <= 0:
         raise ValueError('invalid sample rate: ' + filename)
     origin = float(probe_data.get('format', {}).get('start_time', 0))
-    start = float(stream.get('start_time', origin))
-    duration = stream.get('duration')
-    tag = stream.get('tags', {}).get('DURATION')
+    start = float(info.get('start_time', origin))
+    duration = info.get('duration')
+    tag = info.get('tags', {}).get('DURATION')
     if duration is not None:
         end = start + float(duration)
     elif tag:
@@ -901,7 +904,9 @@ def prepare_overlays(edit, root, width, cues, notes):
         fade = float(overlay.get('fade_ms', 0)) / 1000
         if end <= start or fade < 0:
             raise ValueError('invalid overlay timing')
-        cues.append({'id': f'overlay-{pictures}', 't': start, 'sound': 'optional',
+        # An overlay may start before the film (cut.py's generated fade-in starts at minus its length); on the film
+        # clock it appears at the first frame, so its cue is there and never at a negative time.
+        cues.append({'id': f'overlay-{pictures}', 't': max(0.0, start), 'sound': 'optional',
                      'role': overlay.get('role', 'pop'), 'sync': 'attack',
                      'enabled': bool(overlay.get('sound', False))})
         pictures += 1
@@ -1717,9 +1722,22 @@ def cap_caption_encode(ffmpeg, source, destination, width, height, fps, expected
 
 def export(edit, out, report_path, temp, stage, picture, cues, cuts, dissolves, report):
     """Write sidecars in staging and move them to their final names after success."""
-    # The cue list carries the exact rate as a number, which the sound tools read with float().
-    write_json(stage / 'edit-cues.json', {'fps': float(exact_rate(edit['fps'])),
-                                         'events': sorted(cues + edit.get('cues', []), key=lambda cue: cue['t'])})
+    events = sorted(cues + edit.get('cues', []), key=lambda cue: cue['t'])
+    paper = edit.get('paper')
+    if isinstance(paper, dict) and isinstance(paper.get('film_md_sha256'), str):
+        # cut.py render passes the paper identity (film.md and its sources): the list is v2, bound to the version
+        # folder it is copied into beside manifest.json, and every reader checks it through cue_list.py.
+        rate = exact_rate(edit['fps'])
+        identity = dict(cue_list.paper_identity(paper['film_md_sha256'], paper.get('sources') or {}), path='.')
+        write_json(stage / 'edit-cues.json', {
+            'version': 'v2', 'clock': 'seconds from the first frame of the film',
+            'fps': rate.numerator if rate.denominator == 1 else f'{rate.numerator}/{rate.denominator}',
+            'exported_from': 'assemble.py edit-cues (cut.py render)', 'provenance': 'exported', 'picture': identity,
+            'sections': [],
+            'events': [cue_list.upgrade_event(cue) for cue in events]})
+    else:
+        # A standalone edit has no paper identity: the list stays v1 (unversioned), with the exact rate as a number.
+        write_json(stage / 'edit-cues.json', {'fps': float(exact_rate(edit['fps'])), 'events': events})
     holds = edit.get('holds', [])
     declared = edit.get('declared', [])
     dips = [{'start': clip['at'], 'end': clip['at'] + clip['overlap']}

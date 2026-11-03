@@ -1,7 +1,7 @@
 {
   "name": "legible-film",
   "displayName": "Legible Film",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Video editing for coding agents: cut interviews, podcasts, tutorials and montages from their transcripts and shots; make launch films and kinetic type; caption, mix and check the delivered file. The film lives as text, every render is a version, and the person watches, notes and approves in a Screening Room.",
   "author": {
     "name": "James Dimachkie",

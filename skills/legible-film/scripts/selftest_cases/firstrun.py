@@ -38,8 +38,12 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
                and '--install core' in text and 'Traceback' not in text, text[-700:])
     crashed = []
     for script in sorted(scripts.glob('*.py')):
-        result = subprocess.run([str(fresh_py), '-I', str(script), '--help'], capture_output=True, text=True)
-        text = result.stdout + result.stderr
+        result = subprocess.run([str(fresh_py), '-I', str(script), '--help'], capture_output=True)
+        try:
+            text = (result.stdout + result.stderr).decode('utf-8')
+        except UnicodeDecodeError as error:
+            crashed.append(f'{script.name}: piped help is not UTF-8 ({error.reason} at byte {error.start})')
+            continue
         if 'Traceback' in text or result.returncode not in (0, 2) or (
                 result.returncode == 2 and '--install core' not in text):
             crashed.append(f'{script.name} exit {result.returncode}: {text.strip().splitlines()[-1:]}')
@@ -148,13 +152,29 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
     kit = {row['label']: row for row in groups['Film kit (optional)']}
     record('firstrun: Node is probed even when the Python kit doctor cannot run',
            kit['Node']['state'] == 'ready' and 'v20' in kit['Node']['detail'], str(kit['Node']))
-    # The fix names setup.py by its full path (inside the working folder on CI); what must not be there is the
-    # folder Playwright is installed into.
-    prefix = re.search(r'--prefix "?([^"\s]+)', kit['Playwright']['fix'].replace('\\', '/'))
+    # The fix installs Playwright into the per-user data folder wherever the person runs it from: the home folder
+    # (where the data folder lies below the working folder) as well as a project or a CI checkout.
+    def playwright_prefix(fix):
+        found = re.search(r'--prefix "?([^"\s]+)', fix.replace('\\', '/'))
+        return os.path.normcase(os.path.normpath(found.group(1))) if found else None
+
+    wanted = os.path.normcase(os.path.normpath(str(setup.data_home() / 'playwright')))
     record('firstrun: Playwright fix uses the per-user data directory',
-           prefix is not None and str(setup.data_home()).replace('\\', '/') in prefix.group(1)
-           and not prefix.group(1).startswith(os.getcwd().replace('\\', '/')) and '--install kit' in
-           kit['Playwright']['fix'], kit['Playwright']['fix'])
+           playwright_prefix(kit['Playwright']['fix']) == wanted and '--install kit' in kit['Playwright']['fix'],
+           kit['Playwright']['fix'])
+    here = os.getcwd()
+    try:
+        os.chdir(Path.home())
+        with mock.patch.object(setup, 'ffmpeg_features', return_value=(versions, encoders, filters)), \
+                mock.patch.object(setup, 'module_available', return_value=False), \
+                mock.patch.object(setup, 'kit_doctor', return_value={}), \
+                mock.patch.object(setup.shutil, 'which', side_effect=lambda name: 'node' if name == 'node' else None), \
+                mock.patch.object(setup, 'run', return_value='v20.0.0'):
+            from_home ={row['label']: row for row in setup.inspect()['Film kit (optional)']}
+    finally:
+        os.chdir(here)
+    record('firstrun: Playwright fix uses the per-user data directory when run from the home folder',
+           playwright_prefix(from_home['Playwright']['fix']) == wanted, from_home['Playwright']['fix'])
     with mock.patch.object(setup, 'data_home', return_value=Path(j('cash $space'))), \
             mock.patch.object(setup, 'kit_doctor', return_value={}):
         kit = {row['label']: row for row in setup.inspect()['Film kit (optional)']}

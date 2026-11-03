@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Measure where sounds start against the cue list: the clock, checked on audio.
 
-For each cue in cues.json, find the strongest sound onset near the cue time and report the offset
-in milliseconds. Cues marked "silent" are checked for unexpected new sounds instead. Disabled
+For each cue in cues.json, find the strongest sound onset near its intended sound time and report
+the offset in milliseconds. A turn also reports the offset from its picture time. Cues marked
+"silent" are checked for unexpected new sounds instead. Disabled
 spotted events (enabled: false) are withheld; silent cues remain checked.
 The cue list
 itself is linted first (sounds stacked on one instant, required cues inside a silent window).
@@ -58,6 +59,9 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
 project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
+_cue_spec = importlib.util.spec_from_file_location('lf_cue_list', Path(__file__).with_name('cue_list.py'))
+cue_list = importlib.util.module_from_spec(_cue_spec)
+_cue_spec.loader.exec_module(cue_list)
 try:
     import numpy as np
 except ImportError as missing:
@@ -81,9 +85,15 @@ def envelope_db(x):
     n = max(0, (len(x) - FRAME) // HOP + 1)
     if n == 0:
         return np.zeros(0)
-    frames = np.lib.stride_tricks.as_strided(x, shape=(n, FRAME),
-                                              strides=(x.strides[0] * HOP, x.strides[0]), writeable=False)
-    rms = np.sqrt(np.einsum('ij,ij->i', frames, frames) / FRAME)
+    if x.ndim == 1:
+        frames = np.lib.stride_tricks.as_strided(x, shape=(n, FRAME),
+                                                  strides=(x.strides[0] * HOP, x.strides[0]), writeable=False)
+        rms = np.sqrt(np.einsum('ij,ij->i', frames, frames) / FRAME)
+    else:
+        frames = np.lib.stride_tricks.as_strided(x, shape=(n, FRAME, x.shape[1]),
+                                                  strides=(x.strides[0] * HOP, x.strides[0], x.strides[1]),
+                                                  writeable=False)
+        rms = np.sqrt(np.einsum('ijk,ijk->i', frames, frames) / (FRAME * x.shape[1]))
     return 20 * np.log10(rms + 1e-9)
 
 
@@ -158,6 +168,20 @@ def cue_time(ev, fps):
     return None
 
 
+def audio_time(ev, fps, offset=0):
+    """Map a picture cue onto the decoded audio clock."""
+    value = cue_time(ev, fps)
+    if value is None:
+        return None
+    lead = float(ev.get('lead_ms', 0)) / 1000 if ev.get('scale') == 'turn' else 0
+    return value + lead - offset
+
+
+def picture_offset_ms(row, picture_t, offset):
+    """Measure a found turn on the picture clock."""
+    return round((row['onset_s'] + offset - picture_t) * 1000, 3)
+
+
 def number(x, positive=False):
     ok = isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
     return ok and (x > 0 if positive else x >= 0)
@@ -206,6 +230,11 @@ def validate(spec):
             problems.append(f"{name}: sound must be required, silent, optional or absent, not {ev.get('sound')!r}")
         if ev.get('sync', 'attack') not in ('attack', 'apex', 'end'):
             problems.append(f"{name}: sync must be attack, apex or end, not {ev.get('sync')!r}")
+        if ev.get('scale', 'contact') not in ('contact', 'turn', 'follow', 'silence'):
+            problems.append(f"{name}: unknown scale {ev.get('scale')!r}")
+        if 'lead_ms' in ev and (not isinstance(ev['lead_ms'], (int, float)) or
+                                isinstance(ev['lead_ms'], bool) or not math.isfinite(ev['lead_ms'])):
+            problems.append(f"{name}: lead_ms must be a finite number")
         if 't' in ev:
             if not number(ev['t']):
                 problems.append(f"{name}: t must be a time in seconds, 0 or more, not {ev['t']!r}")
@@ -224,10 +253,10 @@ def validate(spec):
     return events, fps, problems
 
 
-def lint(events, fps, duration_s, stack_ms):
+def lint(events, fps, duration_s, stack_ms, offset=0):
     """Problems in the plan itself, before any audio is judged."""
     notes, seen = [], set()
-    timed = [(cue_time(ev, fps), ev) for ev in events]
+    timed = [(audio_time(ev, fps, offset), ev) for ev in events]
     for t, ev in timed:
         if ev.get('id') in seen:
             notes.append(f"duplicate id {ev.get('id')}")
@@ -336,39 +365,46 @@ def main():
     p.add_argument('--floor-db', type=finite, default=-55.0, help='ignore onsets quieter than this (dBFS RMS)')
     p.add_argument('--stack-ms', type=finite, default=50.0, help='lint: required cues closer than this')
     p.add_argument('--chance', type=int, default=0, help='random cue sets for a chance baseline (e.g. 200)')
+    p.add_argument('--seed', type=int, default=0, help='random seed for the chance baseline')
+    p.add_argument('--owner', help='page, picture or version whose identity the cue list describes')
+    p.add_argument('--scale', choices=('contact', 'turn', 'all'), default='contact',
+                   help='measure contact cues, turn cues, or both')
+    p.add_argument('--offset', type=finite, default=0,
+                   help='picture time = decoded audio time + this offset in seconds')
     p.add_argument('--reference', action='append', default=[], metavar='ID=FILE')
     p.add_argument('--expect-absent', action='store_true', help='check referenced cues for residual matches')
     p.add_argument('--json')
     p.add_argument('--ffmpeg')
     a = p.parse_args()
-    if a.chance < 0:
-        p.error('--chance cannot be negative')
+    if a.chance < 0 or a.seed < 0:
+        p.error('--chance and --seed cannot be negative')
     ffmpeg = find_tool('ffmpeg', a.ffmpeg)
     if not ffmpeg:
         print('ffmpeg is required (PATH, FFMPEG, or --ffmpeg)', file=sys.stderr)
         return 2
+    # Every reader goes through cue_list: a stale list or an unbound plan is refused, a v1 list is read as it always
+    # was (with its look printed), and a v2 rational fps arrives as a float.
     try:
-        with open(a.cues, 'rb') as fh:
-            raw = fh.read()
-        encoding = 'utf-16' if raw.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'
-        spec = json.loads(raw.decode(encoding))
-    except OSError as e:
-        print(f'cue_onsets.py: cannot read cue file {a.cues}: {e.strerror or e}', file=sys.stderr)
+        listed = cue_list.load_for('cue_onsets.py', a.cues, owner=a.owner)
+    except (cue_list.CueListError, OSError) as e:
+        print(f'cue_onsets.py: {e}', file=sys.stderr)
         return 2
-    except UnicodeError:
-        print(f'cue_onsets.py: cannot read cue file {a.cues}: it is not UTF-8 or BOM-marked UTF-16 text',
-              file=sys.stderr)
-        return 2
-    except json.JSONDecodeError as e:
-        print(f'cue_onsets.py: cannot read cue file {a.cues}: invalid JSON at line {e.lineno}, column {e.colno}',
-              file=sys.stderr)
-        return 2
+    spec = listed.doc
+    if listed.version == 'v2':
+        spec = dict(spec, fps=listed.fps) if listed.fps is not None else {k: v for k, v in spec.items() if k != 'fps'}
     events, fps, problems = validate(spec)
     if problems:
         print(f'cue_onsets.py: {a.cues} cannot be checked as written:', file=sys.stderr)
         for problem in problems:
             print(f'  {problem}', file=sys.stderr)
         return 2
+    legacy = listed.version == 'v1'
+    if legacy:
+        events = [dict(event, scale=listed.scale(event)) for event in events]
+    selected = {'contact', 'turn'} if a.scale == 'all' else {a.scale}
+    events = [ev for ev in events if
+              (ev.get('scale', 'contact') in selected and ev.get('sound') != 'silent') or
+              (legacy and ev.get('sound') == 'silent' and a.scale in ('contact', 'all'))]
     refs = {}
     for item in a.reference:
         if '=' not in item or not all(item.split('=', 1)):
@@ -393,16 +429,21 @@ def main():
         print('cue_onsets.py: ' + str(error), file=sys.stderr)
         return 2
     events = [ev for ev in events if ev.get('enabled', True) or ev.get('sound') == 'silent']
-    command = [ffmpeg, '-v', 'error', '-nostdin', '-i', a.audio, '-map', '0:a:0', '-ac', '1', '-ar', str(RATE)]
+    command = [ffmpeg, '-v', 'error', '-nostdin', '-i', a.audio, '-map', '0:a:0', '-ac', '2', '-ar', str(RATE)]
     command += ['-af', 'aresample=async=1:first_pts=0']
     r = subprocess.run(command + ['-f', 'f32le', '-'], capture_output=True, check=False)
     if r.returncode:
         print('could not decode audio: ' + r.stderr.decode(errors='replace').strip()[-200:], file=sys.stderr)
         return 2
-    x = np.frombuffer(r.stdout, np.float32).astype(np.float64)
-    sig = Signal(x, a.rise_db, a.floor_db)
+    decoded = np.frombuffer(r.stdout, np.float32)
+    if len(decoded) % 2:
+        print('decoded audio has an incomplete stereo sample', file=sys.stderr)
+        return 2
+    channels = decoded.astype(np.float64).reshape(-1, 2)
+    x = np.mean(channels, axis=1)
+    sig = Signal(channels, a.rise_db, a.floor_db)
     duration = len(x) / RATE
-    notes = lint(events, fps, duration, a.stack_ms)
+    notes = lint(events, fps, duration, a.stack_ms, a.offset)
 
     not_checked = []
     rows = []
@@ -410,12 +451,18 @@ def main():
         if a.expect_absent and not (str(ev.get('id')) in refs or ev.get('ref')):
             not_checked.append(ev.get('id'))
             continue
-        t = cue_time(ev, fps)
+        picture_t = cue_time(ev, fps)
+        t = audio_time(ev, fps, a.offset)
         kind, sync = ev.get('sound', 'required'), ev.get('sync', 'attack')
         tol = float(ev.get('tolerance_ms', a.tolerance_ms))
-        win = float(ev.get('window_ms', a.window_ms))
+        win = listed.onset_window_ms(ev, a.window_ms)
         k0, lo, hi = sig.window(t, win)
-        row = {'id': ev.get('id'), 't': round(t, 4), 'sound': kind, 'sync': sync, 'window_ms': win}
+        row = {'id': ev.get('id'), 't': round(t, 4), 'scale': ev.get('scale', 'contact'),
+               'sound': kind, 'sync': sync, 'window_ms': win}
+        if ev.get('scale') == 'turn' or a.offset:
+            row.update(picture_t=picture_t, lead_ms=ev.get('lead_ms', 0))
+        if a.offset:
+            row['audio_to_picture_offset_s'] = a.offset
         if hi <= lo:
             row['status'] = 'outside audio'
             rows.append(row)
@@ -429,12 +476,24 @@ def main():
             if rr.returncode:
                 print('could not decode reference: ' + refpath, file=sys.stderr)
                 return 2
+            left, right = max(0, int((t - win / 1000) * RATE)), min(len(x), int((t + win / 1000) * RATE))
+            channel_power = float(np.mean(channels[left:right] ** 2)) if right > left else 0.0
+            mono_power = float(np.mean(x[left:right] ** 2)) if right > left else 0.0
+            if channel_power > 1e-16 and mono_power < .01 * channel_power:
+                row.update(reference=refpath, correlation=None, status='inconclusive',
+                           reason='stereo channels cancel in the mono reference comparison',
+                           next='Compare an isolated stem or listen to the stereo channels.')
+                rows.append(row)
+                continue
             try:
                 row.update(reference_match(x, np.frombuffer(rr.stdout, np.float32).astype(np.float64),
                                            t, sync, win, tol, a.expect_absent or kind == 'absent', refpath))
             except ValueError as exc:
                 print(f'cue_onsets.py: {ev.get("id")}: {exc}', file=sys.stderr)
                 return 2
+            if (ev.get('scale') == 'turn' and 'onset_s' in row and
+                    row['status'] in ('on cue', 'LATE', 'EARLY', 'RESIDUAL')):
+                row['picture_offset_ms'] = picture_offset_ms(row, picture_t, a.offset)
             rows.append(row)
             continue
         if kind == 'silent':
@@ -457,6 +516,8 @@ def main():
             row['status'] = 'on cue'
         else:
             row['status'] = 'LATE' if offset > 0 else 'EARLY'
+        if found and ev.get('scale') == 'turn':
+            row['picture_offset_ms'] = picture_offset_ms(row, picture_t, a.offset)
         if found and sync == 'attack' and strength < a.rise_db + 3:
             row['confidence'] = 'weak'
         rows.append(row)
@@ -474,10 +535,10 @@ def main():
                                and r['sound'] != 'optional')}
     too_short = any(duration <= 2 * (row['window_ms'] / 1000 + .01) for row in scored)
     if a.chance and scored and too_short:
-        summary['chance'] = {'sets': 0, 'mean_hit_rate': None, 'p95_hit_rate': None,
+        summary['chance'] = {'sets': 0, 'seed': a.seed, 'mean_hit_rate': None, 'p95_hit_rate': None,
                              'verdict': 'not run: audio is too short for full random search windows'}
     elif a.chance and scored:
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(a.seed)
         rates = []
         for _ in range(a.chance):
             hits = 0
@@ -492,6 +553,8 @@ def main():
         p95 = float(np.percentile(rates, 95))
         summary['chance'] = {'sets': a.chance, 'mean_hit_rate': round(float(np.mean(rates)), 3),
                              'p95_hit_rate': round(p95, 3),
+                             'seed': a.seed, 'spread': [round(float(np.min(rates)), 3),
+                                                       round(float(np.max(rates)), 3)],
                              'verdict': ('above chance' if hit_rate > p95 else
                                          'inconclusive: no better than random cue times in this audio')}
     if 'chance' in summary and summary['chance']['verdict'].startswith('inconclusive'):
@@ -533,6 +596,8 @@ def main():
             detail = f"onset at {row['onset_s']} s, rise {row['rise_db']} dB"
         else:
             detail = ''
+        if 'picture_offset_ms' in row:
+            detail += f", picture offset {row['picture_offset_ms']:+g} ms"
         print(f"  {str(row['id']):20s} {row['t']:8.3f} s  {row['sound']:8s} {row.get('status', ''):18s} {detail}"
               + ('  (weak)' if row.get('confidence') == 'weak' else '')
               + ('  ' + row['reason'] if row.get('reason') else '')

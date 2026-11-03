@@ -3,7 +3,11 @@
 Read this before you write an FFmpeg command or filter graph of your own, convert colour, pad or mix audio, retime,
 set a frame rate, measure decoded audio, or cut on transcript times. Each was hit in real production or measured
 while building this skill, and each applies to every kind of job; the scripts already handle them, so they bite when
-you work outside a script. Acting on whole lists is in [SKILL.md](../SKILL.md#gotchas).
+you work outside a script.
+
+**Act on whole lists.** Long output can reach you shortened (a harness that truncates it, a compression tool that
+keeps a sample of rows). Before an edit that depends on every clip, word, note or change, read the report from the
+file the script wrote (`--json`) and check its rows against the total it states.
 
 Lessons for one topic live in its reference: colour and muxing in [finishing](finishing.md), commands and Windows
 quoting in [ffmpeg-cookbook](ffmpeg-cookbook.md), engine audio and true peak in [sound](sound.md), frame timing in

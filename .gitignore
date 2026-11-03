@@ -8,6 +8,7 @@
 *.m4a
 renders/
 qa/
+.lf-frozen/
 review-output/
 
 # Python, Node and OS clutter

@@ -76,7 +76,9 @@ export class Film {
     const ev = { id, t: r6(this.time(e.t)), picture: e.picture || '', sound: e.sound || 'required' };
     if (ev.sound !== 'silent') ev.sync = e.sync || 'attack';
     if (e.role) e = { ...e, role: legacyRole(e.role) };
-    for (const k of ['role', 'gain_db', 'duck_db', 'variant', 'window_ms', 'tolerance_ms', 'atZero']) if (e[k] != null) ev[k] = e[k];
+    for (const k of ['role', 'gain_db', 'duck_db', 'variant', 'window_ms', 'tolerance_ms', 'atZero', 'run', 'scale',
+      'lead_ms', 'decision', 'span', 'intent', 'hero', 'pan', 'pitch_st', 'scope', 'section']) if (e[k] != null) ev[k] = e[k];
+    if (e.t_end != null) ev.t_end = r6(this.time(e.t_end));
     if (ev.sound !== 'silent' && ev.tolerance_ms == null) ev.tolerance_ms = ev.sync === 'apex' ? 25 : 17;
     this.reg.cues.push(ev);
     return ev;
@@ -492,20 +494,22 @@ export async function buildFilm(spec, env) {
 
 // Cue rules: a sound designer can only resolve events that are apart. Same-role cues closer than
 // 120 ms keep the first (the rest of the run is texture); different cues closer than 60 ms are one
-// gesture and keep the stronger role; nothing sounds on frame 0 unless the cue says atZero. Every
-// change is reported in the warnings.
+// gesture and keep the stronger role; nothing sounds on frame 0 unless the cue says atZero. A cue
+// declared run: true is a run the picture means: it is kept, never merged or thinned. Every change is
+// reported in the warnings.
 const CUE_RANK = { boom: 9, impact: 8, sting: 8, tap: 7, sweep: 6, glitch: 6, whoosh: 5, riser: 4, pop: 3, tick: 2, key: 1 };
-function tidyCues(film) {
+export function tidyCues(film) {
   const kept = [];
   for (const e of film.reg.cues) {
     if (e.sound === 'silent') { kept.push(e); continue; }
     if (e.t < 1 / film.fps - 1e-9 && !e.atZero) { film.warn(`cue ${e.id} at ${e.t} s dropped: no cue on frame 0 unless a hit is designed there (atZero)`); continue; }
     let same = null;
     for (let i = kept.length - 1; i >= 0; i--) if (kept[i].sound !== 'silent' && kept[i].role === e.role) { same = kept[i]; break; }
-    if (same && e.t - same.t < 0.12 - 1e-9) { film.warn(`cue ${e.id} merged into ${same.id}: same role ${Math.round((e.t - same.t) * 1000)} ms apart (a run is one texture)`); continue; }
+    if (!e.run && same && e.t - same.t < 0.12 - 1e-9) { film.warn(`cue ${e.id} merged into ${same.id}: same role ${Math.round((e.t - same.t) * 1000)} ms apart (a run is one texture)`); continue; }
     const near = kept.find(x => x.sound !== 'silent' && Math.abs(e.t - x.t) < 0.06 - 1e-9);
+    if (near && e.run && near.run) { kept.push(e); continue; }
     if (near) {
-      const keepNew = (CUE_RANK[e.role] ?? 0) > (CUE_RANK[near.role] ?? 0);
+      const keepNew = e.run ? true : near.run ? false : (CUE_RANK[e.role] ?? 0) > (CUE_RANK[near.role] ?? 0);
       const [win, lose] = keepNew ? [e, near] : [near, e];
       film.warn(`cue ${lose.id} merged into ${win.id}: ${Math.round(Math.abs(e.t - near.t) * 1000)} ms apart (one gesture)`);
       win.picture = `${win.picture}; with ${lose.picture}`;

@@ -3010,6 +3010,98 @@ def review_packet(target, version):
                 shutil.rmtree(staging)
 
 
+def record_cold(checks_path, video, assessment, project=None):
+    """Record a named independent assessment against the exact file assessed."""
+    if not isinstance(assessment, dict) or assessment.get('state') not in ('matched', 'mismatched'):
+        raise ValueError('cold assessment state must be matched or mismatched')
+    who = assessment.get('by')
+    answer = assessment.get('answer')
+    if not isinstance(who, str) or not who.strip() or not isinstance(answer, dict):
+        raise ValueError('cold assessment needs the reader and three answers')
+    if any(not isinstance(answer.get(key), str) or not answer[key].strip() for key in ('what', 'audience', 'why')):
+        raise ValueError('cold assessment needs what, audience and why answers')
+    actual = digest(video)
+    if assessment.get('file_sha256') != actual:
+        raise ValueError('cold assessment does not name the current file hash')
+    checks = P.load_json(checks_path, {})
+    if not isinstance(checks, dict):
+        raise ValueError('checks.json must contain an object')
+    checks['cold_read'] = {'state': assessment['state'], 'by': who.strip(), 'answer': answer,
+                           'file_sha256': actual, 'method': assessment.get('method', 'cold packet'),
+                           'label': 'assessed by ' + who.strip()}
+    P.refuse_overwriting_inputs([checks_path], [video], project=project, guard_versions=True)
+    P.save_json(checks_path, checks)
+    return checks['cold_read']
+
+
+def cold_packet(target, file_arg, version, seconds, words_arg, do_record, assessment_path):
+    """Build a brief-free opening packet and optionally record a supplied assessment."""
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError('--seconds must be a positive finite number')
+    if bool(target) == bool(file_arg):
+        raise ValueError('use grade.py cold PROJECT or grade.py cold --file FILE')
+    if file_arg:
+        video = Path(file_arg).resolve()
+        root, cut = None, None
+        packet_base = video.parent / (video.stem + '.grade') / 'cold'
+        checks_path = packet_base / 'checks.json'
+    else:
+        root, chosen, cut = project_cut(target, version)
+        video = cut / 'preview.mp4'
+        packet_base = root / 'grade' / 'cold' / chosen
+        checks_path = cut / 'checks.json'
+    if not video.is_file():
+        raise ValueError('cold read file does not exist')
+    facts = probe(video)
+    duration = min(seconds, facts['duration_s'])
+    file_hash = digest(video)
+    inputs = [video] + ([words_arg] if words_arg else [])
+    if cut:
+        inputs += [cut / 'captions.json', cut / 'captions.srt']
+    if do_record and assessment_path:
+        inputs.append(assessment_path)
+    outputs = [packet_base / '.cold-packet'] + ([checks_path] if do_record else [])
+    P.refuse_overwriting_inputs(outputs, inputs, project=root, guard_versions=True)
+    packet_base.mkdir(parents=True, exist_ok=True)
+    packet = Path(tempfile.mkdtemp(prefix='packet-', dir=str(packet_base)))
+    outputs = [packet / name for name in ('frames.png', 'words.txt', 'prompt.txt', 'packet.json')]
+    P.refuse_overwriting_inputs(outputs, inputs, project=root, guard_versions=True)
+    times = [round(i * .5, 3) for i in range(math.ceil(duration * 2)) if i * .5 < duration]
+    review_sheet(video, packet / 'frames.png', ['--at', ','.join(map(str, times)), '--cols', '5'])
+    if digest(video) != file_hash:
+        raise ValueError('the file changed while the cold packet was built')
+    if words_arg:
+        words, _ = imported_transcript(words_arg, duration)
+    elif cut:
+        words = timed_words([], caption_words(cut) or read_cues(cut))
+    else:
+        words = []
+    lines = [f"{row['start']:.2f}s {row['text']}" for row in words if row['start'] < duration]
+    P.write_atomic(packet / 'words.txt', '\n'.join(lines) + ('\n' if lines else 'No supplied words.\n'))
+    P.write_atomic(packet / 'prompt.txt', 'Read the frames and words without a brief. Answer:\n'
+                   '1. What is this?\n2. For whom is it?\n3. Why should they care?\n'
+                   'A sampled packet cannot show motion or sound.\n')
+    P.save_json(packet / 'packet.json', {'file_sha256': file_hash, 'seconds': duration,
+                                         'sample_interval_s': .5, 'words_available': bool(lines)})
+    print(f'Cold packet: {packet}')
+    print('Ask a fresh reader what this is, for whom, and why they should care.')
+    print(f'File SHA-256: {file_hash}')
+    if do_record:
+        if assessment_path:
+            assessment = P.load_json(assessment_path, None)
+        elif not sys.stdin.isatty():
+            assessment = json.load(sys.stdin)
+        else:
+            by = input('Reader or model: ').strip()
+            answer = {key: input(prompt).strip() for key, prompt in
+                      (('what', 'What is this? '), ('audience', 'For whom? '), ('why', 'Why care? '))}
+            assessment = {'by': by, 'answer': answer, 'state': input('Matched or mismatched? ').strip(),
+                          'file_sha256': file_hash}
+        result = record_cold(checks_path, video, assessment, project=root)
+        print(f"{result['state']} ({result['label']})")
+    return 0
+
+
 def subcommand_help(command, argv):
     """Show precise usage and output files for the three reviewer-facing subcommands."""
     descriptions = {
@@ -3063,8 +3155,18 @@ def main(argv=None):
                                         "file's clock")
     parser.add_argument('--no-transcribe', action='store_true',
                         help='with --file: do not transcribe the audio locally when no --words is given')
+    parser.add_argument('--seconds', type=float, default=5.0, help='opening duration for cold read')
+    parser.add_argument('--record', action='store_true', help='record a supplied cold-read assessment')
+    parser.add_argument('--assessment', help='cold-read assessment JSON with answers, reader, state and file hash')
     args = parser.parse_args(argv)
     try:
+        if args.target == 'cold':
+            if len(args.extra) > 1 or (args.extra and args.file) or (args.assessment and not args.record):
+                raise ValueError('use grade.py cold PROJECT or --file FILE [--seconds N] [--record]')
+            return cold_packet(args.extra[0] if args.extra else None, args.file, args.version, args.seconds,
+                               args.words, args.record, args.assessment)
+        if args.record or args.assessment or args.seconds != 5.0:
+            raise ValueError('--record, --assessment and --seconds are for grade.py cold')
         if args.all and args.target != 'hooks':
             raise ValueError('--all is for grade.py hooks PROJECT')
         if args.judged and args.target != 'paper':

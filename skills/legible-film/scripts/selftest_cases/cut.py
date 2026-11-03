@@ -525,8 +525,27 @@ def check_overlay_formats(record, j, scripts_dir):
                for red, clear, blue in found.values()), str(found))
 
 
+def check_audio_without_duration(record, j, scripts_dir):
+    """A source whose sound records no duration at all (a WebM written as a stream) is measured from its packets.
+    The stream index was overwritten by the probe's dictionary, so that last fallback crashed a real final render."""
+    spec = importlib.util.spec_from_file_location('case_audio_rate', os.path.join(scripts_dir, 'assemble.py'))
+    assemble = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(assemble)
+    path = Path(j('audio-without-duration.webm'))
+    with open(path, 'wb') as out:
+        subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'sine=f=440:d=2.5', '-c:a', 'libopus', '-f',
+                        'webm', 'pipe:1'], stdout=out, check=True)
+    try:
+        rate, start, end = assemble.audio_rate(shutil.which('ffprobe') or 'ffprobe', str(path))
+        ok, detail = rate == 48000 and abs(start) < 0.01 and abs(end - 2.5) < 0.05, str((rate, start, end))
+    except Exception as exc:  # the regression raised here
+        ok, detail = False, repr(exc)[:200]
+    record('cut: a sound stream with no recorded duration is measured from its packets', ok, detail)
+
+
 def run_cut_cases(tool, record, j, scripts_dir):
     """Cut by deleting words, cutaways, titles, captions, versions, diff, check errors, NTSC rate, real speech."""
+    check_audio_without_duration(record, j, scripts_dir)
     check_moving_overlay(tool, record, j)
     check_overlay_formats(record, j, scripts_dir)
     check_source_on_another_drive(record, j, scripts_dir)
@@ -819,6 +838,16 @@ def check_burn_without_speech(tool, record, j):
            check_code in (0, 1) and 'nothing to caption' in check_output and code in (0, 1)
            and (root / 'cuts' / 'v001' / 'preview.mp4').exists() and 'nothing was burned' in output,
            check_output[-200:] + output[-300:])
+    # A film that asks for no captions has nothing to report about them: the render is clean (exit 0, no note).
+    quiet = Path(j('cut-captions-none')).resolve()
+    (quiet / 'map').mkdir(parents=True, exist_ok=True)
+    (quiet / 'map' / 'sources.json').write_text(json.dumps({'version': 1, 'sources': rows}), encoding='utf-8')
+    (quiet / 'film.md').write_text('---\ntitle: Montage\nsize: 320x180\nfps: 10\ncaptions: none\n---\n'
+                                   '- broll_01 0:00.00-0:01.00 fixture\n', encoding='utf-8')
+    none_code, none_output = tool('cut.py', 'render', quiet)
+    record('cut: a film with captions: none and no speech renders clean, without a caption note',
+           none_code == 0 and (quiet / 'cuts' / 'v001' / 'preview.mp4').exists() and 'caption' not in none_output,
+           f'exit {none_code}: ' + none_output[-300:])
 
 
 def check_stale_transcript(tool, record, j):

@@ -2,7 +2,7 @@
 """Register and map local source media.
 
   python map.py add PROJECT FILE... --role interview [--copy] [--stream INDEX]
-  python map.py run PROJECT [--alias int_01] [--words auto|skip|import:FILE] [--prompt TEXT]
+  python map.py run PROJECT [--alias int_01] [--words auto|all|skip|import:FILE] [--prompt TEXT]
       [--ggml-model PATH] [--retranscribe ALIAS] [--download]
   python map.py relink PROJECT ALIAS PATH
   python map.py fix PROJECT WORD_ID [TEXT] [--start S] [--end E] [--by person|agent]
@@ -25,6 +25,8 @@ Maps are drafts and detected cuts and silences need inspection. Shot-change cand
 that return to the same picture (a flash or effect inside one shot) are recorded in shots.json as effects, not shot
 changes; maps made before this keep their shots until --rebuild. Exit 0 on success, 1 for an incomplete --check or
 when a transcript is stale (its warning names both remedies), 2 on error.
+--words auto (the default) transcribes speech roles only: music and sfx sources skip words, so mapping a music bed
+never waits on transcription. --words all transcribes every role, lyrics included.
 Uncached transcription weights download only with --download or with setup.py --install transcription and consent.
 Transcripts retain their original media and sound-stream binding when a source changes; stale transcripts warn on
 every run, words, fix and the readable transcript. Retranscribe, or explicitly confirm a checked transcript with a
@@ -353,6 +355,7 @@ def source_at_file(root, source):
     return current
 
 
+WORDLESS_ROLES = ('music', 'sfx')   # --words auto skips these roles; --words all keeps lyrics
 STALE = []
 
 
@@ -970,7 +973,8 @@ def check_map(root, aliases):
             except (OSError, ValueError, TypeError, KeyError) as error:
                 ok, detail = False, str(error)
         complete = complete and ok
-        words = 'transcript present' if (root / 'map' / source['alias'] / 'words.json').is_file() else 'no transcript'
+        words = 'transcript present' if (root / 'map' / source['alias'] / 'words.json').is_file() else (
+            f"words skipped for role {source.get('role')}" if source.get('role') in WORDLESS_ROLES else 'no transcript')
         if words == 'transcript present':
             transcript = project.load_json(root / 'map' / source['alias'] / 'words.json', {})
             warn_stale(root, source, transcript)
@@ -1112,7 +1116,10 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                     data = latest
                     source = target
                     source['audio'] = selected_audio
-            if words_mode != 'skip' and source.get('audio'):
+            role_skips = words_mode == 'auto' and source.get('role') in WORDLESS_ROLES
+            if role_skips and source.get('audio') and not (folder / 'words.json').exists():
+                print(f"{alias}: role {source.get('role')}: words skipped (--words all transcribes lyrics)")
+            if words_mode != 'skip' and source.get('audio') and not role_skips:
                 if not (folder / 'words.json').exists() or retranscribe == alias:
                     words_path = folder / 'words.json'
                     before = digest(words_path) if words_path.exists() else None
@@ -1140,13 +1147,13 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                             rerun.append('--rebuild')
                         rerun.append('--download')
                         cmd += ['--download-help-command', project.python_command(rerun)]
-                    if engine and words_mode == 'auto':
+                    if engine and words_mode in ('auto', 'all'):
                         cmd += ['--engine', engine]
-                    if quality and words_mode == 'auto':
+                    if quality and words_mode in ('auto', 'all'):
                         cmd += ['--quality', quality]
-                    if prompt and words_mode == 'auto':
+                    if prompt and words_mode in ('auto', 'all'):
                         cmd += ['--prompt', prompt]
-                    if ggml_model and words_mode == 'auto':
+                    if ggml_model and words_mode in ('auto', 'all'):
                         cmd += ['--ggml-model', ggml_model]
                     if words_mode.startswith('import:'):
                         cmd += ['--engine', 'import', '--import-file', words_mode[7:]]
@@ -1253,7 +1260,8 @@ def main():
     r = sub.add_parser('run', help='map sources and make transcript drafts')
     r.add_argument('project', help='project folder')
     r.add_argument('--alias', action='append', help='source alias to map; repeat to select more')
-    r.add_argument('--words', default='auto', help='auto, skip, or import:FILE for one selected alias')
+    r.add_argument('--words', default='auto', help='auto (speech roles; music and sfx skip words), all (every role, '
+                   'lyrics included), skip, or import:FILE for one selected alias')
     r.add_argument('--ggml-model', help='local GGML model for the FFmpeg speech engine')
     r.add_argument('--engine', choices=['faster-whisper', 'ffmpeg'], help='local speech engine')
     r.add_argument('--quality', choices=['fast', 'balanced', 'best'], help='speech model quality')
@@ -1304,8 +1312,8 @@ def main():
                 raise ValueError('--check and --rebuild cannot be combined')
             return max(check_map(args.project, args.alias), 1 if STALE else 0)
         else:
-            if args.words not in ('auto', 'skip') and not args.words.startswith('import:'):
-                raise ValueError('--words must be auto, skip or import:FILE')
+            if args.words not in ('auto', 'all', 'skip') and not args.words.startswith('import:'):
+                raise ValueError('--words must be auto, all, skip or import:FILE')
             run(args.project, args.alias, args.words, args.ggml_model, args.engine, args.quality, args.retranscribe,
                 args.stream, args.prompt, args.rebuild, args.download)
         return 1 if STALE else 0

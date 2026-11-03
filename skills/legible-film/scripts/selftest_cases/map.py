@@ -18,10 +18,10 @@ def check_transcript_protection_and_cleanup(tool, record, j, scripts_dir):
     code, help_text = tool('map.py', '--help')
     record('map: top-level usage shows the relink command',
            code == 0 and 'python map.py relink PROJECT' in help_text, help_text[-500:])
-    recipes = (Path(scripts_dir).parent / 'references' / 'recipes.md').read_text(encoding='utf-8')
-    captions_recipe = recipes.split('## Captions only', 1)[1].split('## Interview', 1)[0]
-    record('map: caption recipe uses the protected project path with a prompt',
-           'map.py run' in captions_recipe and '--prompt' in captions_recipe, captions_recipe)
+    quick = (Path(scripts_dir).parent / 'paths' / 'quick.md').read_text(encoding='utf-8')
+    captions_step = next((p for p in quick.split('\n\n') if 'Captions come from' in p), '')
+    record('map: standalone captions give the transcriber a prompt for names and terms',
+           'transcribe.py' in captions_step and '--prompt' in captions_step, captions_step)
     root = Path(j('direct-transcribe-project'))
     media = Path(j('direct-transcribe.wav'))
     source = Path(j('direct-transcribe.srt'))

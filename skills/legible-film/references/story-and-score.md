@@ -149,7 +149,9 @@ Lay the film out as a score before building: one moment per row, with a column f
 
 Fill story, truth and understanding first, then decide what each channel adds; leave a channel's cell empty when
 it adds nothing. Give the decisive events IDs that picture and sound share ("the confirmation sound's attack coincides
-with `published-visible`", not "sound at 28 s"); those IDs become the cue list in [timing](timing.md).
+with `published-visible`", not "sound at 28 s"); those IDs become the cue list in [timing](timing.md). The score's
+machine form is `cues.json`: each row's section and its clock, each decisive event's id, scale and decision, exported
+from the page that draws it ([timing](timing.md) §0), so the score and the picture cannot drift apart.
 
 Musical structure applied to story helps: a **motif** (a small recognisable action or contour), **variation** (the
 same operation under a changed condition), **development** (it meets a constraint and must change),

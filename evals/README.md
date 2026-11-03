@@ -151,6 +151,50 @@ would imply roughly 15.7 hours and $375 in reported cost; this is not a quote, a
 Codex and independent-judge costs and durations are unmeasured. More than one run per cell is needed to estimate
 variation; predeclare repetitions and randomize execution order before drawing conclusions.
 
+## Routing eval for the 2.1 reshape: experimental
+
+`reshape-routing.json` freezes 10 development prompts, the five sealed held-out prompts (by id, expected path and
+rules only) and route checks 16-20, each with its expected path (`create`, `cut`, `insert`, `sound`, `editor`,
+`quick`, or `no-skill`), its forbidden reads and runs, its frame expectation and one scripted person reply. It also
+freezes how a session's route is read: for a candidate with `paths/`, the first `paths/*.md` read; for 2.0.0, the
+first path-mapped file read or run (`kit.md`, `new_film.py` create; `paper-edit.md`, `map.py` cut; `sound.md`
+sound; `qc.md` quick), with `recipes.md` resolved by the recipe a partial read covers, or else the first recipe
+heading, then mapped script, the agent names after reading it. A session that loads the skill and resolves to no
+path is **unscored**: listed, never a pass. `command-names.json` holds the 36 command names and aliases in 2.0.0's
+`SKILL.md`. The held-out prompts stay outside the repository; `heldout.sha256` seals them and the harness refuses a
+file that does not match.
+
+```powershell
+python -I evals/trigger_run.py routing --cases evals/reshape-routing.json --variant old=BASELINE/skills/legible-film --reps 3 --host claude --out OUT --work SCRATCH
+python -I evals/trigger_run.py summary --out OUT --cases evals/reshape-routing.json
+```
+
+Sessions run `--workers` at a time (2), each once `--min-free-gib` (2) is free, in a fresh scratch project holding
+the whole variant skill and stub media built with FFmpeg. They are planning runs, one agent CLI process each with
+every heavy step denied, so they take no heavy-job lock; their timings are not comparable as speed. Plan mode: Write and Edit only inside the project; Bash allowed, with every build, spend,
+network, install and heavy step denied and logged by a guard hook (patterns in the cases file; a build or spend
+attempt fails the prompt); at most eight turns on Claude Code and forty steps on Codex (`codex_turn_limit`: Codex
+counts every command as a step, and forty is the smallest tested cap at which 2.0.0 Codex sessions on P01 and P05
+reached their first question or first committing step; the cases file records the measurement); one scripted reply
+when the first exchange ends with a question.
+`--sets route` adds route checks 16-20, on a candidate only (a skill with `paths/`). `route_checks.py` builds their
+project fixtures in each session's scratch project with the variant's own scripts (19: a create project with a stub
+master registered from a plan cue list by `project.py add-version`; 20: a paper project rendered once by `cut.py
+render`) and scores what §13 states for each: 16 create, `engines.md` read over its Tesseract section, a frame and a
+plan cue list written, no `tsrct` run and the hand-off named, with no `tsrct` on PATH; 17 quick and `listen.py
+transcript` run; 18 quick with no paper edit and no triad; 19 `screen.py` run and never `cut.py`; 20 `exchange.py
+write` run and the XML it wrote parsing with the version's clip count and duration. The frozen scorer is not changed. `--host codex` runs `codex exec --json` on the person's normal Codex home,
+isolated only by per-run `-c` overrides that disable plugins, apps, memories, MCP servers and every installed user
+skill, with the variant staged in the project's `.agents/skills`; Codex has no per-tool deny hook, so attempts are
+read from its command events and the session stops at the first build or spend attempt. Its global `AGENTS.md`
+still loads.
+
+Scoring (`routing_score.py`) reads the stream, not the answer: the route; every skill file read before the first
+action and its words (SKILL.md plus `loop.md` at 2.0.0 is 4,966); the first question and the frame fields it asks;
+frame writes; forbidden and required reads and runs; attempts; reads of any other copy of the skill. The frame and
+money-gate checks are keyword evidence kept with the text for a person to audit, not judgements. Results keep no
+held-out prompt or answer text; the raw transcripts under `OUT` do, so keep `OUT` outside the repository.
+
 ## Earlier behaviour evaluations
 
 ### Behaviour (`evals.json`)

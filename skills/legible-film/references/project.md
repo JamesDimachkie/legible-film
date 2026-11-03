@@ -1,8 +1,8 @@
 # The project folder
 
 Any task longer than one operation keeps its state in one folder. The folder is the agent's memory between turns
-and the person's window into the work: every script reads and writes it, and the Screening Room shows it. A quick
-edit (one operation on one file: trim, convert, resize) needs none of it.
+and the person's window into the work: every script reads and writes it, and the Screening Room shows it. Every path
+but quick uses one; a quick edit (one operation on one file) needs none of it.
 
 Contents: [1. Layout](#1-layout) · [2. Sources and the map](#2-sources-and-the-map) ·
 [3. The paper edit](#3-the-paper-edit) · [4. Versions](#4-versions) · [5. Checks](#5-checks) ·
@@ -12,7 +12,9 @@ Contents: [1. Layout](#1-layout) · [2. Sources and the map](#2-sources-and-the-
 
 ```
 <project>/
-  film.md               the paper edit: the film as text, the source of truth for the cut
+  film.md               front matter (path, timeline, frame) for every project; for a paper project, the paper edit
+  cues.json             the cue list, exported from the timeline's owner (references/timing.md §0)
+  audio/                conform, mixer and listening outputs, never beside a page
   brief.md              optional: who it is for, where it plays, what was promised
   map/sources.json      every source: alias, path, hash, probe, role
   map/<alias>/          words.json, shots.json, audio.json and contact sheets for one source
@@ -29,6 +31,9 @@ Contents: [1. Layout](#1-layout) · [2. Sources and the map](#2-sources-and-the-
 ```
 
 `scripts/project.py` reads and writes this layout (paths, status, versions, times); the other scripts import it.
+`project.py init PROJECT --path PATH --timeline OWNER [--page DIR]` starts one with its front matter written; each
+frame field reads `missing` until `--what`, `--audience` or `--why` gives it as `assumed`. A page the film is drawn on
+may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
 
 ## 2. Sources and the map
 
@@ -148,6 +153,33 @@ captions: burn, srt
 - `##` headings name sections. Any other text is a note to readers and does not render.
 - Times are `m:ss.ss` or `h:mm:ss.ss` in the source's own time. The full grammar is in [paper-edit](paper-edit.md).
 
+### Front matter every project carries
+
+Every `film.md` starts with the project's path, the timeline that owns it and the frame. When the owner is not the
+paper edit, the body may be empty and `cut.py check` accepts it.
+
+```yaml
+path: create                # create | cut | insert | sound | editor | quick
+timeline: page              # page | paper | editor | picture | file | tesseract
+page: film/                 # when the owner is a page or a Tesseract project
+frame:
+  what: "Fieldnote: an app that turns a site walk's voice memos into a filed report"
+  audience: "site managers, on LinkedIn, often muted"
+  why: "the report is the part of the day they hate"
+  knows_by: [{s: 3, what: "what it is and who it is for", channel: "type"}]
+  state: {what: confirmed, audience: assumed, why: confirmed, knows_by: assumed}
+  waived: null              # or {reason: "...", by: "person"}
+  cold_read: {state: not-run}   # matched | mismatched, with by (model), method and file_sha256
+```
+
+Each frame field is `missing`, `assumed`, `confirmed` or `waived` (with the reason and who waived it). Ask only for
+missing fields, in one message. The cold read is a fresh reader's answer to "what is this, for whom, why care?" after
+the first seconds (`grade.py cold PROJECT`, recorded with `--record`); it records `matched` or `mismatched` with the
+reader's model, never "confirmed". A kit film outside a project puts the same `frame` keys in its spec; `film_check.py`
+warns when they are missing and `make_film.py` copies them into the delivery report. `project.py status` prints the
+owner and the context (`timeline: page · context: 2 confirmed, 2 assumed`), and `status.json` gains `timeline`, `path`
+and `context`.
+
 ## 4. Versions
 
 Each render writes a new `cuts/vNNN/` and never re-renders an earlier one. A version's rendered media and compiled
@@ -191,6 +223,60 @@ scorecard derived from them may be refreshed and replaced:
   manifest `title_font` (requested and actual) and `audio_master`. `qa/technical.json` holds the technical checks'
   raw measurements.
 
+### Identity: what a version was made from
+
+`manifest.json` carries an `identity` block that ties the version to its source, its picture and its cue list:
+
+```json
+"identity": {
+  "source": {"kind": "page", "path": "film/", "sha256": "<page fingerprint>", "snapshot_sha256": "<kept copy>"},
+  "picture_sha256": "<packet hash of preview.mp4>",
+  "picture_timing": {"fps_exact": "24000/1001", "frames": 720, "pts_file": "picture-timing.json", "pts_sha256": "..."},
+  "binding": "receipt", "receipt": "receipt.json",
+  "cues_sha256": "...", "cues_provenance": "exported",
+  "conform_sha256": null, "mix": null,
+  "registered": true
+}
+```
+
+- `source` is the page (its fingerprint and the frozen copy's `snapshot_sha256`), the paper edit (`film_md_sha256`
+  with the version's `sources`), or a picture. The picture is named by its packet hash and its frame schedule
+  (`picture-timing.json`), so a remux keeps it and a re-encode, trim or retime does not.
+- `cues_provenance` copies the list's `provenance` (`exported` or `observed`, or `plan-bound` for a bound plan).
+- `binding` says how the master was tied to its source. `receipt` means the render attested the frozen source it read
+  and the output it wrote; `screened` means no receipt, the master being newer than every source file (a look);
+  `overridden` means older, accepted by a recorded decision with its reason (a look); `unverified` means the binding
+  cannot be checked (a look that says why); `plan-bound` means a plan list bound by the frame-change screen at each
+  turn. A mismatch is never registered; it is refused.
+
+`cut.py render` fills the block for a paper version. `project.py add-version` registers a master made anywhere else
+as `cuts/vNNN/` without re-encoding it (another container is remuxed to MP4), with `picture-timing.json`, the list as
+`cues.json` and, for `--render`, `receipt.json` beside the manifest, so `check.py`, `screen.py`, `grade.py` and
+`compare_versions.py` work on it unchanged. It exits 0 registered, 1 registered with a look (`unverified`, or a
+planned turn with no frame change) and 2 refused:
+
+```text
+project.py add-version PROJECT --cues cues.json --file MASTER [--render "CMD"] [--sound WAV [--mix-report R]]
+                       [--page DIR] [--receipt R] [--accept-older "reason"] [--label TEXT] [--stems DIR]
+                       [--min-free-gib 3] [--wait-min 20]
+```
+
+`--render` runs CMD on the frozen copy the cue export kept, under the heavy-job lock with outbound network blocked
+([engines](engines.md) §2). `--sound` muxes a mix onto the master with the picture copied, on any route, only when
+the mixer's report (`mix-report.json` beside the WAV, or `--mix-report`) names the `--cues` list among its inputs;
+the mixer reads the spotted list, so register with `cues.spotted.json`. `--receipt` takes a kit render's
+`<output>.manifest.json`, and a `plan` list is bound here by screening each turn on the master.
+`cut.py attach-mix PROJECT --version vNNN --buses DIR --report DIR/mix-report.json [--replace ROLE ...] [--strict]`
+adds designed sound to a paper version that kept its stems (`--final`). It takes
+the mixer's processed `music.wav`, `effects.wav` and `bed.wav`, never `voice.wav` or `mix.wav`; dialogue stays the
+version's own stem; fades and the master are applied once; the result is a new version whose manifest `mix` names
+every bus and stem it used. A retained stem with sound inside a `scope: all` silence is a look naming the stem and the
+span, answered by `--replace ROLE` or a narrower scope; `--strict` refuses it instead.
+
+A cue list stays fresh against its own version. A later version with a different picture refuses it and leaves the
+earlier version fresh. Version folders are immutable; only `check.py`'s own QA files (`qa/`, `checks.json`,
+`checks-final.json`) may be written into one, and only by the project that holds it.
+
 `cuts/current` names the version the person is looking at. What a person does with a version (watched it muted,
 heard it with sound, approved it) is recorded in `status.json` under `reviewed` and in `decisions.jsonl`, not in the
 version folder. Each review names the file it was made on by its SHA-256, so it counts only for that file (section 6).
@@ -224,7 +310,9 @@ review and checking a final always hash.
 
 States: `pass` (measured and fine), `look` (measured; a person should look), `fail` (measured and wrong), `you` (only
 a person can judge: watched muted, heard with sound), `skip` (not assessed: the label begins "Not assessed" and says
-why and how to supply it; never read as passed). `at` is an edit time when the item belongs to a moment.
+why and how to supply it; never read as passed). `at` is an edit time when the item belongs to a moment. An item may
+carry its full measurement beside the readable detail: `dropouts` lists every hole as `holes` (`[start, end]` in
+seconds), while its detail names the first eight.
 
 Caption items say what they compared: `captions_rules` (reading rules), `captions_edit` (captions against the kept
 words in `lines.json`: words cut but still captioned; this compares text with the paper edit, not with the sound) and
@@ -238,6 +326,12 @@ and `true_peak` (after a lossy re-encode; `skip` with the diagnostic when it cou
 original already exceeds −1 dBTP) are separate items. Each run writes to a fresh folder and copies only what it
 produced into `qa/` (`qa/final-*` for a final file): a scanner that crashed, lacked a dependency or wrote no report is
 `skip`, never an earlier result.
+
+Two groups join the items when a project has a frame or a cue list ([qc](qc.md) §2). **Context** reports each
+frame field and its state, the cold read and any waiver, as `pass`, `unconfirmed`, `look` or `not assessed`. **Sync**
+reports whether the cue list is present and fresh against this version, its binding, every turn's decision, the frame
+change at each cue, whether the sound follows the list, and the transport check. A stale list is a `fail`.
+`unconfirmed` and `not assessed` in these groups leave the exit code alone unless `check.py --strict` is given.
 
 The scorecard ([grading](grading.md)) is a guide for the person, not a check. `scorecard.json` names the graded
 file by `media_sha256`, so a card for an older file is never shown as current. Each dimension has a score (or

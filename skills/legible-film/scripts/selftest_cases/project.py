@@ -27,6 +27,20 @@ def check_dead_running_job(record, j, scripts_dir):
            status['running'] == [live, legacy] and line == 'map int_02 50%', str((status['running'], line)))
 
 
+def check_unreadable_status(record, j, project):
+    """A status.json zeroed by a lost write (a USB drive dropping mid-render) is rebuilt, not a crash everywhere."""
+    root = Path(j('zeroed-status'))
+    project.init(root, 'Zeroed')
+    (root / 'cuts' / 'v001').mkdir(parents=True, exist_ok=True)
+    (root / 'cuts' / 'current').write_text('v001', encoding='utf-8')
+    (root / 'status.json').write_bytes(bytes(653))
+    status = project.read_status(root)
+    aside = root / 'status.json.unreadable'
+    record('project: an unreadable status.json is kept aside and rebuilt from the versions',
+           status.get('current') == 'v001' and 'unreadable' in status.get('line', '') and aside.is_file()
+           and aside.read_bytes() == bytes(653), str(status.get('line')))
+
+
 def check_shared_guards(record, j, project):
     """An output that names an input is refused (the same path, another spelling of it, a hard link); a transcript is
     current only for the media and sound stream it was made from."""
@@ -95,6 +109,7 @@ def run_project_cases(tool, record, j, scripts_dir):
     spec.loader.exec_module(project)
     check_dead_running_job(record, j, scripts_dir)
     check_shared_guards(record, j, project)
+    check_unreadable_status(record, j, project)
     check_input_freshness(tool, record, j, project)
     check_status_fields(tool, record, j, project)
     run_fix2_project_cases(tool, record, j, project, scripts_dir)

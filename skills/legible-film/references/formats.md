@@ -77,8 +77,9 @@ duration.
 
 ## 6. Logo stings, intros and outros
 
-- Let the viewer see the mark come together, and build a wordmark from whole letters; partial letterforms mid-build
-  read as a rendering fault.
+- Let the viewer see the mark come together. By default build a wordmark from whole letters, since partial
+  letterforms mid-build read as a rendering fault; a build from parts is a choice when the construction is the idea,
+  every frame of it reads as intended, and the person has seen it.
 - The logo holds, fully formed and at a readable size, long enough to be read before the end.
 - The sound is usually one hit on the moment the mark locks, with a tail that dies away to silence; add a music bed
   only when asked.

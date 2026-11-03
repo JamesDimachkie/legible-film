@@ -1,0 +1,296 @@
+{
+  "version": 1,
+  "frozen": "2026-11-01",
+  "source": "Legible Film 2.1 reshape spec, section 13 (Evals) and the U0 row of section 14. In this public copy, product, client and community names in the prompts are neutral labels (project A, B and C; an open-source AI community), the demo fixture is product-demo.mp4 and the held-out path is generic; the recorded sessions ran on the original wording",
+  "how_to_run": "python evals/trigger_run.py routing --cases evals/reshape-routing.json --variant old=BASELINE_SKILL_DIR [--variant new=CANDIDATE_SKILL_DIR] --reps 3 --host claude --out OUT --work SCRATCH",
+  "routing_ask": "\n\n(As soon as you have chosen how to approach this, tell me in one line which guide section or recipe you are following, if any, and the first script or command you will run.)",
+  "turn_limit": 8,
+  "codex_turn_limit": 40,
+  "codex_turn_limit_reason": "Codex counts one step per command (Claude Code one turn per model call, often several reads at once), and at 8 steps the first 2.0.0 Codex sessions ended while still reading, so frame-first behaviour and forbidden actions were not observed on that host. The cap is the smallest tested value at which 2.0.0 Codex sessions on P01 and P05 reached their first question or first committing step (a write, a pipeline step, or a build, spend or heavy attempt; setup.py and other diagnostics do not count). Measured 2026-11-01 at cap 40: P01 question after step 7, build attempt at step 18; P05 no question, heavy attempt at step 23. Checked at 23: P05 heavy attempt at step 20, but P01 used all its steps (reads and environment checks) with neither, so 23 failed. Checked at 40: P01 question after step 9, heavy attempt at step 28; P05 question after step 11, heavy attempt at step 12. The true minimum lies between 25 and 40 and was not narrowed further. Step counts vary because the person's Codex sandbox makes python, ffmpeg and ffprobe fail in the scratch project and Codex spends steps diagnosing it. The same cap applies to the candidate.",
+  "paths": ["create", "cut", "insert", "sound", "editor", "quick"],
+  "route_maps": {
+    "candidate": {
+      "detect": "the variant's skill folder has a paths/ folder",
+      "rule": "the first paths/*.md the agent reads",
+      "files": {
+        "paths/create.md": "create",
+        "paths/cut.md": "cut",
+        "paths/insert.md": "insert",
+        "paths/sound.md": "sound",
+        "paths/editor.md": "editor",
+        "paths/quick.md": "quick"
+      }
+    },
+    "baseline": {
+      "detect": "the variant's skill folder has no paths/ folder (2.0.0)",
+      "rule": "the first path-mapped file read; a script counts when read or run. When that file is references/recipes.md, the route is the recipe section the read covers (a partial read) or else the first recipe heading, then the first mapped script, that the agent names in its text after that read, or else in its text before it (its answer to the routing ask). A session that resolves to no path is unscored, listed, and never a pass.",
+      "files": {
+        "references/kit.md": "create",
+        "scripts/new_film.py": "create",
+        "references/paper-edit.md": "cut",
+        "scripts/map.py": "cut",
+        "references/sound.md": "sound",
+        "references/qc.md": "quick"
+      },
+      "recipes_file": "references/recipes.md",
+      "recipe_headings": {
+        "Quick edits": "quick",
+        "Tighten a talking head": "cut",
+        "Captions only": "quick",
+        "Interview or talking head": "cut",
+        "Podcast or long video to short clips": "cut",
+        "Screen-recorded tutorial": "cut",
+        "Montage, vlog or event": "cut",
+        "Explainer or ad with a voice-over": "cut",
+        "Trailer or teaser from a finished film": "cut",
+        "Launch film or kinetic type": "create",
+        "Animated insert over a recording": "insert",
+        "Graphics over footage": "insert",
+        "Pinned graphics, titles behind people and privacy blurs": "insert",
+        "Music or lyric video": "create",
+        "Generated clips": "create",
+        "Assisting an editor in Premiere": "editor",
+        "Hand a Legible Film cut to an editor": "editor"
+      },
+      "recipe_scripts": {
+        "new_film.py": "create",
+        "make_film.py": "create",
+        "film_render.py": "create",
+        "film_check.py": "create",
+        "map.py": "cut",
+        "tighten.py": "cut",
+        "transcript_cut.py": "cut",
+        "cut.py": "cut",
+        "reframe.py": "quick",
+        "qc_file.py": "quick",
+        "captions.py": "quick",
+        "spot_cues.py": "sound",
+        "mix_cues.py": "sound",
+        "tempo_map.py": "sound",
+        "sound_library.py": "sound",
+        "make_sound_kit.py": "sound",
+        "exchange.py": "editor",
+        "spatial.py": "insert",
+        "track.py": "insert",
+        "matte.py": "insert"
+      }
+    }
+  },
+  "actions": {
+    "note": "Plan mode denies every class below and logs the attempt. build and spend attempts fail the prompt (spec: cut.py render, make_film.py, film_capture.mjs, mix_cues.py, tsrct, any generation; film_render.py and a HyperFrames render are added as the same kind of build step). network, install and heavy are denied to keep the sessions read-only and light (heavy: local speech recognition, or a full-length render or reel outside the build list, such as tighten.py); they are listed, and fail a prompt only when that prompt forbids them. Codex has no deny hook: its session is stopped at a build, spend or heavy attempt.",
+    "classes": {
+      "build": [
+        "cut\\.py[\"']?\\s+render\\b",
+        "make_film\\.py",
+        "film_capture\\.mjs",
+        "mix_cues\\.py",
+        "\\btsrct\\b",
+        "film_render\\.py",
+        "hyperframes[\"']?\\s+render\\b"
+      ],
+      "spend": [
+        "elevenlabs",
+        "higgsfield",
+        "replicate\\.com",
+        "\\bfal\\.(ai|run)\\b",
+        "runwayml",
+        "api\\.openai\\.com",
+        "images/generations",
+        "stability\\.ai",
+        "\\bsuno\\b",
+        "udio\\.com",
+        "klingai",
+        "lumalabs",
+        "generativelanguage\\.googleapis"
+      ],
+      "network": [
+        "\\bcurl\\b",
+        "\\bwget\\b",
+        "\\byt-dlp\\b",
+        "\\byoutube-dl\\b",
+        "Invoke-WebRequest",
+        "Invoke-RestMethod",
+        "\\biwr\\b",
+        "\\birm\\b",
+        "\\bgit\\s+clone\\b",
+        "--download\\b"
+      ],
+      "install": [
+        "\\b(pip|pip3|uv|npm|pnpm|yarn|winget|choco|brew|apt|apt-get)\\s+(install|add|i)\\b",
+        "setup\\.py[\"']?\\s+.*--install\\b",
+        "\\bnpx\\b"
+      ],
+      "heavy": [
+        "map\\.py[\"']?\\s+run\\b(?!.*--words[ =](skip|import))",
+        "tighten\\.py",
+        "cut\\.py[\"']?\\s+tighten\\b",
+        "transcript_cut\\.py",
+        "transcribe\\.py",
+        "\\bwhisper\\b",
+        "draft_asr\\.py",
+        "selftest\\.py"
+      ]
+    },
+    "failing": ["build", "spend"]
+  },
+  "frame_fields": {
+    "note": "Keyword evidence for the frame (what it is, for whom, why, what the viewer knows by when). Heuristic; every match is kept with its text for a person to audit.",
+    "audience": ["audience", "who watches", "who is it for", "who's it for", "who it's for", "for whom", "viewers", "who will see"],
+    "takeaway": ["takeaway", "leave with", "should know", "should feel", "should do", "call to action", "what should they", "the point of", "goal of the", "purpose"],
+    "destination": ["where it plays", "where will it", "where does it", "where is it going", "platform", "destination", "posted", "in the feed", "which channel"],
+    "length": ["how long", "length", "duration", "runtime"],
+    "sound_on": ["sound on", "sound-on", "muted", "with sound", "silent-first", "without sound"]
+  },
+  "money_words": ["cost", "budget", "paid", "pay for", "spend", "credits", "price", "subscription", "charge", "money", "cap "],
+  "fixtures": {
+    "product-demo.mp4": {"kind": "av", "seconds": 30, "size": "1280x720", "note": "stands in for a screen recording of the product"},
+    "founder.mp4": {"kind": "av", "seconds": 75, "size": "640x360"},
+    "recording.mp4": {"kind": "av", "seconds": 2400, "size": "160x90", "fps": 5, "gaps": true, "note": "40 minutes; tone with regular silences"},
+    "animation.mp4": {"kind": "video", "seconds": 30, "size": "1280x720"},
+    "clip.mp4": {"kind": "av", "seconds": 45, "size": "1280x720"},
+    "pepper-and-carrot.mp4": {"kind": "av", "seconds": 180, "size": "854x480"},
+    "interview.mp4": {"kind": "av", "seconds": 60, "size": "640x360"},
+    "edit-v7.mp4": {"kind": "av", "seconds": 40, "size": "640x360"},
+    "edit-v8.mp4": {"kind": "av", "seconds": 36, "size": "640x360"},
+    "edit-v7.xml": {"kind": "xmeml", "source": "interview.mp4", "spans_s": [[2, 22], [30, 50]]},
+    "edit-v8.xml": {"kind": "xmeml", "source": "interview.mp4", "spans_s": [[2, 22], [34, 50]]},
+    "edit-v7.srt": {"kind": "srt", "seconds": 40, "cues": 10},
+    "upload.mp4": {"kind": "av", "seconds": 20, "size": "1920x1080"},
+    "drop.mp4": {"kind": "av", "seconds": 30, "size": "640x360", "drop_at": 16},
+    "talk.mp4": {"kind": "av", "seconds": 60, "size": "1280x720"}
+  },
+  "heldout": {
+    "path_from_repository": "../heldout/heldout.json",
+    "sha256_file": "evals/heldout.sha256",
+    "note": "Written blind by another model; kept outside the repository and never copied into it; the harness reads it at run time with --heldout PATH (default: the path above, relative to the repository's folder) and refuses it when its SHA-256 differs from evals/heldout.sha256. Their transcripts stay outside the repository too.",
+    "cases": [
+      {"id": "H1", "n": 11, "expected": "create", "money_gate": true, "frame": "asked",
+       "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+      {"id": "H2", "n": 12, "expected": "create", "frame": "asked",
+       "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+      {"id": "H3", "n": 13, "expected": "create", "frame": "asked",
+       "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+      {"id": "H4", "n": 14, "expected": "create", "frame": "asked",
+       "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+      {"id": "H5", "n": 15, "expected": "no-skill", "frame": "none",
+       "forbidden": [{"read_path_file": true}]}
+    ],
+    "reply": "Anything I haven't said is your call. Go ahead and plan it here."
+  },
+  "cases": [
+    {
+      "id": "P01", "n": 1, "set": "dev", "expected": "create", "frame": "written-not-reasked",
+      "prompt": "Make a 60-second type-led launch film for project A, to post on X. Audience: AI builders and an open-source AI community on X, scrolling the feed with sound off at first. Takeaway: every decision a model makes is visible as a fork you can follow, and they should want to try it. Facts it may state: models compete on decisions; every fork is shown; the results are public. 1920x1080, music and sound only, no voice-over.",
+      "reply": "You have what I know. Carry on.",
+      "fixtures": [],
+      "forbidden": [{"run": "map.py"}, {"run": "grade.py", "sub": "hooks"}, {"run": "transcribe.py"}]
+    },
+    {
+      "id": "P02", "n": 2, "set": "dev", "expected": "create", "frame": "asked-then-written",
+      "prompt": "Make a 45-second launch film for project B: an animated fighting figure (bow, horse stance, a punch from the hip, a forearm block and a counter), then the product demo from product-demo.mp4, with music and sound effects.",
+      "reply": "It's for X: people who train martial arts and watch long fight videos. They should leave knowing project B jumps straight to the action, and want to try it. It plays in the feed, muted until they tap. 16:9.",
+      "fixtures": ["product-demo.mp4"],
+      "forbidden": [{"run": "map.py"}, {"read": "references/paper-edit.md", "before_frame": true}]
+    },
+    {
+      "id": "P03", "n": 3, "set": "dev", "expected": "create", "frame": "asked",
+      "prompt": "Make three square 20-second posts for project C, with one visual and sonic identity across them. They have to work silent first in the feed.",
+      "reply": "Developers and model trainers on X. One idea per post: the network is served by the people; can your small model beat ours; the project C engine. Clean, minimal text, high contrast.",
+      "fixtures": [],
+      "forbidden": [{"run": "cut.py", "sub": "draft"}]
+    },
+    {
+      "id": "P04", "n": 4, "set": "dev", "expected": "insert", "frame": "inherited",
+      "prompt": "In founder.mp4, replace the picture from 22.4 to 47.3 seconds with a factory animation, each state landing on the word that names it. Keep her dialogue as it is.",
+      "reply": "The states are raw material in, assembly, inspection and shipping; each should be clear as she says it.",
+      "fixtures": ["founder.mp4"],
+      "forbidden": [{"read": "references/story-and-score.md", "note": "concepts belong to create, not to an insert"}, {"run": "new_film.py", "outside_host": true}]
+    },
+    {
+      "id": "P05", "n": 5, "set": "dev", "expected": "cut", "frame": "asked",
+      "prompt": "Remove the dead air and jump cuts from recording.mp4, a 40-minute recording. Keep every word and show me every removal.",
+      "reply": "It's a customer webinar going on YouTube. Viewers should be able to follow it without waiting through pauses and restarts.",
+      "fixtures": ["recording.mp4"],
+      "forbidden": [{"read": "references/kit.md"}, {"run": "make_film.py"}]
+    },
+    {
+      "id": "P06", "n": 6, "set": "dev", "expected": "sound", "frame": "asked",
+      "prompt": "animation.mp4 is a 30-second animation with no sound. Design the sound effects and a music bed for it.",
+      "reply": "It's a product teaser for Instagram; people tap for sound. The logo reveal and the end card are the moments that matter.",
+      "fixtures": ["animation.mp4"],
+      "forbidden": [{"run": "map.py", "sub": "run", "unless": "--words[ =](skip|import)"}, {"run": "transcribe.py"}]
+    },
+    {
+      "id": "P07", "n": 7, "set": "dev", "expected": "quick", "frame": "none",
+      "prompt": "Crop clip.mp4 to 9:16, drop the first 10 seconds, and keep it under 50 MB.",
+      "reply": "Keep the centre of the frame.",
+      "fixtures": ["clip.mp4"],
+      "forbidden": [{"run": "project.py", "sub": "init"}, {"frame_question": true}]
+    },
+    {
+      "id": "P08", "n": 8, "set": "dev", "expected": "cut", "frame": "asked",
+      "prompt": "Cut a 30-second spoiler-free trailer from pepper-and-carrot.mp4, with one riser at the turn.",
+      "reply": "For people who read the comic but haven't seen the film, on YouTube. They should want to watch it without learning how it ends.",
+      "fixtures": ["pepper-and-carrot.mp4"],
+      "forbidden": [{"read": "references/kit.md"}]
+    },
+    {
+      "id": "P09", "n": 9, "set": "dev", "expected": "editor", "frame": "none",
+      "prompt": "The editor sent her Premiere v7 and v8: edit-v7.xml with edit-v7.mp4 and edit-v7.srt, then edit-v8.xml with edit-v8.mp4. Her captions missed the trim. Compare them and tell me what to fix.",
+      "reply": "v8 is the latest; I approved v7.",
+      "fixtures": ["interview.mp4", "edit-v7.xml", "edit-v7.mp4", "edit-v7.srt", "edit-v8.xml", "edit-v8.mp4"],
+      "forbidden": [{"run": "cut.py", "sub": "draft"}, {"run": "project.py", "sub": "init"}]
+    },
+    {
+      "id": "P10", "n": 10, "set": "dev", "expected": "quick", "frame": "none",
+      "prompt": "Is this mp4 fine for YouTube?",
+      "reply": "It's upload.mp4, a talk for our channel.",
+      "fixtures": ["upload.mp4"],
+      "forbidden": [{"run": "project.py", "sub": "init"}]
+    }
+  ],
+  "route_checks": [
+    {
+      "id": "R16", "n": 16, "set": "route", "expected": "create", "frame": "asked-then-written",
+      "prompt": "I have Tesseract installed; build the launch film there.",
+      "reply": "It's a 30-second launch film for Legible Film on X, for people who build with coding agents. They should leave knowing it makes video with picture and sound on one clock.",
+      "fixtures": [],
+      "environment": "no tsrct on PATH; the harness records shutil.which('tsrct') and refuses the check when it is found",
+      "required": [{"read": "references/engines.md", "section": "Tesseract"}, {"write_frame": true}, {"write_cues": "plan"}, {"final_mentions": "Tesseract", "note": "stops at the named hand-off"}],
+      "forbidden": [{"run": "tsrct"}]
+    },
+    {
+      "id": "R17", "n": 17, "set": "route", "expected": "quick", "frame": "none",
+      "prompt": "What does the sound do at the drop in drop.mp4?",
+      "reply": "Just tell me what you hear around the drop.",
+      "fixtures": ["drop.mp4"],
+      "required": [{"run": "listen.py", "sub": "transcript"}, {"final_mentions": "hint", "note": "reports hints as hints; a person audits the wording"}],
+      "forbidden": [{"run": "project.py", "sub": "init"}]
+    },
+    {
+      "id": "R18", "n": 18, "set": "route", "expected": "quick", "frame": "none",
+      "prompt": "Add captions to talk.mp4.",
+      "reply": "Burned in is fine; it's for LinkedIn.",
+      "fixtures": ["talk.mp4"],
+      "forbidden": [{"run": "cut.py", "sub": "draft"}, {"read": "references/paper-edit.md"}, {"read": "references/finding-the-story.md", "note": "no triad"}, {"read": "references/story-and-score.md", "note": "no triad"}, {"run": "project.py", "sub": "init"}]
+    },
+    {
+      "id": "R19", "n": 19, "set": "route", "expected": "create", "frame": "none",
+      "prompt": "Screen the latest version.",
+      "reply": "Yes, the newest one.",
+      "fixtures": [],
+      "project_fixture": "engine-registered",
+      "required": [{"run": "screen.py"}],
+      "forbidden": [{"run": "cut.py"}]
+    },
+    {
+      "id": "R20", "n": 20, "set": "route", "expected": "cut", "frame": "none",
+      "prompt": "Hand this off to the editor.",
+      "reply": "Premiere, as Final Cut Pro 7 XML.",
+      "fixtures": [],
+      "project_fixture": "paper",
+      "required": [{"run": "exchange.py", "sub": "write"}, {"xml_matches_paper": true, "note": "the XML it wrote parses with the paper edit's clip count and duration"}],
+      "forbidden": []
+    }
+  ]
+}

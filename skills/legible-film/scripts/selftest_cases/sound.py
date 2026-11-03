@@ -143,6 +143,20 @@ def run_sound_cases(tool, record, j, scripts_dir):
     subset = json.loads(Path(j('subset', 'palette.json')).read_text())
     record('make_sound_kit: seeded subset reproduces identical takes', code == 0 and
            subset['roles']['key']['sha256'] == key['sha256'] and len(subset['roles']) == 1)
+    # Short music: the default drop and stop bars move inside --bars; given bars that do not fit are refused with
+    # bars that do.
+    code, text = tool('make_sound_kit.py', '--out', j('short'), '--seed', 91, '--roles', 'tick', '--temp-bpm', 140,
+                      '--bars', 4)
+    short = {}
+    if code == 0:
+        short_palette = json.loads(Path(j('short', 'palette.json')).read_text())
+        short = json.loads(Path(j('short', short_palette['music']['file'])).with_suffix('.json').read_text())
+    record('make_sound_kit: --bars 4 places the default drop and stop inside the music', code == 0 and
+           (short.get('bars'), short.get('drop_bar'), short.get('stop_bar')) == (4, 3, 5), text.strip()[-200:])
+    code, text = tool('make_sound_kit.py', '--out', j('short-refused'), '--roles', 'tick', '--temp-bpm', 140,
+                      '--bars', 4, '--drop-bar', 9)
+    record('make_sound_kit: a given drop bar outside --bars is refused with bars that fit', code == 2 and
+           '--drop-bar 3 --stop-bar 5' in text, text.strip()[-200:])
     music = j('kit', palette['music']['file'])
     beatmap = json.loads(Path(music).with_suffix('.json').read_text())
     record('make_sound_kit: temp true peak <= -1 dBTP', beatmap['measurements']['true_peak_dbtp'] <= -1,

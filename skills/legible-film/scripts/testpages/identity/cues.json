@@ -1,0 +1,62 @@
+{
+ "version": "v2",
+ "clock": "seconds from the first frame of the film",
+ "fps": "24000/1001",
+ "exported_from": "cue_list.py freeze (selftest fixture; written by hand from the page's window.__cues)",
+ "picture": {
+  "kind": "page",
+  "path": ".",
+  "sha256": "d4b1bbffbeb90b71a160415c340b461bca28a888d3363f0ea6563d13421c2440",
+  "snapshot_sha256": "aacba27d0581b4ab632fadc92d5568ac7675035739e5d81138e5e207224b0e33",
+  "source_files": {
+   "assets/dot.png": "2599483589b1ed8cb3c443f9e67d6580718329d180d3d8e6a1ceb975365586fa",
+   "assets/logo.svg": "b0c553f31b04a5feb998a866698e9b1301c5c7cb8a8253e7081331a17ce3c2e4",
+   "film.js": "e01fcffe57d8b7e0ac12813356bd81528d528590cb298bbb1e915ed0f0b941e1",
+   "index.html": "7388cdfe3a495396d15242805ed0dca542f6a549f3db277698911142c015f752",
+   "style.css": "e65b7c0474dbaf95a5809a8cdc5024e12e642f046a76df1bb69ac72560d25a83"
+  }
+ },
+ "sections": [
+  {
+   "id": "open",
+   "a": 0.0,
+   "b": 1.0,
+   "clock": "action"
+  },
+  {
+   "id": "mark",
+   "a": 1.0,
+   "b": 2.5,
+   "clock": "music"
+  },
+  {
+   "id": "hold",
+   "a": 2.5,
+   "b": 3.0,
+   "clock": "silence"
+  }
+ ],
+ "events": [
+  {
+   "id": "mark",
+   "t": 1.0,
+   "scale": "turn",
+   "section": "mark",
+   "sync": "attack",
+   "lead_ms": -42,
+   "sound": "required",
+   "role": "impact",
+   "decision": "the hit leads the mark by one frame"
+  },
+  {
+   "id": "hold",
+   "t": 2.5,
+   "t_end": 3.0,
+   "scale": "silence",
+   "section": "hold",
+   "sound": "silent",
+   "scope": "new",
+   "decision": "the mark rests"
+  }
+ ]
+}

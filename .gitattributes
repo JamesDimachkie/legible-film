@@ -8,3 +8,6 @@ evals/results/**/runs/** -text
 *.jpg binary
 *.woff2 binary
 *.ttf binary
+# Fixture pages and their committed cue lists are byte-exact: a page's identity is its exact bytes, so Git never
+# converts their line endings on any platform. The tests make CRLF copies at run time.
+skills/legible-film/scripts/testpages/** -text

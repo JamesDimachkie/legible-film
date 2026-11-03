@@ -3,6 +3,14 @@
 Deliverable: size, frame rate, duration, renditions, sound, captions
 (for example: 1920x1080 at 60 fps, 30 s, a 16:9 master and a 9:16 rendition, music and effects, captions)
 
+## Frame
+Each field is confirmed, assumed, missing or waived (with the reason and who waived it). Ask only for missing fields.
+- What it is, in one line:
+- For whom, and where they see it:
+- Why they care:
+- What they know by which second, and through which channel (type, voice, picture):
+- Timeline owner (page, paper edit, editor's timeline, finished picture, file, Tesseract project):
+
 ## The change
 - Audience, and what they already know:
 - Their most likely misunderstanding:

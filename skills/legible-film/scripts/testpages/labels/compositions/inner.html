@@ -1,0 +1,17 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; }
+    #inner-mark { position: absolute; left: 1500px; top: 160px; width: 160px; height: 160px; background: #4fd1a5; }
+  </style>
+  <div id="root" data-composition-id="inner" data-width="1920" data-height="1080">
+    <div id="inner-mark" class="clip" data-start="0" data-duration="1"></div>
+  </div>
+  <script>
+    window.__timelines = window.__timelines || {};
+    const tl = gsap.timeline({ paused: true });
+    tl.fromTo('#inner-mark', { scale: 0 }, { scale: 1, duration: 0.01, ease: 'none' }, 0.49);
+    tl.addLabel('cue:inner-pop', 0.5);
+    tl.set({}, {}, 1);
+    window.__timelines['inner'] = tl;
+  </script>
+</template>

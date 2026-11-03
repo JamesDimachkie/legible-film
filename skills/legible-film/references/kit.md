@@ -82,6 +82,12 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
   than assuming. A shot can give its own tall line breaks (`tall`).
 - **Supplied brand wins:** pass the brand's fonts (`fonts`) and colours (`palette`); the bundled fonts (Mona Sans and
   Geist Mono, SIL OFL) are defaults.
+- **The frame:** a kit film outside a project carries the same `frame` keys as `film.md` (what, audience, why,
+  `knows_by`, and each field's state; [project](project.md) §3). `film_check.py` warns when they are missing, and
+  `make_film.py` copies them into the delivery report.
+- **Runs:** cues of one run the picture means (every key of a typed line, every stamp of a sequence) carry
+  `run: true`, so the engine and `spot_cues.py` keep every event instead of merging a same-role run under 120 ms
+  apart or different cues under 60 ms apart.
 
 ## 5. What the checks prove, and what they do not
 
@@ -112,10 +118,12 @@ The kit makes the watchable gates of [studio](studio.md) §5 cheap:
 
 ## 7. Sound
 
-The kit exports the cue list with each event's role and sync point. `make_film.py --sound draft` synthesises a
-rights-clean palette and a temp track at the film's tempo with its drop and stop, and `mix_cues.py` places every take
-by its sync point ([sound](sound.md) §6). Replace roles with chosen takes in `palette.json`, keep the cue list as the
-contract, and let the listener decide.
+`film_check.py` exports the kit's cue list (`cues.json` v2) with each event's role, sync point and scale, through the
+same freeze every exporter uses, and keeps the frozen copy that `film_render.py --cues` renders ([engines](engines.md)
+§2). `film_check.py --verify-cues` adds the frame-change screen at each turn and contact. `make_film.py --sound draft`
+synthesises a rights-clean palette and a temp track at the film's tempo with its drop and stop, and `mix_cues.py` places
+every take by its sync point ([sound](sound.md) §6). Replace roles with chosen takes in `palette.json`, keep the cue
+list as the contract, and let the listener decide.
 
 ## 8. Your own device
 

@@ -282,6 +282,11 @@ contrast or the actual flash; rerun the relevant check and ask a person to verif
 
 ## Judging and reading the card
 
+The scorecard is separate from the checks' context and sync groups ([qc](qc.md) §2), and from the cold read
+(`grade.py cold`, [review](review.md) §4), which records whether a fresh reader got what the film is, for whom and
+why from its first seconds. A cold read is evidence for the hook and the frame, labelled with the reader's model; it
+never raises a score on its own.
+
 Before rendering, `grade.py paper PROJECT` compiles the edit into `grade/paper.json` and `grade/paper.md` and creates
 a `paper-judged-template-<id>.json`. Read the paper edit's stated direction (`audience`, `takeaway`, `story`, printed
 at the top of `paper.md`), the brief and the rubric; judge whether the opening creates an appropriate expectation,

@@ -1,0 +1,121 @@
+{
+ "prompts_right": 11,
+ "of": 15,
+ "paths": {
+  "create": true,
+  "insert": true,
+  "cut": true,
+  "sound": true,
+  "quick": true,
+  "editor": false,
+  "no-skill": true
+ },
+ "bar": false,
+ "per_prompt": {
+  "P01": {
+   "n": 1,
+   "expected": "create",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P02": {
+   "n": 2,
+   "expected": "create",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P03": {
+   "n": 3,
+   "expected": "create",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P04": {
+   "n": 4,
+   "expected": "insert",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P05": {
+   "n": 5,
+   "expected": "cut",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P06": {
+   "n": 6,
+   "expected": "sound",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P07": {
+   "n": 7,
+   "expected": "quick",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P08": {
+   "n": 8,
+   "expected": "cut",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "P09": {
+   "n": 9,
+   "expected": "editor",
+   "claude": 3,
+   "codex": 1,
+   "right": false
+  },
+  "P10": {
+   "n": 10,
+   "expected": "quick",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "H1": {
+   "n": 11,
+   "expected": "create",
+   "claude": 2,
+   "codex": 1,
+   "right": false
+  },
+  "H2": {
+   "n": 12,
+   "expected": "create",
+   "claude": 3,
+   "codex": 0,
+   "right": false
+  },
+  "H3": {
+   "n": 13,
+   "expected": "create",
+   "claude": 0,
+   "codex": 2,
+   "right": false
+  },
+  "H4": {
+   "n": 14,
+   "expected": "create",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  },
+  "H5": {
+   "n": 15,
+   "expected": "no-skill",
+   "claude": 3,
+   "codex": 2,
+   "right": true
+  }
+ }
+}

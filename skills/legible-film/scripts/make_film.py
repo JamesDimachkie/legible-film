@@ -112,8 +112,12 @@ _project_spec = importlib.util.spec_from_file_location('lf_project', HERE / 'pro
 P = importlib.util.module_from_spec(_project_spec)
 _project_spec.loader.exec_module(P)
 VERSION = P.skill_version()
-EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
-SKIP_TOP = {'qa', 'audio', '.git', 'node_modules', '__pycache__'}
+_cue_spec = importlib.util.spec_from_file_location('lf_cue_list', HERE / 'cue_list.py')
+CL = importlib.util.module_from_spec(_cue_spec)
+_cue_spec.loader.exec_module(CL)
+# The page exclusions live in cue_list.py, the one identity for every engine; the kit imports them back.
+EXPORTS = CL.EXPORTS
+SKIP_TOP = set(CL.SKIP_TOP)
 SHARED = ('fps', 'duration', 'frames', 'cuts', 'beat', 'music', 'cues')
 PER_SIZE = ('rests', 'smears', 'fast', 'flashes', 'seams', 'changes')
 LAYER_ROLES = ('sub', 'air', 'bed')   # always synthesised in a hybrid palette
@@ -584,12 +588,85 @@ def cut_sheets(py, video, cuts, size, fps, folder, span=1.6):
     return ('could not run' if failed else 'pass'), summary + failed, failed, [str(s) for s in sheets]
 
 
+def copy_cue_list(src, dst, film):
+    """Copy an exported cue list beside the make's outputs with its picture.path re-expressed from the copy's own
+    folder, so every reader that resolves the page beside the list still finds the film folder."""
+    data = json.loads(Path(src).read_text(encoding='utf-8-sig'))
+    picture = data.get('picture') if isinstance(data, dict) else None
+    if isinstance(picture, dict) and picture.get('kind') == 'page':
+        try:
+            rel = os.path.relpath(Path(film).resolve(), Path(dst).resolve().parent).replace(os.sep, '/')
+        except ValueError:   # another drive
+            rel = Path(film).resolve().as_posix()
+        picture['path'] = rel.rstrip('/') + '/'
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    Path(dst).write_bytes((json.dumps(data, indent=1, ensure_ascii=False) + '\n').encode('utf-8'))
+
+
+_RENDER = None
+
+
+def picture_entry(step, path):
+    """A receipt entry (film_render.py's): the file's picture-stream hash, geometry and frame schedule."""
+    global _RENDER
+    if _RENDER is None:
+        spec = importlib.util.spec_from_file_location('lf_film_render_entry', HERE / 'film_render.py')
+        _RENDER = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_RENDER)
+    return _RENDER.picture_entry(step, path)
+
+
+RECEIPT_KEYS = ('source_fingerprint', 'snapshot_sha256', 'cues', 'cues_sha256', 'digest', 'frozen', 'source_digests',
+                'vendored', 'binding_reasons', 'render_trace')
+
+
+def receipt_for(manifest_path, step, path):
+    """A delivered file's receipt: the render's receipt fields and entries, plus an entry for the file this step wrote.
+    The render's own manifest is left as the render step wrote it (a later step never edits an earlier one's output)."""
+    manifest = load_json(manifest_path, None)
+    if not isinstance(manifest, dict) or 'source_fingerprint' not in manifest:
+        return {}
+    entry = picture_entry(step, path)
+    return {**{k: manifest[k] for k in RECEIPT_KEYS if k in manifest}, 'entries': list(manifest.get('entries', [])) + [entry],
+            'picture_sha256': entry['picture_sha256'], 'geometry': entry['geometry'], 'pts_sha256': entry['pts_sha256'],
+            'receipt_from': str(manifest_path)}
+
+
+def frame_lines(frame):
+    """The kit spec's frame (what, audience, why, knows_by, their states, a waiver, the cold read) as report lines,
+    each state printed as written: confirmed, assumed or missing; unconfirmed when the spec gives none."""
+    if not isinstance(frame, dict) or not frame:
+        return ['no frame in the spec: what, audience, why and knows_by are missing (film_check.py warns; add '
+                'frame: {...} to film.js)']
+    states = frame.get('state') if isinstance(frame.get('state'), dict) else {}
+    lines = []
+    for key in ('what', 'audience', 'why'):
+        value = frame.get(key)
+        lines.append(f"{key}: {value if value else 'missing'} ({states.get(key) or ('unconfirmed' if value else 'missing')})")
+    knows = frame.get('knows_by') if isinstance(frame.get('knows_by'), list) else []
+    state = states.get('knows_by') or ('unconfirmed' if knows else 'missing')
+    if knows:
+        for row in knows:
+            row = row if isinstance(row, dict) else {}
+            lines.append(f"knows by {row.get('s')} s: {row.get('what')} (channel {row.get('channel') or 'not given'}; {state})")
+    else:
+        lines.append(f'knows_by: missing ({state})')
+    if frame.get('waived'):
+        waived = frame['waived'] if isinstance(frame['waived'], dict) else {'reason': frame['waived']}
+        lines.append(f"waived: {waived.get('reason')} (by {waived.get('by') or 'not named'})")
+    cold = frame.get('cold_read') if isinstance(frame.get('cold_read'), dict) else {}
+    lines.append(f"cold read: {cold.get('state') or 'not-run'}")
+    return lines
+
+
 def cue_digest(path):
     """Hash a cue list's content, ignoring the note of which size exported it (the events are the same)."""
-    data = load_json(path, None)
+    data = CL.read_document(path)[0] if Path(path).is_file() else None
     if not isinstance(data, dict):
         return None
-    data = {k: v for k, v in data.items() if k != 'exported_from'}
+    data = {k: v for k, v in data.items() if k not in ('exported_from', 'export')}
+    if isinstance(data.get('picture'), dict):   # a copy re-expresses picture.path from its own folder
+        data['picture'] = {k: v for k, v in data['picture'].items() if k != 'path'}
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode('utf-8')).hexdigest()
 
 
@@ -744,15 +821,8 @@ class Make:
         return {n: sha256(HERE / n) if (HERE / n).is_file() else None for n in names}
 
     def picture_source(self):
-        files = {}
-        for root, dirs, names in os.walk(self.film):
-            rel = Path(root).relative_to(self.film)
-            dirs[:] = sorted(d for d in dirs if not (rel == Path('.') and d in SKIP_TOP))
-            for n in sorted(names):
-                r = (rel / n).as_posix()
-                if rel == Path('.') and (n in EXPORTS or n in ('palette.json', 'sound-edits.json')):
-                    continue
-                files[r] = sha256(Path(root) / n)
+        """The film folder's files a render reads (cue_list's page exclusions), by exact bytes."""
+        files = {r: sha256(self.film / r) for r in CL.page_files(self.film)}
         return {'sha256': digest(files), 'files': len(files)}
 
     def prior_provenance(self):
@@ -816,7 +886,10 @@ class Make:
             for name in EXPORTS:
                 src = self.film / name
                 if src.is_file() and src.stat().st_mtime >= started:
-                    shutil.copyfile(src, qa / name)
+                    if name == 'cues.json':
+                        copy_cue_list(src, qa / name, self.film)
+                    else:
+                        shutil.copyfile(src, qa / name)
                     outputs.append(qa / name)
             declared = self.film / 'qa' / 'declared.json'
             if declared.is_file() and declared.stat().st_mtime >= started:
@@ -1193,6 +1266,8 @@ class Make:
                 target = renders / f'{base}-{n}.mp4'
             master = target.with_suffix('.mkv') if self.a.web else None
             args = [self.film, '--out', master or target, '--size', label, '--samples', self.a.samples]
+            # The render reads the kept copy the exported list names, so the list and the picture bind by snapshot.
+            args += ['--cues', self.film / 'cues.json'] if (self.film / 'cues.json').is_file() else []
             args += ['--res', self.a.res] if self.a.res else []
             args += ['--preview'] if self.a.preview else []
             args += ['--lossless'] if master else []
@@ -1245,6 +1320,12 @@ class Make:
                         decoded_frames=self.C.decoded_count(find_tool('ffprobe', self.a.ffprobe), target),
                         derived_from={'path': str(master), 'sha256': sha256(master),
                                       'encode': 'ffmpeg ' + ' '.join(map(str, options))})
+        if 'source_fingerprint' in manifest:
+            # A re-encode: a new picture with its own entry; the master is checked against the file delivered.
+            manifest.setdefault('entries', []).append(picture_entry('make_film.py encode_h264', target))
+            manifest['picture_sha256'] = manifest['entries'][-1]['picture_sha256']
+            manifest['geometry'] = manifest['entries'][-1]['geometry']
+            manifest['pts_sha256'] = manifest['entries'][-1]['pts_sha256']
         save_json(str(target) + '.manifest.json', manifest)
 
     def probe_dims(self, path):
@@ -1864,6 +1945,8 @@ class Make:
                  'versions': r.get('versions', {}), 'captions': [c.name for c in captions],
                  'status': {'watched': 'unwatched', 'sound': sound_state(sound, plain=True),
                             'published': 'nothing posted, uploaded or sent'}}
+            step = 'make_film.py copy (silent)' if sound['mode'] == 'none' else 'make_film.py mux_audio'
+            m.update(receipt_for(r.get('manifest') or str(r['path']) + '.manifest.json', step, path))
             save_json(str(path) + '.manifest.json', m)
             manifests[label] = m
             web = self.webs.get(label)
@@ -1880,7 +1963,10 @@ class Make:
                                      if kind == 'webm' else 'frame 0 of the lossless render, RGB PNG'},
                         'checks': {k: web.get(k) for k in ('frames', 'codec', 'tags', 'audio',
                                                            'frame0_vs_poster_mean_abs', 'loop_seam', 'status')},
-                        'status': m['status']})
+                        'status': m['status'],
+                        # A WebM is a re-encode: it binds only through its own entry, from the lossless render.
+                        **(receipt_for(str(r['master']) + '.manifest.json', 'make_film.py webm', f)
+                           if kind == 'webm' else {})})
         report = self.report(info, source, sound, renders, delivered, qcs, onsets, manifests, captions)
         (deliver / 'delivery-report.md').write_text(report, encoding='utf-8')
         return manifests
@@ -2019,7 +2105,9 @@ class Make:
             'full-resolution moments (frame_sheet.py --width at the changed and busiest moments) and brand colour '
             'patches (no patch declared to make_film.py)',
             'the sheets themselves: make_film.py makes them and does not look at them'] + self.not_checked
+        context = frame_lines(info.get('frame'))
         sections = {
+            'Context': context,
             'What changed from the previous version': [self.previous_note()],
             'Not checked, and why': not_checked,
             'Who has watched and listened': [f"{m['file']}: **unwatched**; {'' if silent else 'sound '}{sound_status}" for m in manifests.values()],
@@ -2057,6 +2145,8 @@ class Make:
             (f'  - {x.strip()}' if x.startswith('  ') else f'- {x}') for x in self.sound_chain(sound, qcs)]
         taste = ['', "## Taste checks (numbers to look and listen at; a person's approval overrides them)", '']
         taste += [f'- {x}' for x in self.taste] or ['- No taste checks flagged.']
+        if '\n## Context' not in text:   # a template without the heading: the frame still reaches the reader
+            chain = ['', '## Context', ''] + [f'- {x}' for x in context] + chain
         head = chain + taste + ['', '## Items to inspect', ''] + ([f'- {x}' for x in inspect] or
                                                   ['- None from the automated checks. The checks measure files; they '
                                                    'do not watch or listen.']) + ['']
@@ -2275,7 +2365,8 @@ def main():
                 for e in r['errors'][:10] or [r['summary']]:
                     m.finding(label, 'film_check.py', e)
                 stopped.append(label)
-            cue_lists[label] = load_json(out / 'qa' / label / 'cues.json', {})
+            exported = out / 'qa' / label / 'cues.json'
+            cue_lists[label] = CL.load(exported).doc if exported.is_file() else {}
             declared = load_json(out / 'qa' / label / 'declared.json')
             if isinstance(declared, dict) and isinstance(declared.get('cuts'), list):
                 declared_cuts[label] = [float(c[0] if isinstance(c, (list, tuple)) else c) for c in declared['cuts']]
@@ -2290,8 +2381,8 @@ def main():
                           '; '.join(f'{k}: {v}' for k, v in declared_cuts.items()))
         cues_path = out / 'cues.json'
         first = out / 'qa' / m.label(sizes[0]) / 'cues.json'
-        if not cues_path.is_file() or sha256(cues_path) != sha256(first):
-            shutil.copyfile(first, cues_path)
+        if not cues_path.is_file() or cue_digest(cues_path) != cue_digest(first):
+            copy_cue_list(first, cues_path, m.film)
         info = m.capture_info(sizes[0], source)
         if a.sound_only:
             if not same_cues(provenance, cues_path):

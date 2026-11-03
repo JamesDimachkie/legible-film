@@ -40,18 +40,27 @@ The first check reads the file and says what it could measure and what it could 
   skip  Not assessed: captions  (the export has sound and no caption file was given: ...)
   you   Watched by you, muted
   you   Heard by you, with sound
-14 checks pass · 2 need you · 1 not assessed
+  unconfirmed  Context: what  (missing or incomplete)
+  ...
+  skip  Not assessed: cold read  (no named cold read recorded)
+  skip  Not assessed: sync  (no cue list supplied)
+14 checks pass · 2 need you · 3 not assessed; 4 unconfirmed
 ```
 
-Loudness is measured, not judged: no target was named, so nothing is compared. The captions it could not assess
-say what to give it, and the two that need you are the ones no script can do.
+Loudness is measured, not judged: no target was named, so nothing is compared. Each item it could not assess says
+what to give it, and the two that need you are the ones no script can do. The four context fields (what the film is,
+for whom, why, and what the viewer knows by when) read unconfirmed because nobody has stated them for a loose file;
+unconfirmed never fails a check.
 
-`cut.py render` writes `cuts/v001/` in the project: the preview, its captions and the edit it compiled. It warns once,
-on purpose: the cut after "I'm freaked out." has no audible pause, because the next words follow at once in the film.
-Listen to it. (The map lists no silences because the film's score plays under the whole scene; cuts go in the pauses
-between words, and that is the one place without a pause.) The project check then passes 16 items and asks you to watch,
-listen and check the names in the captions. Where faster-whisper is installed it also compares the captions with the
-sound and flags "Thom", which the transcriber spells "Tom": names are where transcripts go wrong.
+`cut.py render` writes `cuts/v001/` in the project: the preview, its captions and the edit it compiled. It warns twice,
+and exits 1 to say so. The cut after "I'm freaked out." has no audible pause, because the next words follow at once in
+the film. Listen to it. (The map lists no silences because the film's score plays under the whole scene; cuts go in the
+pauses between words, and that is the one place without a pause.) At 0:04.75 the background drops 6 dB across a join;
+carry it with a tail, a lead or a bed, or keep it as a decision. The project check then exits 0, passes 23 items, asks
+you to watch, listen and check the names in the captions, and gives the reason for each item it could not assess, such
+as the cold read and the mix measures a designed soundtrack would supply. Where faster-whisper is installed it also
+compares the captions with the sound and flags "Thom", which the transcriber spells "Tom": names are where transcripts
+go wrong.
 
 Edit `film.md` and render again to make `v002`: strike a word with `~~...~~` to cut it, or delete a line.
 
