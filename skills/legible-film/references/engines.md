@@ -328,10 +328,11 @@ in the composition engine.
   `conform.py` (a take fitted to the spotted cue list's sections), `mix_cues.py` (the effects stem, bed and mix from
   the spotted list and the palette) and `listen.py` (measure, transcript, sync, sheet and labels; [sound](sound.md)
   §13).
-- **earshot** (MIT; young) gives agents measurements and labels for sounds, cue sync sheets and code-made effects.
-  The skill's `listen.py` follows its shape and credits it in `NOTICE`. Finding sounds by description, realness
-  scores, A/B comparison, code-made effects and its MCP server stay in earshot. Its rule holds here too. Times
-  and levels are meters, labels in a mix are half right, and taste is out of reach.
+- **[earshot](https://github.com/Leonxlnx/earshot)** (Leon Lin, MIT; young) gives agents measurements and labels for
+  sounds, cue sync sheets and code-made effects. The skill's `listen.py` follows its shape, takes its launch-film
+  reference ranges and credits it in `NOTICE`. Finding sounds by description, realness scores, A/B comparison,
+  code-made effects and its MCP server stay in earshot. Its rule holds here too. Times and levels are meters, labels
+  in a mix are half right, and taste is out of reach.
 - **Demucs** for stem separation: code MIT, pretrained-weights licence unclear (see
   [claims-and-rights](claims-and-rights.md)).
 - SoX upstream has not released since 2015; prefer FFmpeg.

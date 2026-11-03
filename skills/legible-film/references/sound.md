@@ -245,7 +245,8 @@ month were mastered about 5 LU apart; carrying one's numbers to the other made i
 ## 13. Listening by instrument
 
 You cannot hear, but you can listen by instrument. Measure, describe and compare the sound, and say what each
-measure cannot tell. `listen.py` follows earshot's shape (MIT, credited in `NOTICE`).
+measure cannot tell. `listen.py` follows [earshot](https://github.com/Leonxlnx/earshot)'s shape and uses its
+launch-film reference ranges (MIT, credited in `NOTICE`).
 
 - `listen.py measure FILE` gives loudness, true peak, loudness range, spectrum, width and the share below 60 Hz, each
   printed beside the 10th to 90th percentile of seven launch films (n = 7), never as in or out of range.
