@@ -524,7 +524,7 @@ def install_faces(yes, python=None):
     print('Face detection for auto crop and scorecard: opencv-python is about 40 MB; '
           'no model weights are downloaded.', file=sys.stderr)
     consent('Install opencv-python?', yes)
-    subprocess.run([str(python or sys.executable), '-I', '-m', 'pip', 'install', 'opencv-python'], check=True,
+    subprocess.run([str(python or sys.executable), '-I', '-m', 'pip', 'install', 'opencv-python>=4.8,<5'], check=True,
                    stdout=sys.stderr)
 
 
@@ -532,8 +532,8 @@ def install_spatial(yes, python=None):
     """Install the same OpenCV distribution as faces plus ONNX Runtime."""
     print('Spatial packages: opencv-python and onnxruntime; model weights are a separate download.', file=sys.stderr)
     consent('Install spatial packages?', yes)
-    subprocess.run([str(python or sys.executable), '-I', '-m', 'pip', 'install', 'opencv-python', 'onnxruntime'],
-                   check=True, stdout=sys.stderr)
+    subprocess.run([str(python or sys.executable), '-I', '-m', 'pip', 'install', 'opencv-python>=4.8,<5',
+                    'onnxruntime'], check=True, stdout=sys.stderr)
 
 
 def download_spatial(yes):

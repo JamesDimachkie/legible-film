@@ -131,7 +131,8 @@ def check_spatial(record, setup, j, scripts_dir):
         setup.install_spatial(True, 'example-python')
     args = pip.call_args.args[0]
     record('setup: spatial shares the faces OpenCV package and installs ONNX Runtime',
-           'opencv-python' in args and 'onnxruntime' in args and 'opencv-python-headless' not in args, str(args))
+           'opencv-python>=4.8,<5' in args and 'onnxruntime' in args and 'opencv-python-headless' not in args,
+           str(args))
     script = Path(scripts_dir) / 'setup.py'
     denied = subprocess.run([sys.executable, '-I', str(script), '--install', 'spatial', '--json'],
                             stdin=subprocess.DEVNULL, capture_output=True, text=True)
