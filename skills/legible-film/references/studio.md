@@ -32,7 +32,7 @@ for a good film.
 Studio grade is not more of everything. Every element still earns its place, and the extra effort goes into finding
 the idea, testing choices with the person, and taking each weak moment to excellent. A film can be quieter and
 simpler at studio grade than it was before. Scale the studio to the piece: a short piece or an already approved idea
-keeps the core's tailoring ([sizing the job](../SKILL.md#size-the-job-first)), and its concept reopens only if the person asks.
+keeps its path's tailoring ([pick the path](../SKILL.md#pick-the-path)), and its concept reopens only if the person asks.
 
 **Who judges what.** You prepare options, build, measure and inspect frames. Every judgement that needs motion at
 playback speed or hearing belongs to a person: how a move feels, a voice, the music, the mix on real speakers,
@@ -109,7 +109,7 @@ precisely to what they see and hear.
 | "It's too busy" | several moving things, or several sounds competing for attention at once | one moving element at a time; one sound in front at each moment (§7.8) |
 | "It feels rushed" | text leaving before it is read; several new things per cut | reading windows honoured; one new thing per cut (§7.4) |
 | "It's boring in the middle" | rows where nothing changes for the viewer | the middle with a consequence, a piece of evidence or a reinterpretation added (§7.1) |
-| "The music feels wrong" | too active, or the wrong mood | one version changing density only, one changing harmony and timbre only (§7.6) |
+| "The music feels wrong" | too active, or the wrong mood | one version changing density only, one changing harmony and timbre only ([sound](sound.md) §15) |
 
 - **Find where the peak was felt.** After the sounded pass, ask "At which moment did you feel the most, if
   anywhere?" Record the time beside the planned peak. When they differ, move the peak, strengthen its preparation or
@@ -307,55 +307,11 @@ only when its named person has made the judgement (§1).
 
 ### 7.5 Sound design
 
-- **One sound rule carries the claim.** After the sound proposition ([sound](sound.md)), state one rule the whole
-  soundtrack obeys (a single sustained tone, a short list of named sources, one kind of performer, a deliberate
-  absence) and how it states the product's claim. Rework any cue that breaks it without a written reason; the person
-  judges whether the rule still holds attention in the final third.
-- **Write what sound adds.** For each passage complete "With sound, the viewer also understands or feels ___", and
-  prepare it muted, as sound only, and combined. If the sentence is not true of the combined version, change how
-  sound relates to picture, not its level.
-- **Build the pressure the reveal relieves.** Design the before and after as one pair. For relief, let the before
-  carry the burden and the reveal remove it; offer a continuing ambience or tail, a deliberate dry stop and silence as
-  alternatives, and keep whichever the person chooses, free of edge clicks. For continuity, carry one sound across the
-  change. For precision, keep one distinct sound unused until the action that proves the claim.
-- **Set up the payoffs.** For each reveal, decide whether an earlier sound sets up the expectation, and whether the
-  reveal fulfils, delays or breaks it. Put no riser before every transition, and keep builds out of reading passages.
-- **Refuse the category's default when it lies.** Write the category's default sound and choose to use it or refuse
-  it, with the reason. A glitch, stutter or alarm-like cue taken literally can imply a failure the product does not
-  have.
-- **Give the sound a point of view:** close and bodily, inside a mind, outside a mechanism, or performance. Write what
-  it supplies that the frame does not show, without pulling the eye from the subject.
-- **Let perspective follow the move.** Where the camera or an object changes distance meaningfully, automate level,
-  the dry-to-wet balance, high-frequency loss and a restrained pan together as one gesture, and keep the room
-  consistent within a space. Decide whether each interface cue belongs to the interface or is an accent outside the
-  space; do not sweep the whole soundtrack with every camera move.
-- **Play from the middle; play loops on repeat.** The person starts playback after the opening and notes any sound
-  whose meaning depends on something earlier, and plays a loop three or more times to catch a cue that becomes
-  intrusive.
-- **In data pieces, sound points or encodes.** A pointing cue implies no direction or count. An encoding keeps the
-  data's order, has its mapping written down, and matches the chart on screen.
-- **Caption meaningful non-speech sound.** If removing a cue changes what the viewer knows, show that information in
-  the picture or caption it.
+Moved to [sound](sound.md#14-sound-design-passes) §14, where every path that designs sound reads it.
 
 ### 7.6 Music
 
-- **Hold the music back so its entrance is the release.** For an action-led film, compare a version where effects
-  carry the opening and the music first enters at the payoff against continuous music on the same cut.
-- **Keep a finished song from turning the film into a music video.** When the film turns several times, test track
-  fragments that change at each turn, with one element (a pitch, a rhythm, an instrument) running throughout and the
-  full theme only at the close.
-- **Separate "too active" from "the wrong mood".** For too fast or busy, change density, tempo or subdivision and
-  keep harmony and instruments. For the wrong feeling, change harmony, instruments or timbre and keep the activity.
-- **Shape music and picture in both directions.** Describe the music's arc in words before locking shot timings, get
-  a draft that follows it, then move picture events to the phrases where a turn lands better, where the reading
-  windows and the product's real timing still allow.
-- **Edit music by harmony and waveform, not only bar numbers.** For every splice, note the chord and bass on each side,
-  the phrase's function and where the transients fall. Try a straight cut at a compatible boundary before an overlap,
-  carry a cymbal or reverb tail on its own layer when cutting the phrase under it, compare crossfade curves at matched
-  level, and never stack two kick attacks. The person listens to each join in the full cut.
-- **Keep an existing sonic identity's core.** List the features that make the brand's sonic logo recognisable, keep
-  them, adapt the length to the cut and bring it in from the film's own palette. Present a new sonic logo as a
-  proposal to test over repeated viewings.
+Moved to [sound](sound.md#15-music-passes) §15.
 
 ### 7.7 Voice
 
@@ -451,7 +407,7 @@ one, the decision stays unknown.
 3. Make two or three alternatives for that moment, each from a different starting point, with its entry, exit and
    claims fixed.
 4. Show them to the person in motion and, unless the film is silent, with sound.
-5. Build the choice, then run QC and the change proof ([revise](../SKILL.md#revise-change-what-was-asked-keep-what-was-approved)).
+5. Build the choice, then run QC and the change proof ([revise](loop.md#revise-change-what-was-asked-keep-what-was-approved)).
 6. Compare the polished moments with the approved rough at the same size. Polish adds texture, light and secondary
    motion, which can bury the one relationship the idea depends on; when it has, remove or recompose the added detail.
 7. Put the film beside the agreed references, at the same size and in the same conditions, and name what still

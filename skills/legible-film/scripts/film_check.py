@@ -15,6 +15,10 @@ animation or @keyframes, fetch, XMLHttpRequest, WebSocket, remote URLs); a line 
   python film_check.py films/launch --size 1920x1080 --res 720
   python film_check.py films/launch --determinism --file-only
 
+--verify-cues also runs the cue export's frame-change screen at every turn and contact (a look, exit 1 when a cue
+lands on a frame that does not change; picture: none and picture: held are listed, not flagged). A kit film outside a
+project gets a warning when its spec has no frame (what, audience, why, knows_by).
+
 --determinism compares a few actual frames in order, reverse order and a fresh page. It can find
 history-dependent pixels; three samples cannot prove the entire film deterministic. --file-only
 loads local assets directly in Chromium and blocks HTTP(S) requests, without a local server.
@@ -23,7 +27,10 @@ loads local assets directly in Chromium and blocks HTTP(S) requests, without a l
 layout stays at --size, and the output-pixel criteria (type size, the large-text contrast rule, dither
 cells, still resolution) are judged on the delivered raster.
 
-Writes, in FILM: cues.json (the skill's cue format, exported from the picture's own source),
+Writes, in FILM: cues.json (v2, exported from the picture's own source by film_capture.mjs cues --source lf, which
+freezes the page through cue_list.py freeze and keeps the copy at FILM/.lf-frozen/<snapshot_sha256>/ for
+film_render.py --cues; info() and analyse() then run on that kept copy, so the list and the checks read the same
+bytes),
 reading.json (every registered text's in, readStart, readEnd, out, need, size, colour, ground and
 contrast), captions.srt and captions.vtt (when the film has captions), qa/declared.json (designed
 cuts, rests and flashes as --ignore ranges for the QC scripts) and qa/preflight.json (or --json).
@@ -64,6 +71,9 @@ from fractions import Fraction
 _project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
 project = importlib.util.module_from_spec(_project_spec)
 _project_spec.loader.exec_module(project)
+_cue_spec = importlib.util.spec_from_file_location('lf_cue_list', Path(__file__).with_name('cue_list.py'))
+cue_list = importlib.util.module_from_spec(_cue_spec)
+_cue_spec.loader.exec_module(cue_list)
 
 VERSION = '1.0'
 LINT = [
@@ -193,6 +203,43 @@ def srt_time(t):
     return f'{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}'
 
 
+def export_cues(a, folder, w, h):
+    """cues.json v2 through film_capture.mjs cues --source lf: (exit code, its output, the list or None)."""
+    node = find_tool('node', a.node)
+    capture = a.capture or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'film_capture.mjs')
+    if not node or not os.path.isfile(capture):
+        raise RuntimeError('the cue export needs Node and film_capture.mjs beside this script')
+    target = os.path.join(folder, 'cues.json')
+    url = f'http://127.0.0.1/index.html?render&w={w}&h={h}' + (f'&res={a.res}' if a.res else '')
+    cmd = [node, capture, 'cues', url, '--root', folder, '--out', target, '--source', 'lf', '--size', f'{w}x{h}',
+           '--python', sys.executable]
+    cmd += (['--verify'] if a.verify_cues else []) + (['--browser', a.browser] if a.browser else [])
+    cmd += ['--playwright', a.playwright] if a.playwright else []
+    p = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=900)
+    text = (p.stdout + p.stderr).strip()
+    listed = None
+    if p.returncode in (0, 1) and os.path.isfile(target):
+        with open(target, encoding='utf-8') as f:
+            listed = json.load(f)
+    return p.returncode, text, listed
+
+
+def frame_keys(folder):
+    """The frame keys a kit film outside a project should carry in its spec, and those film.js does not name."""
+    here = Path(folder).resolve()
+    if any((parent / 'film.md').is_file() and (parent / 'cuts').is_dir() for parent in [here, *here.parents]):
+        return None   # inside a project: film.md carries the frame
+    try:
+        text = Path(folder, 'film.js').read_text(encoding='utf-8')
+    except OSError:
+        return None
+    block = re.search(r'\bframe\s*:\s*\{', text)
+    if not block:
+        return ['what', 'audience', 'why', 'knows_by']
+    tail = text[block.end():block.end() + 4000]
+    return [k for k in ('what', 'audience', 'why', 'knows_by') if not re.search(r'\b' + k + r'\s*:', tail)]
+
+
 def run_page(a, folder, w, h):
     file_only = getattr(a, 'file_only', False)
     httpd = None if file_only else serve(folder)
@@ -213,7 +260,7 @@ def run_page(a, folder, w, h):
                                    capture_output=True, text=True, timeout=300)
                 if p.returncode != 0:
                     reason = (p.stderr.strip().splitlines() or ['?'])[-1]
-                    if cmd == 'analyse' and 'not implemented' in reason:
+                    if cmd == 'analyse' and '__lf.analyse is not implemented' in p.stderr:
                         res['analysis'] = None
                         continue
                     raise RuntimeError(f'film_capture.mjs {cmd} failed: ' + reason)
@@ -338,6 +385,8 @@ def main():
     ap.add_argument('--playwright', help='path to an installed playwright or playwright-core package')
     ap.add_argument('--determinism', action='store_true', help='compare frames in order, reverse and a fresh page')
     ap.add_argument('--file-only', action='store_true', help='load local files directly and block web requests')
+    ap.add_argument('--verify-cues', action='store_true', help="screen each turn and contact for a frame change "
+                    '(a look, exit 1, when a cue lands on a frame that does not change)')
     a = ap.parse_args()
 
     folder = os.path.abspath(a.film)
@@ -370,7 +419,17 @@ def main():
     out_size = (round(w * a.res / min(w, h)), round(h * a.res / min(w, h))) if a.res else (w, h)
     delivered = f' (delivered {out_size[0]}x{out_size[1]})' if a.res else ''
     try:
-        res = run_page(a, folder, w, h)
+        cue_code, cue_text, listed = export_cues(a, folder, w, h)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+        print(f'film_check.py: could not export the cue list at {w}x{h}: {e}', file=sys.stderr)
+        return 2
+    if listed is None:
+        print(f'film_check.py: could not export the cue list at {w}x{h}: ' + (cue_text.splitlines() or ['?'])[-1],
+              file=sys.stderr)
+        return 2
+    kept = os.path.join(folder, '.lf-frozen', listed['picture']['snapshot_sha256'])
+    try:
+        res = run_page(a, kept, w, h)
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as e:
         print(f'film_check.py: could not run the page at {w}x{h}: {e}', file=sys.stderr)
         return 2
@@ -385,9 +444,9 @@ def main():
         httpd = None
         try:
             if a.file_only:
-                url = Path(folder, 'index.html').as_uri()
+                url = Path(kept, 'index.html').as_uri()
             else:
-                httpd = serve(folder)
+                httpd = serve(kept)
                 url = f'http://127.0.0.1:{httpd.server_address[1]}/index.html'
             url += f'?render&w={w}&h={h}' + (f'&res={a.res}' if a.res else '')
             determinism = determinism_probe(url, w, h, info, find_tool('node', a.node),
@@ -428,12 +487,19 @@ def main():
         written.append(os.path.relpath(path, folder).replace('\\', '/') if path.startswith(folder) else path)
 
     fps = info.get('fps', 60)
-    save(os.path.join(folder, 'cues.json'), {
-        'clock': 'seconds from the first frame of the film', 'fps': fps, 'version': 'v1',
-        'exported_from': f"film.js through window.__lf.info() by film_check.py {VERSION} at {w}x{h}",
-        'fields': 't: seconds; sound: required, silent or optional; sync: attack, apex or end; tolerance_ms: largest offset still on cue; window_ms: how far either side of t to check; role: the sound palette role; gain_db, duck_db, variant: optional mix hints',
-        'events': info.get('cues', []),
-    })
+    written.append('cues.json')
+    # The export reads back through the one loader every cue reader uses, so a list it cannot read is caught here.
+    cue_list.check(os.path.join(folder, 'cues.json'))
+    export = listed.get('export') or {}
+    for reason in listed.get('binding_reasons') or []:
+        warnings.append(f'cue list binding unverified: {reason}')
+    for flag in (export.get('verify') or {}).get('flagged', []):
+        errors.append(f"cue {flag['id']} at {flag['t']} s: no frame change (fix the picture, or declare picture: none "
+                      'or picture: held with a decision)')
+    missing_frame = frame_keys(folder)
+    if missing_frame:
+        warnings.append('the spec has no frame ' + ', '.join(missing_frame) + ': add frame: {what, audience, why, '
+                        'knows_by} to film.js so make_film.py copies the context into the delivery report')
     save(os.path.join(folder, 'reading.json'), {
         'size': f'{w}x{h}', **({'output_size': f'{out_size[0]}x{out_size[1]}'} if a.res else {}), 'fps': fps,
         'rule': 'need_s = base + characters / cps (claims, qualifiers, headlines, identities, interface text: '

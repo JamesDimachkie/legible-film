@@ -7,7 +7,11 @@
 48 kHz stereo 24-bit WAV; one-shots peak-normalised to -3 dBFS (keys vary
 slightly). The manifest records hashes, generated sync points and measurements.
 Palette version 2 includes non-recursive composite layers and an equal-power
-crossfaded loop bed. Music bars are one-based; beat 0 is sample 0. At stop_s
+crossfaded loop bed. Music bars are one-based; beat 0 is sample 0. Omitted,
+--stop-bar is 15, or the end of the music when that comes sooner or a given
+drop is later, and --drop-bar is 9 or, when 9 does not fit, the middle bar
+(--bars 4 gives drop 3, stop 5). Given bars are never moved; bars that do not
+fit are refused with bars that do. At stop_s
 the rhythm stops over 20 ms and a pad/noise ring-out continues to tail_end_s.
 The music manifest keeps that tail. Decoded-file measurements include energy
 bands, 300 Hz-8 kHz phone-band LU loss and a narrow-resonance screen. These
@@ -299,6 +303,29 @@ def temp_track(bpm, bars, drop_bar, stop_bar, key, seed):
                'key': key, 'label': 'Temp track for timing and animatics; unheard; a person decides whether it can ship.'}
 
 
+def music_bars(bars, drop_bar=None, stop_bar=None):
+    """Fill an omitted drop or stop bar inside the requested music; refuse given bars that do not fit, naming the
+    fix. The defaults are drop 9 and stop 15; shorter music stops at its end, and a drop that does not fit falls on
+    the middle bar."""
+    given = drop_bar, stop_bar
+    if stop_bar is None:
+        stop_bar = min(15, bars + 1)
+        if drop_bar is not None and drop_bar >= stop_bar:
+            stop_bar = bars + 1
+    if drop_bar is None:
+        drop_bar = 9 if 9 < stop_bar else max(2, min(bars // 2 + 1, stop_bar - 1))
+    if 2 <= drop_bar < stop_bar <= bars + 1:
+        return drop_bar, stop_bar
+    if bars < 2:
+        raise ValueError(f'--bars {bars} leaves no room for a drop before the stop; use --bars 2 or more')
+    fit = music_bars(bars)
+    named = [f'--{flag} {value}' for flag, value in zip(('drop-bar', 'stop-bar'), given) if value is not None]
+    verb = 'do' if len(named) > 1 else 'does'
+    raise ValueError(f'{" and ".join(named)} {verb} not fit --bars {bars}: need 2 <= drop-bar < stop-bar <= bars + 1. Give bars '
+                     f'inside the music (for example --drop-bar {fit[0]} --stop-bar {fit[1]}), or omit them to have '
+                     'them placed inside it')
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('--out', required=True)
@@ -306,8 +333,8 @@ def main():
     p.add_argument('--roles', nargs='+', choices=ROLES, default=list(ROLES))
     p.add_argument('--temp-bpm', type=io.positive)
     p.add_argument('--bars', type=int, default=16)
-    p.add_argument('--drop-bar', type=int, default=9)
-    p.add_argument('--stop-bar', type=int, default=15)
+    p.add_argument('--drop-bar', type=int, help='bar the full beat enters (default 9, moved inside shorter music)')
+    p.add_argument('--stop-bar', type=int, help='bar the rhythm stops (default 15, moved inside shorter music)')
     p.add_argument('--key', default='A')
     p.add_argument('--json', help='also write the palette report here')
     p.add_argument('--ffmpeg')
@@ -316,8 +343,8 @@ def main():
         ffmpeg = io.find_tool('ffmpeg', a.ffmpeg)
         if not ffmpeg:
             raise ValueError('FFmpeg is required (PATH, FFMPEG, or --ffmpeg)')
-        if a.temp_bpm and not (2 <= a.drop_bar < a.stop_bar <= a.bars + 1):
-            raise ValueError('need 2 <= drop-bar < stop-bar <= bars + 1')
+        if a.temp_bpm:
+            a.drop_bar, a.stop_bar = music_bars(a.bars, a.drop_bar, a.stop_bar)
         root = Path(a.out)
         root.mkdir(parents=True, exist_ok=True)
         palette = {'version': 2, 'rate': RATE, 'seed': a.seed, 'roles': {}, 'status': 'unheard',

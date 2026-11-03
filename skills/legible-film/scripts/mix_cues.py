@@ -42,6 +42,7 @@ Measurements do not decide what sounds right. Every output is unheard.
 """
 
 import argparse
+import hashlib
 import importlib.util
 import math
 import sys
@@ -64,6 +65,9 @@ _dspec.loader.exec_module(dialogue)
 _project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
 project = importlib.util.module_from_spec(_project_spec)
 _project_spec.loader.exec_module(project)
+_cue_spec = importlib.util.spec_from_file_location('lf_cue_list', Path(__file__).with_name('cue_list.py'))
+cue_list = importlib.util.module_from_spec(_cue_spec)
+_cue_spec.loader.exec_module(cue_list)
 
 
 def numeric(obj, key, default=0, minimum=None):
@@ -73,6 +77,132 @@ def numeric(obj, key, default=0, minimum=None):
     if minimum is not None and v < minimum:
         raise ValueError(f"{key} must be >= {minimum}")
     return float(v)
+
+
+def bytes_sha256(path):
+    """Hash exact file bytes for mix provenance."""
+    h = hashlib.sha256()
+    with open(path, 'rb') as fh:
+        for block in iter(lambda: fh.read(1024 * 1024), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def pitch_and_pan(audio, event):
+    """Apply an optional pitch shift and equal-power pan to a take."""
+    pitch = numeric(event, 'pitch_st')
+    if abs(pitch) > 12:
+        raise ValueError('pitch_st must be between -12 and 12')
+    if pitch:
+        factor = 2 ** (pitch / 12)
+        length = max(1, round(len(audio) / factor))
+        positions = np.arange(length) * factor
+        source = np.arange(len(audio))
+        audio = np.stack([np.interp(positions, source, audio[:, ch]) for ch in range(2)], axis=1).astype(np.float32)
+    pan = event.get('pan')
+    if pan == 'x':
+        pan = numeric(event, 'x')
+    if pan is not None:
+        pan = numeric({'pan': pan}, 'pan')
+        if abs(pan) > 1:
+            raise ValueError('pan must be between -1 and 1')
+        theta = (pan + 1) * np.pi / 4
+        audio = audio * np.array([math.sqrt(2) * math.cos(theta), math.sqrt(2) * math.sin(theta)], np.float32)
+    return audio, pitch, pan
+
+
+def section_envelope(sections, bus, length, rate):
+    """Apply bus gains with short transitions at section boundaries."""
+    db = np.zeros(length, np.float32)
+    for section in sections:
+        gains = section.get('gain_db', {})
+        if not isinstance(gains, dict):
+            raise ValueError('section gain_db must be keyed by bus')
+        if bus not in gains:
+            continue
+        gain = numeric(gains, bus)
+        start, end = numeric(section, 'a', minimum=0), numeric(section, 'b', minimum=0)
+        if end <= start:
+            raise ValueError('section b must be after a')
+        lo, hi = min(length, round(start * rate)), min(length, round(end * rate))
+        db[lo:hi] = gain
+    width = max(1, round(.01 * rate))
+    changes = np.flatnonzero(np.diff(db) != 0) + 1
+    result = db.copy()
+    for change in changes:
+        lo, hi = max(0, change - width // 2), min(length, change + width // 2)
+        if hi > lo:
+            result[lo:hi] = np.linspace(db[lo], db[hi - 1], hi - lo)
+    return np.power(10.0, result / 20).astype(np.float32)
+
+
+def silence_envelope(windows, bus, length, rate):
+    """Ramp the selected buses down for explicitly scoped silence."""
+    gain = np.ones(length, np.float32)
+    for start, end, event, scope in windows:
+        if scope == 'new' or (scope == 'effects' and bus != 'effects'):
+            continue
+        lo, hi = max(0, round(start * rate)), min(length, round(end * rate))
+        if hi <= lo:
+            continue
+        n = min(max(1, round(.01 * rate)), hi - lo)
+        curve = np.full(hi - lo, .001, np.float32)
+        curve[:n] = np.linspace(1, .001, n)
+        gain[lo:hi] = np.minimum(gain[lo:hi], curve)
+        after = min(length, hi + n)
+        if after > hi:
+            gain[hi:after] = np.minimum(gain[hi:after], np.linspace(.001, 1, after - hi))
+    return gain
+
+
+def masking_and_heroes(placed, music, bed, voice, rate):
+    """Report close effects sharing a broad band and hero presence margins."""
+    facts = []
+    for row, audio, start in placed:
+        window = max(2, round(.1 * rate))
+        left = round((row['t'] - .05) * rate)
+        isolated = np.zeros((window, 2), np.float32)
+        a, b = max(left, start), min(left + window, start + len(audio))
+        if b > a:
+            isolated[a-left:b-left] = audio[a-start:b-start]
+        powers, bands = band_powers(isolated, rate)
+        band = int(np.argmax(powers))
+        level = 10 * math.log10(max(float(powers[band]), 1e-24))
+        facts.append((row, audio, start, band, level, float(np.max(np.abs(isolated))) > .001))
+    masking = []
+    for i, (row, _, _, band, level, audible) in enumerate(facts):
+        for other, _, _, other_band, other_level, other_audible in facts[i + 1:]:
+            distance = abs(row['t'] - other['t']) * 1000
+            if audible and other_audible and distance <= 80 and band == other_band and abs(level - other_level) < 6:
+                masking.append({'ids': [row['id'], other['id']], 'distance_ms': distance,
+                                'band_hz': bands[band], 'difference_db': abs(level - other_level)})
+    heroes = []
+    length = len(music)
+    for row, audio, start, _, _, _ in facts:
+        if not row.get('hero'):
+            continue
+        lo, hi = max(0, round((row['t'] - .05) * rate)), min(length, round((row['t'] + .05) * rate))
+        if hi <= lo:
+            continue
+        isolated = np.zeros((hi - lo, 2), np.float32)
+        a, b = max(lo, start), min(hi, start + len(audio))
+        if b > a:
+            isolated[a-lo:b-lo] += audio[a-start:b-start]
+        other = music[lo:hi] + bed[lo:hi] + voice[lo:hi]
+        for other_row, other_audio, other_start, _, _, _ in facts:
+            if other_row is row:
+                continue
+            a, b = max(lo, other_start), min(hi, other_start + len(other_audio))
+            if b > a:
+                other[a-lo:b-lo] += other_audio[a-other_start:b-other_start]
+        def band_power(x):
+            freq = np.fft.rfftfreq(len(x), 1 / rate)
+            spectrum = np.fft.rfft(x * np.hanning(len(x))[:, None], axis=0)
+            return float(np.sum(np.abs(spectrum[(freq >= 1000) & (freq < 5000)]) ** 2))
+        margin = 10 * math.log10(max(band_power(isolated), 1e-24) / max(band_power(other), 1e-24))
+        heroes.append({'id': row['id'], 'window_s': [lo / rate, hi / rate], 'band_hz': [1000, 5000],
+                       'margin_db': margin})
+    return masking, heroes
 
 
 def sync_point(x, kind, rate):
@@ -387,7 +517,7 @@ def mix_files(a, palette, roles, root):
     voice = palette.get("voice") if palette.get("version", 1) == 2 else None
     names = ("effects", "music", "bed", "mix") + (("voice",) if voice is not None else ())
     outputs = [out / (name + ".wav") for name in names] + [out / "mix-report.json", a.json]
-    inputs = [a.cues, a.palette, a.music]
+    inputs = [a.cues, a.palette, a.music, a.conform]
     music = palette.get("music")
     if isinstance(music, dict) and isinstance(music.get("file"), str):
         inputs.append(root / music["file"])
@@ -406,13 +536,24 @@ def mix(a):
         raise ValueError("FFmpeg is required (PATH, FFMPEG, or --ffmpeg)")
     if a.rate < 8000 or a.rate > 192000:
         raise ValueError("rate must be 8000..192000")
-    spec = __import__("json").loads(Path(a.cues).read_text(encoding="utf-8"))
+    cue_hash = bytes_sha256(a.cues)
+    palette_hash = bytes_sha256(a.palette)
+    listed = cue_list.load_for("mix_cues.py", a.cues)   # refuses a stale list or an unbound plan
+    spec = listed.doc
+    if listed.version == "v2" and listed.fps is not None:
+        spec = dict(spec, fps=listed.fps)
     palette = __import__("json").loads(Path(a.palette).read_text(encoding="utf-8"))
     if not isinstance(palette, dict):
         raise ValueError("palette must be an object")
-    events = spec.get("events") if isinstance(spec, dict) else spec
+    events = listed.events
     if not isinstance(events, list):
         raise ValueError("cues must contain an events list")
+    if listed.version == 'v1':
+        for event in events:
+            if isinstance(event, dict):
+                event['scale'] = listed.scale(event)
+                event.pop('t_end', None)
+                event.pop('scope', None)
     roles = palette.get("roles", {})
     if not isinstance(roles, dict):
         raise ValueError("palette roles must be an object")
@@ -430,7 +571,37 @@ def mix(a):
     if preset != "none" and a.gain_to_lufs is not None:
         raise ValueError("--gain-to-lufs and mastering cannot be combined")
     root = Path(a.palette).resolve().parent
-    project.refuse_overwriting_inputs(*mix_files(a, palette, roles, root))
+    outputs, input_files = mix_files(a, palette, roles, root)
+    project.refuse_overwriting_inputs(outputs, input_files)
+    if a.json and any(project.same_file(a.json, output) for output in outputs[:-2]):
+        raise ValueError('the JSON report cannot replace a WAV output')
+    input_states = {str(Path(path).resolve()): bytes_sha256(path) if Path(path).is_file() else None
+                    for path in input_files if path}
+    input_hashes = {path: value for path, value in input_states.items() if value is not None}
+    def inputs_changed():
+        return any((not Path(path).is_file() if value is not None else Path(path).exists())
+                   or (value is not None and bytes_sha256(path) != value)
+                   for path, value in input_states.items())
+    if input_hashes[str(Path(a.cues).resolve())] != cue_hash or input_hashes[str(Path(a.palette).resolve())] != palette_hash:
+        raise ValueError('cue list or palette changed while it was read; mix again')
+    sections = listed.sections
+    if not isinstance(sections, list) or any(not isinstance(section, dict) for section in sections):
+        raise ValueError('sections must be a list of objects')
+    if a.conform:
+        if not a.music or a.no_music:
+            raise ValueError('--conform requires --music and cannot be combined with --no-music')
+        conform = __import__('json').loads(Path(a.conform).read_text(encoding='utf-8-sig'))
+        if conform.get('cues_sha256') != cue_hash:
+            raise ValueError('stale bed: conform report names another cue list')
+        if conform.get('bed_sha256') != bytes_sha256(a.music):
+            raise ValueError('stale bed: music bytes differ from the conform report')
+        music_spec = palette.get('music')
+        if not isinstance(music_spec, dict) or not isinstance(music_spec.get('file'), str):
+            raise ValueError('conform verification needs the palette music source file')
+        if conform.get('music_sha256') != bytes_sha256(root / music_spec['file']):
+            raise ValueError('stale bed: palette music differs from the conform report')
+        if any('music' in section.get('gain_db', {}) for section in sections):
+            raise ValueError('section music gain would duplicate the conform gain')
     placed, missing, silence, dips, warnings = [], [], [], [], []
     cache, rotation, timed = {}, {}, []
     expanded = []
@@ -442,7 +613,7 @@ def mix(a):
         if not ev.get("enabled", True) and ev.get("sound") != "silent":
             continue
         expanded.append((i, ev))
-        if version != 2 or ev.get("sound") == "silent":
+        if version != 2 or ev.get("sound") == "silent" or ev.get('scale') in ('follow', 'silence'):
             continue
         rs = roles.get(ev.get("role"), {})
         if not isinstance(rs, dict):
@@ -453,7 +624,8 @@ def mix(a):
         for k, layer in enumerate(layers):
             if not isinstance(layer, dict) or not isinstance(layer.get("role"), str):
                 raise ValueError("each layer needs a role")
-            child = {key: ev[key] for key in ("t", "frame", "sound") if key in ev}
+            child = {key: ev[key] for key in ('t', 'frame', 'sound', 'scale', 'lead_ms', 'pan', 'x',
+                                              'pitch_st', 'section', 'hero') if key in ev}
             child.update(
                 id=ev.get("id", i),
                 role=layer["role"],
@@ -474,15 +646,44 @@ def mix(a):
             t = numeric(ev, "frame", minimum=0) / fps
         else:
             raise ValueError(f"event {i} needs t or frame and fps")
+        scale = ev.get('scale', 'contact')
+        if scale not in ('contact', 'turn', 'follow', 'silence'):
+            raise ValueError(f'event {i} has an unknown scale')
         kind = ev.get("sound", "required")
         if kind not in ("required", "optional", "silent"):
             raise ValueError(f"event {i} has an unknown sound kind")
         timed.append((t, ev))
-        if kind == "silent":
-            silence.append((t, ev, numeric(ev, "window_ms", 120, 0.001) / 1000))
+        if scale == 'follow':
+            if 't_end' in ev:
+                timed.append((numeric(ev, 't_end', minimum=t), ev))
             continue
+        if kind == "silent" or scale == 'silence':
+            if 't_end' in ev:
+                end = numeric(ev, 't_end', minimum=0)
+                if end <= t:
+                    raise ValueError('silence t_end must be after t')
+                start = t
+            else:
+                half = numeric(ev, 'window_ms', 120, .001) / 1000
+                start, end = t - half, t + half
+            scope = ev.get('scope', 'new')
+            if scope not in ('new', 'effects', 'all'):
+                raise ValueError('silence scope must be new, effects or all')
+            silence.append((start, end, ev, scope))
+            if 't_end' in ev:
+                timed.append((end, ev))
+            continue
+        picture_t = t
+        if scale == 'turn':
+            t += numeric(ev, 'lead_ms') / 1000
         role = ev.get("role")
         row = {"id": ev.get("id", i), "role": role, "t": t, "sound": kind}
+        if scale == 'turn':
+            row['picture_t'] = picture_t
+        if 'hero' in ev:
+            if not isinstance(ev['hero'], bool):
+                raise ValueError('hero must be boolean')
+            row['hero'] = ev['hero']
         if "_layer" in ev:
             row.update(parent_id=ev["_parent"], layer_index=ev["_layer"])
         if not isinstance(role, str) or role not in roles:
@@ -520,8 +721,9 @@ def mix(a):
         sync = ev.get("sync", rs.get("sync", "attack"))
         if sync not in ("attack", "apex", "end"):
             raise ValueError(f"event {row['id']} has unknown sync")
+        x, pitch, pan = pitch_and_pan(x, ev)
         points = rs.get("points_s", [])
-        if sync == rs.get("sync", "attack") and isinstance(points, list) and len(points) > index:
+        if not pitch and sync == rs.get("sync", "attack") and isinstance(points, list) and len(points) > index:
             point = numeric({"point": points[index]}, "point", minimum=0)
             if point > len(x) / a.rate:
                 raise ValueError("sync point lies beyond the take")
@@ -542,6 +744,10 @@ def mix(a):
             duration_s=len(x) / a.rate,
             placed_sync_s=(start + round(point * a.rate)) / a.rate,
         )
+        if 'pitch_st' in ev:
+            row['pitch_st'] = pitch
+        if pan is not None:
+            row['pan'] = pan
         if errors:
             warnings.append({"id": row["id"], "unreadable_rotated_takes": errors})
         placed.append((row, audio, start))
@@ -551,6 +757,8 @@ def mix(a):
             dips.append((dip_start, max(t + 0.050, (start + len(x)) / a.rate), amount))
     longest = max((len(x) / a.rate for _, x, _ in placed), default=0)
     duration = a.duration if a.duration is not None else (spec.get("duration") if isinstance(spec, dict) else None)
+    if duration is None and sections:
+        duration = max(numeric(section, 'b', minimum=0) for section in sections)
     if duration is None:
         duration = max((t for t, _ in timed), default=0) + longest
     duration = numeric({"duration": duration}, "duration", minimum=1 / a.rate)
@@ -569,12 +777,26 @@ def mix(a):
     silent_violations = []
     silent_tails = []
     silent_outside = []
-    for t, ev, half in silence:
-        if t + half <= 0 or t - half >= duration:
+    scoped_starts = []
+    for start_s, end_s, ev, scope in silence:
+        if end_s <= 0 or start_s >= duration:
             silent_outside.append(ev.get("id"))
-        a0 = min(length, max(0, round((t - half) * a.rate)))
-        b0 = min(length, max(0, round((t + half) * a.rate)))
+        a0 = min(length, max(0, round(start_s * a.rate)))
+        b0 = min(length, max(0, round(end_s * a.rate)))
         for (row, x, start), (a1, b1) in zip(placed, audible_ranges):
+            if (scope == 'new' and ('t_end' in ev or (isinstance(spec, dict) and spec.get('version') == 'v2'))
+                    and a0 <= start < b0):
+                detail = {'silent_id': ev.get('id'), 'take_event_id': row['id'],
+                          'overlap_s': [start / a.rate, min(b0, start + len(x)) / a.rate]}
+                if 'layer_index' in row:
+                    detail['layer_index'] = row['layer_index']
+                silent_violations.append(detail)
+                continue
+            if scope != 'new' and a0 <= start < b0:
+                lo, hi = max(a0, start), min(b0, start + len(x))
+                if hi > lo:
+                    scoped_starts.append((ev, row, x, start, lo, hi))
+                continue
             lo, hi = max(a0, a1, start), min(b0, b1, start + len(x))
             if hi > lo and np.max(np.abs(x[lo - start : hi - start])) > 0.001:
                 detail = {
@@ -602,19 +824,29 @@ def mix(a):
     if not isinstance(ms, dict):
         raise ValueError("palette music must be an object")
     music_file = a.music or ms.get("file")
+    music_input_path = None
     if music_file and not a.no_music:
         path = Path(a.music).resolve() if a.music else root / music_file
-        offset, at = numeric(ms, "offset_s", minimum=0), numeric(ms, "at_s", minimum=0)
-        stop = numeric(ms, "stop_s", duration, minimum=0)
+        music_input_path = path
+        if a.conform:
+            if any(numeric(ms, key) != 0 for key in ('offset_s', 'at_s', 'gain_db', 'fade_in_ms', 'fade_out_ms')) or 'stop_s' in ms:
+                raise ValueError('a conformed bed already has its timing and gain; remove palette music processing')
+            offset, at, stop, gain_db, fade_in, fade_out = 0, 0, duration, 0, 0, 0
+        else:
+            offset, at = numeric(ms, "offset_s", minimum=0), numeric(ms, "at_s", minimum=0)
+            stop = numeric(ms, "stop_s", duration, minimum=0)
+            gain_db = numeric(ms, 'gain_db')
+            fade_in = numeric(ms, 'fade_in_ms', 10, minimum=0)
+            fade_out = numeric(ms, 'fade_out_ms', 20, minimum=0)
         stop = min(duration, stop)
         if stop <= at:
             raise ValueError("music stop_s must be after at_s")
         x = io.decode(ffmpeg, path, a.rate, 2, offset, stop - at)
         lo = round(at * a.rate)
         count = min(len(x), length - lo, round(stop * a.rate) - lo)
-        x = x[:count] * 10 ** (numeric(ms, "gain_db") / 20)
-        ni = min(count, round(numeric(ms, "fade_in_ms", 10, minimum=0) * a.rate / 1000))
-        no = min(count, round(numeric(ms, "fade_out_ms", 20, minimum=0) * a.rate / 1000))
+        x = x[:count] * 10 ** (gain_db / 20)
+        ni = min(count, round(fade_in * a.rate / 1000))
+        no = min(count, round(fade_out * a.rate / 1000))
         if ni:
             x[:ni] *= np.linspace(0, 1, ni)[:, None]
         if no:
@@ -625,6 +857,12 @@ def mix(a):
         if version == 2
         else (np.zeros_like(effects), {"enabled": False})
     )
+    effect_gain = np.ones(length, np.float32)
+    if sections:
+        effect_gain *= section_envelope(sections, 'effects', length, a.rate)
+        effects *= effect_gain[:, None]
+        music *= section_envelope(sections, 'music', length, a.rate)[:, None]
+        bed *= section_envelope(sections, 'bed', length, a.rate)[:, None]
     duck = duck_envelope(length, a.rate, dips)
     music *= duck[:, None]
     voice_spec = palette.get("voice") if version == 2 else None
@@ -632,8 +870,28 @@ def mix(a):
     voice_report = None
     if voice_spec is not None:
         voice, voice_report = mix_voice(ffmpeg, voice_spec, root, music, bed, a, warnings)
-    presence, listening = [], []
+        if sections:
+            voice *= section_envelope(sections, 'voice', length, a.rate)[:, None]
+    if any(scope == 'all' and voice_spec is not None and not ev.get('decision')
+           for _, _, ev, scope in silence):
+        raise ValueError('all-scoped silence needs a decision before changing voice')
+    if any(scope != 'new' for _, _, _, scope in silence):
+        effect_silence = silence_envelope(silence, 'effects', length, a.rate)
+        effects *= effect_silence[:, None]
+        effect_gain *= effect_silence
+        music *= silence_envelope(silence, 'music', length, a.rate)[:, None]
+        bed *= silence_envelope(silence, 'bed', length, a.rate)[:, None]
+        voice *= silence_envelope(silence, 'voice', length, a.rate)[:, None]
+    effective_placed = []
     for row, audio, start in placed:
+        processed = np.zeros_like(audio)
+        lo, hi = max(0, start), min(length, start + len(audio))
+        if hi > lo:
+            processed[lo-start:hi-start] = audio[lo-start:hi-start] * effect_gain[lo:hi, None]
+        effective_placed.append((row, processed, start))
+    masking, hero_presence = masking_and_heroes(effective_placed, music, bed, voice, a.rate)
+    presence, listening = [], []
+    for row, audio, start in effective_placed:
         lo, hi = max(0, round(row["t"] * a.rate)), min(length, round((row["t"] + 0.15) * a.rate))
         if hi <= lo:
             continue
@@ -722,6 +980,17 @@ def mix(a):
             except ValueError as exc:
                 refused = str(exc)
         mastering["refused"] = refused
+    # For ramped scopes, inspect the sound that remains after section, silence and master gains.
+    for ev, row, audio, start, lo, hi in scoped_starts:
+        segment = audio[lo - start:hi - start] * effect_gain[lo:hi, None] * 10 ** (applied_gain / 20)
+        if preset != 'none' and mastering['refused'] is None:
+            segment = segment * envelope[lo:hi, None]
+        if np.max(np.abs(segment)) > .001:
+            detail = {'silent_id': ev.get('id'), 'take_event_id': row['id'],
+                      'overlap_s': [lo / a.rate, hi / a.rate]}
+            if 'layer_index' in row:
+                detail['layer_index'] = row['layer_index']
+            silent_violations.append(detail)
     for tail in silent_tails:
         # Recompute from the isolated take through the same master envelope;
         # adding plain gain alone would overstate a tail under the limiter.
@@ -729,12 +998,14 @@ def mix(a):
         for row, audio, start in placed:
             if row["id"] == tail["take_event_id"] and row.get("layer_index") == tail.get("layer_index"):
                 lo, hi = max(a0, start), min(b0, start + len(audio))
-                segment = audio[lo - start : hi - start] * 10 ** (applied_gain / 20)
+                segment = audio[lo - start : hi - start] * effect_gain[lo:hi, None] * 10 ** (applied_gain / 20)
                 if preset != "none" and mastering["refused"] is None:
                     segment = segment * envelope[lo:hi, None]
                 tail["peak_dbfs"] = io.db(np.max(np.abs(segment)))
                 tail["rms_dbfs"] = io.db(np.sqrt(np.sum(segment.astype(np.float64) ** 2) / ((b0 - a0) * 2)))
                 break
+    if inputs_changed():
+        raise ValueError('a mixer input changed during the mix; rebuild it')
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     for name, x in (("effects", effects), ("music", music), ("bed", bed), ("mix", mix_audio)):
@@ -792,6 +1063,9 @@ def mix(a):
         "silent_window_violations": silent_violations,
         "stacked_events": stacked,
         "presence": presence,
+        "masking": masking,
+        "hero_presence": hero_presence,
+        "music_binding": 'verified' if a.conform else ('unverified' if music_input_path is not None else 'none'),
         "listening_check_candidates": listening,
         "silent_windows_outside_output": silent_outside,
         "silent_window_tails": silent_tails,
@@ -812,6 +1086,8 @@ def mix(a):
         },
         "ducking": {
             "dips": len(dips),
+            "events": [{"start_s": start, "end_s": end, "depth_db": amount}
+                       for start, end, amount in dips],
             "minimum_gain": float(duck.min()),
             "max_adjacent_gain_change": float(np.max(np.abs(np.diff(duck)))) if len(duck) > 1 else 0,
         },
@@ -821,6 +1097,25 @@ def mix(a):
     }
     if voice_report is not None:
         report["voice"] = voice_report
+    if inputs_changed():
+        raise ValueError('a mixer input changed while outputs were written; rebuild it')
+    report['inputs'] = {'cues': cue_hash, 'cues_path': str(Path(a.cues).resolve()),
+                        'palette': palette_hash, 'files': input_hashes}
+    if music_input_path is not None:
+        report['inputs']['music'] = input_hashes[str(Path(music_input_path).resolve())]
+    if a.conform:
+        report['inputs']['conform'] = input_hashes[str(Path(a.conform).resolve())]
+    if voice_spec is not None:
+        entries = voice_spec if isinstance(voice_spec, list) else [voice_spec]
+        report['inputs']['voice'] = [
+            {'sha256': input_hashes[str((root / entry['file']).resolve())], 'at_s': numeric(entry, 'at_s'),
+             'gain_db': numeric(entry, 'gain_db')}
+            for entry in entries
+        ]
+    report['outputs'] = {name + '.wav': bytes_sha256(out / (name + '.wav'))
+                         for name in ('effects', 'music', 'bed', 'mix')}
+    if voice_spec is not None:
+        report['outputs']['voice.wav'] = bytes_sha256(out / 'voice.wav')
     io.save_json(out / "mix-report.json", report)
     if a.json:
         io.save_json(a.json, report)
@@ -845,6 +1140,7 @@ def main():
     p.add_argument("--out-dir", required=True)
     p.add_argument("--no-music", action="store_true")
     p.add_argument("--music")
+    p.add_argument("--conform")
     p.add_argument("--rate", type=int, default=48000)
     p.add_argument("--duck-default-db", type=io.finite, default=0)
     p.add_argument("--gain-to-lufs", type=io.finite)

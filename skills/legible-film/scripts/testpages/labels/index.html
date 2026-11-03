@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Legible Film cue-export fixture: labels and the lf-cues block</title>
+<style>
+@font-face { font-family: "Fixture Inter"; src: url("assets/fonts/Inter-Latin-400.woff2") format("woff2"); font-weight: 400; }
+html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #0e1116; }
+#root { position: relative; width: 1920px; height: 1080px; overflow: hidden; font-family: "Fixture Inter"; color: #f1f3f5; }
+.clip { position: absolute; inset: 0; }
+#open-card { background: #0e1116; }
+#open-title { position: absolute; left: 240px; top: 470px; font-size: 120px; letter-spacing: 2px; }
+#drop-card { background: #1b2a3a; }
+#wordmark { position: absolute; left: 760px; top: 300px; font-size: 140px; }
+#type-line { position: absolute; left: 420px; top: 620px; height: 120px; white-space: nowrap; font-size: 90px; }
+#tap-dot { position: absolute; left: 1560px; top: 820px; width: 80px; height: 80px; border-radius: 40px; background: #f6c445; }
+#hold-card { background: #0e1116; }
+#hold-line { position: absolute; left: 640px; top: 500px; font-size: 80px; }
+#inner { position: absolute; inset: 0; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+</head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="8" data-width="1920" data-height="1080" data-fps="24000/1001">
+  <div id="open-card" class="clip" data-start="0" data-duration="3" data-track-index="0">
+    <div id="open-title">What this is</div>
+  </div>
+  <div id="drop-card" class="clip" data-start="3" data-duration="3" data-track-index="1">
+    <div id="wordmark">Legible</div>
+    <div id="type-line">the line types itself</div>
+    <div id="tap-dot"></div>
+  </div>
+  <div id="inner" data-composition-id="inner" data-composition-src="compositions/inner.html" data-start="5" data-duration="1" data-track-index="2"></div>
+  <div id="hold-card" class="clip" data-start="6" data-duration="2" data-track-index="3">
+    <div id="hold-line">it breathes</div>
+  </div>
+</div>
+<script type="application/json" id="lf-cues">
+{"sections": {"open": {"clock": "speech", "label": "what this is"},
+              "drop": {"clock": "music", "gain_db": {"effects": 0}},
+              "hold": {"clock": "silence", "decision": "the ending breathes"}},
+ "events": {
+   "drop-in": {"scale": "turn", "sync": "attack", "lead_ms": -83, "role": "hit", "sound": "required", "hero": true,
+               "el": "#wordmark", "decision": "the hit leads the cut by two frames", "picture": "cut to the wordmark"},
+   "type-run": {"scale": "follow", "role": "key", "run": true, "intent": "key density follows the typing",
+                "picture": "the line types itself"},
+   "tap-3": {"scale": "contact", "sync": "apex", "sound": "optional", "role": "tap", "span": "type-run", "el": "#tap-dot"},
+   "inner-pop": {"scale": "contact", "sync": "attack", "role": "pop", "picture": "the inner scene's mark lands"},
+   "breath": {"scale": "silence", "sound": "silent", "scope": "new", "decision": "the ending breathes"}}}
+</script>
+<script>
+window.__timelines = window.__timelines || {};
+(function () {
+  // Every label sits on the frame grid of the root's data-fps, so an export is exact to one frame at that rate.
+  const rate = document.getElementById('root').getAttribute('data-fps').split('/');
+  const fps = Number(rate[0]) / Number(rate[1] || 1);
+  const F = seconds => Math.round(seconds * fps) / fps;
+  const tl = gsap.timeline({ paused: true });
+  tl.fromTo('#open-title', { x: 0 }, { x: 480, duration: 3, ease: 'none' }, 0);
+  tl.fromTo('#wordmark', { y: 0 }, { y: -60, duration: 1, ease: 'none' }, 3);
+  tl.fromTo('#type-line', { clipPath: 'inset(0% 100% 0% 0%)' }, { clipPath: 'inset(0% 0% 0% 0%)', duration: F(5.5) - F(4), ease: 'none' }, F(4));
+  tl.fromTo('#tap-dot', { scale: 0.2 }, { scale: 1, duration: 1 / fps, ease: 'none' }, F(5) - 1 / fps);
+  tl.fromTo('#hold-line', { opacity: 0.2 }, { opacity: 1, duration: 1.5, ease: 'none' }, 6);
+  tl.addLabel('section:open', 0);
+  tl.addLabel('section:drop', F(3));
+  tl.addLabel('section:hold', F(6));
+  tl.addLabel('cue:drop-in', F(3));
+  tl.addLabel('cue:type-run', F(4));
+  tl.addLabel('cue:type-run:end', F(5.5));
+  tl.addLabel('cue:tap-3', F(5));
+  tl.addLabel('cue:breath', F(6));
+  tl.addLabel('cue:breath:end', F(7.5));
+  tl.set({}, {}, 8);
+  window.__timelines['main'] = tl;
+})();
+</script>
+</body>
+</html>

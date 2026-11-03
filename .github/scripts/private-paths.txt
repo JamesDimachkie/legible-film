@@ -1,0 +1,10 @@
+# The personal-path gate's allowlist (check_docs.py). One legitimate hit per line:
+#   path | text the allowed line contains | reason
+# A line is allowed only in the named file and only when it contains the text, so a moved line stays allowed and a
+# new personal path on another line still fails. Private terms (LF_PRIVATE_TERMS) are never allowed here.
+skills/legible-film/scripts/setup.py | Path.home() / 'AppData' / 'Local' | the per-user data home on Windows when LOCALAPPDATA is unset
+skills/legible-film/scripts/make_film.py | path.join(os.homedir(), 'AppData', 'Local') | the per-user data home on Windows, in the Node probe make_film writes
+skills/legible-film/scripts/film_capture.mjs | path.join(os.homedir(), 'AppData', 'Local') | the per-user data home and Playwright's browser cache on Windows
+skills/legible-film/scripts/selftest_cases/_browser.py | Path.home() / 'AppData' / 'Local' | the per-user data home and Playwright's browser cache on Windows, found as film_capture.mjs finds them
+evals/trigger_run.py | Path.home() / 'AppData' / 'Local' | the per-user data home on Windows, where the shared heavy-job lock lives
+skills/legible-film/scripts/selftest_cases/screen.py | C:/Users/jane | a made-up user in fixtures proving the Screening Room never shows a private path

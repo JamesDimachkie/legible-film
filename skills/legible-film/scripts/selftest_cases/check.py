@@ -65,8 +65,10 @@ def check_reviews_bound_to_file(record, j, scripts_dir):
     preview = {row['id']: row['state'] for row in check.check_project(root, 'v001', None, False)['items']}
     finals = {row['id']: row['state'] for row in check.check_project(root, 'v001', final, False)['items']}
     record('check: a preview review (hashed or older) passes the preview but never a different final file',
-           preview == {'spec': 'pass', 'watched_muted': 'pass', 'heard': 'pass'}
-           and finals == {'spec': 'fail', 'watched_muted': 'you', 'heard': 'you'}, f'{preview} {finals}')
+           all(preview.get(key) == state for key, state in
+               {'spec': 'pass', 'watched_muted': 'pass', 'heard': 'pass'}.items())
+           and all(finals.get(key) == state for key, state in
+                   {'spec': 'fail', 'watched_muted': 'you', 'heard': 'you'}.items()), f'{preview} {finals}')
     line, stage = check.P.status_line(root), check.P.read_status(root)['stages']['check']
     record('check: the status line shows a failed final with its file, and the check stage is not done',
            'final deliver/final.mp4 checked' in line and '1 failed' in line and stage == 'now', f'{line} {stage}')
@@ -312,6 +314,7 @@ def check_dropouts(record, j):
     record('check: a hole of digital silence inside the sound is named with its time; room tone and a silent tail '
            'are not holes',
            states['hole']['state'] == 'look' and '0:01.0' in states['hole']['detail']
+           and len(states['hole'].get('holes', [])) == 1 and abs(states['hole']['holes'][0][0] - 1.0) < 0.05
            and states['room']['state'] == 'pass' and states['tail']['state'] == 'pass', str(states))
 
 
@@ -990,10 +993,12 @@ def check_craft2_units(record, scripts_dir):
         detector.push(tick, np.full((4, 4), value, dtype=np.float32))
     record('check: codec noise does not delay a pattern transition', detector.ends == [5],
            str(detector.ends))
+    # A red swing counts once its reversal in the same pixels is resolved (finish); it keeps its first crossing time.
     detector = flash.RedZig()
     for tick, value in ((0, 0), (5, 224), (9, 256), (10, 0)):
-        detector.push(tick, np.full((4, 4), value, dtype=np.float32))
-    record('check: codec noise does not delay a red transition', detector.ends == [5],
+        detector.push(tick / 100, np.full((4, 4), value, dtype=np.float32))
+    detector.finish()
+    record('check: codec noise does not delay a red transition', detector.ends[:1] == [.05],
            str(detector.ends))
     checker = (np.indices((32, 64)).sum(axis=0) % 2).astype(np.float32)
     for rate in (3, 3.1, 5, 10):
@@ -1448,16 +1453,20 @@ def run_native_cases(tool, record, j, scripts_dir):
            and 'not verified' in edit.get('detail', '') and 'map.py confirm-words' in edit.get('detail', '')
            and timeline.get('state') == 'look' and '2 clips' in timeline.get('label', ''),
            str({key: (row['state'], row['label']) for key, row in found.items()}) + output[-300:])
-    roles = [row.get('role') for row in checks.get('inputs') or []]
-    complete = all(isinstance(row.get('sha256'), str) and isinstance(row.get('bytes'), int)
-                   for row in (checks.get('inputs') or [])[:4])
+    inputs = checks.get('inputs') or []
+    roles = [row.get('role') for row in inputs]
+    by_role = {row.get('role'): row for row in inputs}
+    complete = all(isinstance(by_role.get(role, {}).get('sha256'), str)
+                   and isinstance(by_role.get(role, {}).get('bytes'), int)
+                   for role in ('export', 'captions', 'timeline', 'source_words'))
     tools = checks.get('tools') or {}
     scripts = tools.get('scripts') or {}
     record('native: the result names every input (role, absolute path, SHA-256, bytes) and the tools that made it',
-           roles == ['export', 'captions', 'timeline', 'source_words', 'timeline_media']
-           and all(row.get('sha256') is None for row in checks.get('inputs', [])[4:]) and complete
-           and checks['inputs'][1]['path'] == str(srt.resolve())
-           and checks['inputs'][0]['sha256'] == checks.get('sha256')
+           roles == ['export', 'cold_read', 'captions', 'timeline', 'source_words', 'timeline_media']
+           and all(by_role[role].get('sha256') is None and by_role[role].get('bytes') is None
+                   for role in ('cold_read', 'timeline_media')) and complete
+           and by_role['captions']['path'] == str(srt.resolve())
+           and by_role['export']['sha256'] == checks.get('sha256')
            and str(tools.get('ffmpeg', '')).startswith('ffmpeg version') and tools.get('python')
            and tools.get('skill_version') and {'check.py', 'project.py', 'exchange.py', 'captions.py',
                                                'qc_file.py'} <= set(scripts)

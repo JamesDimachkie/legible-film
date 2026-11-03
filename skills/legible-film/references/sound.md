@@ -11,7 +11,9 @@ Contents: [1. Read the film first](#1-read-the-film-before-any-sound) · [2. Map
 [3. Who leads](#3-who-leads-each-passage) · [4. What sound does to picture](#4-what-sound-does-to-the-picture) ·
 [5. Music](#5-music) · [6. Effects](#6-effects-and-the-palette) · [7. Voice](#7-voice-and-narration) ·
 [8. Mix and master](#8-mix-and-master) · [9. Clean signal](#9-clean-signal) · [10. Endings](#10-endings) ·
-[11. Loudness references](#11-loudness-references-not-targets) · [12. Decisions people can hear](#12-decisions-people-can-hear)
+[11. Loudness references](#11-loudness-references-not-targets) · [12. Decisions people can hear](#12-decisions-people-can-hear) ·
+[13. Listening by instrument](#13-listening-by-instrument) · [14. Sound design passes](#14-sound-design-passes) ·
+[15. Music passes](#15-music-passes)
 
 ## 1. Read the film before any sound
 
@@ -32,9 +34,13 @@ For each passage that matters:
 
 - An animation's first frame is rarely its meaningful moment. Separate contact, continuous motion,
   anticipation and consequence; each has a different timing job ([timing](timing.md)).
-- The cue list is an inventory, not an obligation. Record intentional silence as a decision (`"sound":
-  "silent"` in `cues.json`), and keep that role silent through rebuilds rather than letting a default sound
-  creep in.
+- The cue list is an inventory, not an obligation, and its scales say what each entry asks of the sound
+  ([timing](timing.md) §0). A turn needs a decision; a follow span needs an intent (what the density follows); a
+  contact needs a sync point.
+- Intended silence is a cue with a span, a scope and a decision (`"scale": "silence"`). Its scope says what stays
+  quiet. `new` starts no new take in the span, and tails may ring and are reported; `effects` ramps the effects bus
+  down over the span; `all` ramps every bus the mixer owns. Source audio and voice are never touched without a
+  decision line. Keep a silent role silent through rebuilds rather than letting a default sound creep in.
 - Where the viewer must read a number or a sentence, try the hold with no new sound events: an unexpected sound
   pulls attention from the task at hand.
 
@@ -107,8 +113,10 @@ refused when trimming is needed; check the supplied licence evidence for the int
 - Keep each family's meaning stable and its repeats alike: a sound that marks completion in one scene and appears
   at random in the next teaches the viewer nothing. Size each sound to what causes it; small sounds on big moments
   shrink them, and a loud sound over a still picture reads as a mistake.
-- Typing: keep key sounds in one small family, vary level and timing slightly rather than timbre, and thin dense
-  typing to a few word-level accents. Bright, identical, machine-gun keys are the common failure.
+- Typing: keep key sounds in one small family and vary level and timing slightly rather than timbre. Decide each
+  run. A run the picture means (`run: true`) keeps a sound per key, since the mixer then merges none; a few
+  word-level accents, or silence, are choices a passage may make on purpose. Bright, identical, machine-gun keys are
+  the common failure.
 - Audition every sound alone and every composite moment alone before using them; context hides defects and
   layers combine. Tool labels can be revealing: a "fast air whoosh" that reads alone as "a balloon squeak" is
   a palette problem, not a timing one.
@@ -123,6 +131,13 @@ refused when trimming is needed; check the supplied licence evidence for the int
   take by its own sync point (attack, apex or end), rotating the takes of a role across repeats, ducking the bed only
   where an event asks, and reporting missing roles, events that would smear together, and hits that sit under the
   music. It places and reports; the listener decides.
+- Events may carry `pan` (a number, or `"x"` to follow the element across the frame), `pitch_st` (within ±12
+  semitones, the sync point recomputed) and `hero`; sections may carry `gain_db` per bus. `mix-report.json` lists
+  masking pairs (two effects sharing a band within 80 ms and under 6 dB apart) and hero presence, and hashes every
+  file the mix read and wrote. Answer or name each masking pair. The mixer never boosts on its own.
+- A bed fitted by `conform.py` is bound to the cue list it was fitted to, the spotted list the mix reads; after a
+  retime, `mix_cues.py --conform` refuses the old bed, so spot and conform again from the re-exported list. A `music`
+  section gain is refused when the bed already carries its own, so no gain is applied twice.
 - A sound of the film's own (a knock, a stamp, a shutter, the product's real alert) carries more than another
   generic impact.
 - Repeated takes with equal peaks can differ in perceived loudness; compare short-term loudness and audition
@@ -226,3 +241,83 @@ month were mastered about 5 LU apart; carrying one's numbers to the other made i
   automatically mean the effects are too loud.
 - Ask for the full delivered film at normal speed, on the devices where it will play (a phone speaker when a
   key moment depends on bass, stereo detail or a quiet texture). Until then, report the sound as unheard.
+
+## 13. Listening by instrument
+
+You cannot hear, but you can listen by instrument. Measure, describe and compare the sound, and say what each
+measure cannot tell. `listen.py` follows earshot's shape (MIT, credited in `NOTICE`).
+
+- `listen.py measure FILE` gives loudness, true peak, loudness range, spectrum, width and the share below 60 Hz, each
+  printed beside the 10th to 90th percentile of seven launch films (n = 7), never as in or out of range.
+- `listen.py transcript FILE [--cues C] [--video V] [--json]` lists the sound's measured onsets, its level changes
+  (sustained jumps of 8 dB or more), the beat grid from `tempo_map.py`, and how the onsets sit against the picture's
+  changes and, with `--cues`, against the cue list. It answers a question about what a file's sound does; its events
+  are onsets, not identified sounds.
+- `listen.py sync FILE --cues C [--video V] [--json]` reports, labelled, the frame change at each turn and contact,
+  whether the sound follows the list (with chance), each turn's measured lead against its `lead_ms`, and each follow
+  span of 2 s or more as a screening signal, giving the best correlation, its band and lag beside an uncalibrated
+  circular-shift null's 95th percentile and spread, with n and seed. It never gives a significance verdict; a span it
+  cannot screen is inconclusive, with the reason. A follow span under 2 s is not screened. It reads "not assessed:
+  span under 2 s" with its length, so a brief camera flight is judged by the frame change at its cues and by
+  listening. When FILE is a stem, `--video` supplies the picture and `--source-kind stem` says so. With `--candidates`
+  and no `--cues`, it lists the picture's frame-difference peaks as unconfirmed anchors.
+- `listen.py sheet FILE --out sheet.png [--cues C]` draws the sound as one image; `listen.py labels FILE` tags events
+  with local CLAP and AST models as hints, an optional install (`setup.py --install ear`, which names its download
+  size, about 1.4 GB, and asks first). Labelling takes the heavy-job lock and refuses below 3 GiB of free memory.
+
+Times and levels are meters. Labels in a mix are half right, so treat them as hints. Taste is out of reach of every
+measure here; whether the sound works is the listener's call, and until a named person listens the sound is unheard.
+Finding sounds by description, realness scores, A/B comparison and code-made effects stay in earshot itself
+([engines](engines.md) §10).
+
+## 14. Sound design passes
+
+- **One sound rule carries the claim.** After the sound proposition (§1), state one rule the whole soundtrack obeys
+  (a single sustained tone, a short list of named sources, one kind of performer, a deliberate absence) and how it
+  states the product's claim. Rework any cue that breaks it without a written reason; the person judges whether the
+  rule still holds attention in the final third.
+- **Write what sound adds.** For each passage complete "With sound, the viewer also understands or feels ___", and
+  prepare it muted, as sound only, and combined. If the sentence is not true of the combined version, change how
+  sound relates to picture, not its level.
+- **Build the pressure the reveal relieves.** Design the before and after as one pair. For relief, let the before
+  carry the burden and the reveal remove it; offer a continuing ambience or tail, a deliberate dry stop and silence as
+  alternatives, and keep whichever the person chooses, free of edge clicks. For continuity, carry one sound across the
+  change. For precision, keep one distinct sound unused until the action that proves the claim.
+- **Set up the payoffs.** For each reveal, decide whether an earlier sound sets up the expectation, and whether the
+  reveal fulfils, delays or breaks it. Put no riser before every transition, and keep builds out of reading passages.
+- **Refuse the category's default when it lies.** Write the category's default sound and choose to use it or refuse
+  it, with the reason. A glitch, stutter or alarm-like cue taken literally can imply a failure the product does not
+  have.
+- **Give the sound a point of view:** close and bodily, inside a mind, outside a mechanism, or performance. Write what
+  it supplies that the frame does not show, without pulling the eye from the subject.
+- **Let perspective follow the move.** Where the camera or an object changes distance meaningfully, automate level,
+  the dry-to-wet balance, high-frequency loss and a restrained pan together as one gesture, and keep the room
+  consistent within a space. Decide whether each interface cue belongs to the interface or is an accent outside the
+  space; leave the rest of the soundtrack still when the camera moves.
+- **Play from the middle; play loops on repeat.** The person starts playback after the opening and notes any sound
+  whose meaning depends on something earlier, and plays a loop three or more times to catch a cue that becomes
+  intrusive.
+- **In data pieces, sound points or encodes.** A pointing cue implies no direction or count. An encoding keeps the
+  data's order, has its mapping written down, and matches the chart on screen.
+- **Caption meaningful non-speech sound.** If removing a cue changes what the viewer knows, show that information in
+  the picture or caption it.
+
+## 15. Music passes
+
+- **Hold the music back so its entrance is the release.** For an action-led film, compare a version where effects
+  carry the opening and the music first enters at the payoff against continuous music on the same cut.
+- **Keep a finished song from turning the film into a music video.** When the film turns several times, test track
+  fragments that change at each turn, with one element (a pitch, a rhythm, an instrument) running throughout and the
+  full theme only at the close.
+- **Separate "too active" from "the wrong mood".** For too fast or busy, change density, tempo or subdivision and
+  keep harmony and instruments. For the wrong feeling, change harmony, instruments or timbre and keep the activity.
+- **Shape music and picture in both directions.** Describe the music's arc in words before locking shot timings, get
+  a draft that follows it, then move picture events to the phrases where a turn lands better, where the reading
+  windows and the product's real timing still allow; re-export the cue list after each move.
+- **Edit music by harmony and waveform, not only bar numbers.** For every splice, note the chord and bass on each side,
+  the phrase's function and where the transients fall. Try a straight cut at a compatible boundary before an overlap,
+  carry a cymbal or reverb tail on its own layer when cutting the phrase under it, compare crossfade curves at matched
+  level, and never stack two kick attacks. The person listens to each join in the full cut.
+- **Keep an existing sonic identity's core.** List the features that make the brand's sonic logo recognisable, keep
+  them, adapt the length to the cut and bring it in from the film's own palette. Present a new sonic logo as a
+  proposal to test over repeated viewings.

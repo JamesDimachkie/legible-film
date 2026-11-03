@@ -1,5 +1,91 @@
 # Changelog
 
+## 2.1.0 (2026-11-03)
+
+**Upgrading from 2.0.** Every 2.0 command still works, and each now opens one of six paths
+(`references/commands.md`). New aliases: `launch`, `design` and `motion` open create, `sound` and `sfx` open sound,
+and `convert` opens quick. Inside a project, `check`, `screen`, `review`, `revise`, `deliver` and `handoff` act on the
+project's own timeline, so a version rendered in an engine is screened and checked without `cut.py`. No script is
+removed and no script's existing flags change. Old links still land: `references/recipes.md` and the Map, Plan and
+Cut sections of `references/loop.md` are now forwarding headings.
+
+An agentic video assistant for any kind of video, with picture and sound on one clock. 2.0 grew around transcripts
+and joins; 2.1 routes each request to the path its timeline belongs to, loads only what that path needs, sets every
+film's context first, and keeps picture and sound on one exported cue list.
+
+**Six paths**
+
+- `SKILL.md` is now a router of about 1,000 words (it was 2,394): the gates, the frame, one table of paths, the timing
+  floor and the shared last steps. Each path lives in `paths/`: **create** (a new film drawn in an engine), **cut**
+  (recordings shaped into a film), **insert** (picture made for a passage of footage), **sound** (sound for a picture
+  that stays as it is), **editor** (assisting someone in Premiere or Resolve) and **quick** (one file, one change or
+  one question). Each path names its timeline owner, the references it reads and when, steps that end on a stated
+  done criterion, and its first question.
+- **The frame first.** Every film states what it is, for whom, why they care, and what the viewer knows by which
+  second, each field confirmed, assumed, missing or waived. Only missing fields are asked. Quick and editor work
+  inherits its context.
+
+**One clock**
+
+- `references/timing.md` §0 is the contract. It sets one owner per timeline, the cue list exported from it and never
+  typed twice, four scales (turn, follow span, contact, silence), a decision on every turn, and two labelled measures
+  on the delivered file (the frame changes at each cue; the sound follows the list).
+- `cues.json` v2 records its picture's exact identity, so a retime makes the list, the conformed bed and the mix stale
+  and every reader refuses them. Kit films, HyperFrames pages (timeline labels plus an `lf-cues` block) and pages that
+  declare `window.__cues` export their lists from a frozen copy that the render then reads. Freeze scans what the render
+  reads, the entry page and every file its static references reach, then every file the export saw load; a file nothing
+  reaches is copied and fingerprinted, and listed as not loaded, not scanned.
+- Sound is spotted first, and the conform and the mix both read the spotted list, so a conformed bed is bound by hash
+  to the list the mixer reads. A version that carries a mix registers with that spotted list.
+- `references/timing.md` §3 gives starting values for sound that leads a turn (`lead_ms` -83 to -208, 2 to 5 frames at
+  24 fps) and for a music-led transition (the accent on the first visible change, the cut half a beat later), and
+  `paths/create.md` routes a narrated film, with the voice mapped for word times, anchors with an uncertainty, reading
+  text ahead of the voice and demonstrations on the word, and the voice in the palette's `voice` entry.
+- The beat rules the reference films contradict are gone ("cut on strong beats", whole frames per beat, thinning
+  every typing run). Landing on beats and thinning a run remain choices a passage makes on purpose.
+
+**New and extended tools** (each named in a path only once its check passes): `cue_list.py` (loader, fingerprints,
+freeze), `film_capture.mjs cues`, `project.py add-version` (register a master from any engine, bound to its cue list
+and render receipt), `cut.py attach-mix` (designed sound onto a paper version, one owner per stem), `conform.py`
+(music fitted to the list's sections), `mix_cues.py` (pan, pitch, section gain, masking and hero reports, hashed
+inputs and outputs), `listen.py` (measure, transcript, sync, sheet, labels; earshot's shape, MIT), `check.py`'s
+context and sync groups and `--against IN --edit KIND`, `sync_check.py --outside`, `grade.py cold`,
+`delivery_check.py`, and `with_lock.py` for one heavy job at a time. `add-version --sound` works on every route and
+`--min-free-gib` and `--wait-min` set its render wait; `film_check.py --verify-cues` makes the kit's frame-change
+screen opt-in; `listen.py sync` reports follow coupling as a screening signal against an uncalibrated null, never as
+significance.
+
+**From seven downloaded reference clips**
+
+- `flash_scan.py` counts a classic or red swing toward the hard limit only when an opposite swing within one second
+  moves at least a quarter of the window back in the same pixels. Shapes sliding or morphing through a window are a
+  look (`coherent_max_per_s`), never a silent pass. On two reference clips, the 4 failing windows whose frames showed
+  motion became looks and 2 windows the readings could not settle still fail. Real strobes still fail, including
+  relays whose consecutive swings never share pixels.
+- A layers-in-depth recipe in `references/picture.md` §8: one camera, flat layers placed at depths, parallax by
+  depth, overscan with a probe, and a breakdown view drawn from the same scene on the same clock.
+- `make_sound_kit.py --bars` places the default drop and stop bars inside shorter music, and refuses given bars that
+  do not fit with bars that do.
+- A follow span under 2 s reads "not assessed: span under 2 s" in `listen.py sync`, never an unexplained gap.
+
+**What moved where**
+
+- Recipe bodies moved into the path they belong to; `recipes.md` keeps its headings as pointers.
+- The loop's Map, Plan and Cut moved to `paths/cut.md`; `loop.md` keeps Check, Screen, Revise and Deliver as the
+  shared last steps.
+- Studio grade's sound design and music passes (§7.5-7.6) moved to `sound.md` §14-15; `sound.md` §13 is the new
+  listening layer.
+- `engines.md` gains cue export and the frozen copy (§2), how to open HyperFrames' own skills in Claude Code and in
+  Codex (§4), and a Tesseract route that hands the build to Tesseract's skills, with its terms quoted.
+
+**What stays manual:** writing an original score; earshot's own sound-making, sound finding and realness scores;
+warping reading holds into an existing timeline; refining word onsets against the audio; frame-exact 3D; cue export
+from engines other than the kit, HyperFrames and `window.__cues` pages; Tesseract builds; and every act of watching
+and listening.
+
+**Known limits:** the 2.1 tools are verified on Linux and Windows; on macOS they have run only in the CI self-test.
+The routing eval's harness is in `evals/`; no 2.1 routing results are published with this release.
+
 ## 2.0.0 (2026-10-31)
 
 **Upgrading from 1.x.** Every 1.x command still works except `short`: `brief` and `film` open `plan`, `teaser` opens

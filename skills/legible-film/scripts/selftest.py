@@ -22,6 +22,7 @@ import ast
 import contextlib
 import io
 import importlib.util
+import inspect
 import hashlib
 import datetime
 import re
@@ -37,7 +38,40 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 RESULTS = []
 SKIPS = []
-CASE_MODULES = ('project', 'check', 'screen', 'exchange', 'exchange_write', 'map', 'setup', 'firstrun', 'cut', 'taste', 'look', 'matte', 'tighten', 'spatial', 'stream', 'sound', 'render', 'make', 'gaps', 'library', 'chain', 'qcfix', 'captions', 'cues', 'outputs', 'flash', 'tracefix', 'footage', 'dialogue', 'reviewfix', 'grade')
+# Case areas run in this order first; every other selftest_cases/<area>.py that defines run_<area>_cases(tool, record,
+# j, scripts_dir[, skip]) is registered by its file alone and runs after them in name order, so a new area needs no
+# edit here. Files whose names start with an underscore are helpers, not areas.
+LEGACY_ORDER = ('project', 'check', 'screen', 'exchange', 'exchange_write', 'map', 'setup', 'firstrun', 'cut', 'taste',
+                'look', 'matte', 'tighten', 'spatial', 'stream', 'sound', 'render', 'make', 'gaps', 'library', 'chain',
+                'qcfix', 'captions', 'cues', 'outputs', 'flash', 'tracefix', 'footage', 'dialogue', 'reviewfix', 'grade')
+
+
+def case_areas(folder=None):
+    """Every registered case area: the legacy order, then the other case files in name order."""
+    folder = folder or os.path.join(HERE, 'selftest_cases')
+    found = []
+    for name in sorted(os.listdir(folder)):
+        stem, ext = os.path.splitext(name)
+        if ext != '.py' or stem.startswith('_'):
+            continue
+        with open(os.path.join(folder, name), encoding='utf-8-sig') as fh:
+            if re.search(r'^def run_' + re.escape(stem) + r'_cases\(', fh.read(), re.MULTILINE):
+                found.append(stem)
+    return [a for a in LEGACY_ORDER if a in found] + [a for a in found if a not in LEGACY_ORDER]
+
+
+CASE_MODULES = tuple(case_areas()) if os.path.isdir(os.path.join(HERE, 'selftest_cases')) else LEGACY_ORDER
+STRUCTURED_SKIP_LINES = set()
+
+
+def skip(name, reason, count=1):
+    """Record checks that did not run, with how many assertions they stand for and why; counted in the summary and
+    the JSON exactly once."""
+    count = max(1, int(count))
+    line = f'SKIP  {name} ({reason})' + (f' [{count} checks]' if count > 1 else '')
+    STRUCTURED_SKIP_LINES.add(line)
+    SKIPS.append({'count': count, 'reason': f'{name}: {reason}'})
+    print(line, flush=True)
 
 
 def record(name, ok, detail=''):
@@ -214,6 +248,8 @@ def skipped_cases(area, output):
     """Count declared module skips; optional online work is one grouped case."""
     found = []
     for line in output.splitlines():
+        if line in STRUCTURED_SKIP_LINES:
+            continue   # already counted by skip()
         if area == 'make' and line.startswith('skipped: make_film cases need '):
             found.append({'count': make_case_count(), 'reason': line[len('skipped: '):]})
         elif area == 'footage' and line.startswith('SKIP  footage: HLG '):
@@ -228,6 +264,9 @@ def skipped_cases(area, output):
             found.append({'count': 1, 'reason': line[len('SKIP  '):]})
         elif area == 'grade' and line.startswith('NOT RUN  grade: '):
             found.append({'count': 1, 'reason': line[len('NOT RUN  '):]})
+        elif line.startswith('SKIP  ') and area not in ('footage', 'library', 'cut', 'check', 'screen'):
+            # Any other printed skip counts once, so a case that prints its own skip line is never lost.
+            found.append({'count': 1, 'reason': line[len('SKIP  '):]})
     return found
 
 
@@ -281,6 +320,14 @@ def unsafe_destination(path, kind):
     if isinstance(data, dict) and all(key in data for key in keys):
         return ''
     return f'{path} exists and is not an earlier self-test {kind}; choose a new file name'
+
+
+def cue_list_module():
+    """cue_list.py, the one cue list loader every reader goes through."""
+    spec = importlib.util.spec_from_file_location('lf_cue_list_selftest', os.path.join(HERE, 'cue_list.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def missing_package(error):
@@ -610,6 +657,8 @@ def main():
         {'id': 'not-quiet', 't': 3.4, 'sound': 'silent', 'window_ms': 100}]}
     with open(j('cues.json'), 'w', encoding='utf-8') as fh:
         json.dump(cues, fh)
+    record('cue_list: the v1 cue onsets fixture reads as unversioned through the loader',
+           cue_list_module().check(j('cues.json')).state == 'unversioned')
     code, out = tool('cue_onsets.py', j('master.wav'), j('cues.json'), '--json', j('cue_report.json'))
     rows = {r['id']: r for r in json.load(open(j('cue_report.json'), encoding='utf-8'))['rows']}
     record('cue_onsets: clicks on cue within 3 ms',
@@ -831,8 +880,10 @@ def main():
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             tee = OutputTee(sys.stdout)
+            runner = getattr(module, f'run_{area}_cases')
+            extra = {'skip': skip} if 'skip' in inspect.signature(runner).parameters else {}
             with contextlib.redirect_stdout(tee):
-                getattr(module, f'run_{area}_cases')(tool, record, j, HERE)
+                runner(tool, record, j, HERE, **extra)
             SKIPS.extend(skipped_cases(area, tee.buffer.getvalue()))
         except Exception as exc:  # a crashed module is a failed case, never a silent skip
             record(f'{area} cases ran to the end', False, repr(exc)[:200])

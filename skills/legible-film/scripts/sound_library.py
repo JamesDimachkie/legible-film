@@ -75,6 +75,7 @@ def sibling(name):
 
 
 io, onsets, project = sibling('sound_io'), sibling('cue_onsets'), sibling('project')
+cue_list = sibling('cue_list')
 find_tool = io.find_tool
 RATE = 48000
 EXTENSIONS = {'.wav', '.flac', '.aiff', '.aif', '.mp3', '.ogg'}
@@ -447,7 +448,10 @@ def trim_length(row, role, cues, maximum=None, body=.12, fade=.03):
 
 def pick_palette(a):
     ffmpeg, _ = tools(a)
-    library, spec = read_json(a.library), read_json(a.cues)
+    listed = cue_list.load_for('sound_library.py', a.cues)   # refuses a stale list or an unbound plan
+    library, spec = read_json(a.library), listed.doc
+    if listed.version == 'v2':
+        spec = dict(spec, fps=listed.fps) if listed.fps is not None else {k: v for k, v in spec.items() if k != 'fps'}
     if not isinstance(library, dict) or not isinstance(library.get('files'), list) or not library.get('root'):
         raise ValueError('library needs root and files (run index first)')
     roles = cue_roles(spec)

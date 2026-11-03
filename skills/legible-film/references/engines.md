@@ -6,7 +6,7 @@ before relying on a flag.
 
 Contents: [1. Choose by job](#1-choose-by-job) · [2. Rules for every code-rendered engine](#2-rules-for-every-code-rendered-engine) ·
 [3. Traps met in browser-captured renders](#3-traps-met-in-browser-captured-renders) · [4. HyperFrames](#4-hyperframes) · [5. Remotion](#5-remotion) ·
-[6. Blender](#6-blender) · [7. Editing and analysis](#7-editing-and-analysis) · [8. Capture](#8-capture) ·
+[Tesseract](#tesseract) · [6. Blender](#6-blender) · [7. Editing and analysis](#7-editing-and-analysis) · [8. Capture](#8-capture) ·
 [9. Speech and captions](#9-speech-and-captions) · [10. Audio](#10-audio-tools) · [11. QC beyond the scripts](#11-qc-beyond-the-bundled-scripts) ·
 [12. Agent-facing tools](#12-agent-facing-tools) · [13. Machine hygiene](#13-machine-hygiene)
 
@@ -15,7 +15,7 @@ Contents: [1. Choose by job](#1-choose-by-job) · [2. Rules for every code-rende
 | Job | Default | Alternatives and when |
 |---|---|---|
 | Type-led launch films, teasers and kinetic type | **The film kit** bundled with this skill ([kit](kit.md)): blocks on a beat grid, the cue list, captions and QC declarations exported from the picture's own timeline, truth, contrast, reading and flash checks before rendering, and a cut-aware motion-blur render | any engine below when the film needs what the kit's blocks do not draw |
-| Motion graphics, explainers, UI reconstructions | **HyperFrames** (HTML, CSS and a paused GSAP timeline; Apache-2.0) | **Remotion** for React teams and templated or data-driven video (check its licence); Revideo or Motion Canvas for generator-style TypeScript (Motion Canvas is effectively dormant); **Cavalry**, a motion designer's own timeline the agent drives through its MCP server, when motion feel matters and the person wants a scene to edit by hand (§12) |
+| Motion graphics, explainers, UI reconstructions | **HyperFrames** (HTML, CSS and a paused GSAP timeline; Apache-2.0) | **Remotion** for React teams and templated or data-driven video (check its licence); Revideo or Motion Canvas for generator-style TypeScript (Motion Canvas is effectively dormant); **Cavalry**, a motion designer's own timeline the agent drives through its MCP server, when motion feel matters and the person wants a scene to edit by hand (§12); **Tesseract**, when the person has it installed and chooses it ([Tesseract](#tesseract)) |
 | Mathematical and diagram explainers | **Manim Community** (MIT) | HTML engines for UI-heavy pieces |
 | 3D product shots, lit scenes, camera moves through space | **Blender** (headless CLI, Python API) | Three.js inside an HTML composition for stylised 3D |
 | Assembling, trimming, muxing, encoding, captions, measuring | **FFmpeg** | MoviePy 2.x for quick scripted cuts in Python |
@@ -25,8 +25,9 @@ Contents: [1. Choose by job](#1-choose-by-job) · [2. Rules for every code-rende
 | Generated plates, voice, music, effects | the provider the person approves, within their cap | see [claims-and-rights](claims-and-rights.md) for terms |
 | Review with collaborators: watching a version, notes on moments, drawings, replies | **Flask** ([flask.do](https://flask.do)), through its MCP server ([review](review.md) §1) | the local Screening Room (`screen.py`) for private work on this machine |
 
-Pick one engine per designed piece and keep one clock for the film: each piece renders at the film's size and frame
-rate, and the paper edit places it (`~ over`, a cutaway or a picture line), so `film.md` stays the only timeline. Two
+Pick one engine per designed piece and keep one clock for the film. A film drawn in an engine has its page as the
+timeline, and its cue list is exported from that page (§2). A piece inside footage renders at the film's size and
+frame rate, and the host places it (`~ over`, a cutaway or a picture line), so the host stays the only timeline. Two
 engines inside one piece means two timing systems to keep in agreement.
 
 ## 2. Rules for every code-rendered engine
@@ -63,6 +64,43 @@ These make a render repeatable and seekable; most render bugs break one of them.
 When a render looks wrong, reproduce the symptom in a short window on the actual renderer before changing any shared
 helper, and narrow it down by switching parts of the composition off until it disappears.
 
+### Cue export, the frozen copy and the render
+
+The page declares its timing and the cue list is exported from it, so picture and sound share one clock
+([timing](timing.md) §0). `node film_capture.mjs cues DIR --out DIR/cues.json` (or a local URL with `--root DIR`)
+reads the kit's `__lf` cues (`--source lf`), a page's `window.__cues` once `window.__cues_ready` is true
+(`--source declared`; `--global` and `--ready` rename them), or timeline labels plus the `lf-cues` block
+(`--source timelines`, §4). Without `--source` it picks timelines, then lf, then declared. It exits 0 written, 1
+written with a look (`--verify`) and 2 refused. The kit exports through `film_check.py`, the same freeze underneath.
+
+- **The frozen copy.** Export freezes the page first (`cue_list.py freeze PAGE --entry index.html`; the exporter
+  passes the page a URL names). Freeze starts at the entry page and follows its static references (HTML `src`,
+  `href`, `srcset` and `poster`; CSS `url()` and `@import`; JS imports, a HyperFrames `data-composition-src`
+  included); a URL inside a data string is not a reference. Every version-pinned network URL is fetched once, stored
+  in the copy and hashed (`gsap@3.14.2` is pinned; `gsap@3` is not); a file referenced by `../` or an absolute path
+  from outside the page is copied in under `_outside/`, and a `../` that stays inside the page is kept in place.
+  Export loads the copy with every request intercepted, scans every other file it saw the page load, and keeps the
+  copy as `.lf-frozen/<snapshot_sha256>/` inside the page, a folder the fingerprint skips. A file nothing reaches is
+  copied and fingerprinted but not scanned; the list names it under `export.not_loaded_not_scanned`. An unpinned
+  URL, a failed fetch, an outside reference, a reference to an excluded file, a system font, or a request the copy
+  does not hold makes the binding `unverified`; a request that leaves the copy is recorded and let through, so the
+  page still exports.
+- **`--verify`** seeks a frame either side of each turn and contact and flags "no frame change" as a look. Answer each
+  flag by fixing the picture, declaring a sound-only cue `picture: none`, or declaring a held frame `picture: held`
+  with a decision. `--candidates` lists motion peaks as unconfirmed suggestions.
+- **The render reads the kept copy, never the live page.** `project.py add-version PROJECT --cues cues.json --render
+  "CMD" --file OUT` runs CMD with `{page}` set to the kept copy and `{out}` to OUT, under the render lock (it waits
+  for `--min-free-gib`, default 3, up to `--wait-min`, default 20) with outbound network blocked, and refuses when
+  the copy or the live page changed since export. OUT must be new, under the page's `renders/` or outside the page,
+  and CMD's output must name it; for HyperFrames, `--render "npx hyperframes render {page} -o {out}"`. Name the
+  output in CMD, since engines' default outputs are timestamped and cannot be told apart. The kit's
+  `film_render.py DIR --cues DIR/cues.json --out OUT` renders its kept copy the same way and writes the receipt
+  `OUT.manifest.json`.
+- **Binding.** A render whose inputs are shown closed binds `receipt`. The kit's renderer traces every request
+  (`render_trace: traced`); another engine renders with outbound network blocked (`render_trace: blocked`, the
+  mechanism recorded). An engine that can be neither traced nor blocked records `render_trace: none` and binds
+  `unverified`, which the sync group reports as a look.
+
 ## 3. Traps met in browser-captured renders
 
 Each of these was hit in production with an HTML engine (HyperFrames, on Chromium):
@@ -87,10 +125,12 @@ Each of these was hit in production with an HTML engine (HyperFrames, on Chromiu
 
 Measured while building this skill's own capture worker (Chromium 156 through Playwright, on Windows):
 
-- **A clip in CSS pixels returns CSS pixels.** At a device scale factor of 2, a DevTools screenshot whose clip scale
-  was 1 came back at half the intended size (320x180 for a 640x360 render); capture at the device scale, then check
-  the decoded frame's size. `film_capture.mjs calibrate` checks size, all four edges, a large 3D layer, fonts and
-  seek determinism before a capture loop is trusted.
+- **A clip in CSS pixels returns CSS pixels.** At a device scale factor of 2, a DevTools screenshot whose clip scale was
+  1 came back at half the intended size (320x180 for a 640x360 render); capture at the device scale, then check the
+  decoded frame's size. After a build, when a capture comes back the wrong size, cuts an edge, swaps a font or drifts in
+  timing between seeks, run `film_capture.mjs calibrate` as the remedy. It checks this machine's capture of size, all
+  four edges, a large 3D layer, fonts and seek determinism. It belongs to rendering, after the film exists, never to
+  planning.
 
 General browser-animation hygiene that prevents others: animate position with transforms rather than layout
 properties (layout positions round to whole pixels, so slow drifts step); keep any blur that animates on small layers;
@@ -121,19 +161,44 @@ with releases most days; Node 22+ and FFmpeg required). Pin a version per projec
   `window.__timelines["<id>"] = tl`; wrapped forms have tripped the linter). No `repeat: -1`, no timers or
   unseeded randomness, and every asset loaded before frame 0. `render --docker` pins Chromium,
   fonts and the encoder for bit-stable output across machines.
-- **`render` reads the live project folder** during the render. Render a frozen copy, and give `--output` an
-  absolute path when rendering a copy you will delete afterwards.
+- **`render` reads the live project folder** during the render. Render the frozen copy the cue export kept, through
+  `project.py add-version --render` (§2), and give `--output` an explicit path, since the default is a timestamped file
+  in `renders/`.
 - **Audio:** a placed `<audio>` element has rendered well below its source level; every `<audio>` needs an
   `id`. Deliver by muxing the mastered mix onto the rendered picture.
 - **Privacy:** `snapshot --describe` sends frames to a hosted model; keep it off for private work. Telemetry is
   on by default (`HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `npx hyperframes telemetry disable`);
-  GSAP loads from a CDN unless `HYPERFRAMES_GSAP_BASE_URL` points to a local copy.
+  GSAP loads from a CDN unless `HYPERFRAMES_GSAP_BASE_URL` points to a local copy. Load it from a pinned version
+  (`gsap@3.14.2`), so the frozen copy can vendor it and the render binds.
 - **Workers:** each render worker is a separate Chrome (roughly 256 MB each); on a small machine use one or
   two.
 - **Snapshots floor to the frame grid:** a time between frames returns the earlier frame; ask for times that
   sit on frames (or slightly after).
-- Official agent skills and a Claude Code plugin exist (`claude plugin marketplace add heygen-com/hyperframes`);
-  use them for engine mechanics and this skill for the film.
+- **Its own skills, by host.** Use HyperFrames' skills for the engine's mechanics and this skill for the film, its
+  clock and its checks. In Claude Code, install the plugin (`claude plugin marketplace add heygen-com/hyperframes`,
+  then `claude plugin install hyperframes@hyperframes`) and open it with the Skill tool as `hyperframes:hyperframes`;
+  a standalone install (`npx skills add heygen-com/hyperframes`) names it `hyperframes`. In Codex,
+  `npx hyperframes skills update` installs the core skills into the user's shared skills folder, `~/.agents/skills`,
+  which Codex reads in every project; start a new session, then use the `hyperframes` skill from the skill list
+  (`$hyperframes`). `npx hyperframes skills check` says whether a host sees them.
+- **Declaring cues.** Labels on the composition's paused timeline (`window.__timelines["<data-composition-id>"]`)
+  give time, and a JSON block on the page gives meaning; the exporter merges them by id. A label is `cue:<id>` (a
+  cue's start), `cue:<id>:end` (a span's end) or `section:<id>` (a section's start; it ends at the next section or
+  at `section:<id>:end`), offset by the composition's `data-start`. The page carries:
+
+  ```html
+  <script type="application/json" id="lf-cues">
+  {"sections": {"open": {"clock": "speech"}, "drop": {"clock": "music"}, "hold": {"clock": "silence"}},
+   "events": {
+     "drop-in": {"scale": "turn", "sync": "attack", "lead_ms": -83, "role": "hit", "sound": "required",
+                 "hero": true, "el": "#wordmark", "decision": "the hit leads the cut by two frames"},
+     "type-run": {"scale": "follow", "role": "key", "run": true, "intent": "key density follows the typing"}}}
+  </script>
+  ```
+
+  A label with no entry, an entry with no label, a span with no `:end` label, or a cue outside every section stops
+  the export (exit 2) with the names; nothing is guessed. `el` gives the cue's `x` and `y` from the element's box at
+  its time, for panning. A `window.__cues` entry may name `label` in place of `t`.
 
 ## 5. Remotion
 
@@ -158,6 +223,39 @@ PC with an RTX 4070 Ti. It ships for macOS on Apple silicon and Windows x64 only
 call. Its default `--mode fast` rasterises on the GPU and can land a level away from Remotion's pixels; `--mode
 reference` matches them. Before using it for a deliverable, render a short range with both the engine and Strobe and
 compare them with `compare_versions.py` against the pipeline's noise floor (§2), then check the file as usual.
+
+## Tesseract
+
+Tesseract is a proprietary video tool with its own agent skills (Edit Video, Motion Graphics) and a command line,
+`tsrct`. This skill holds no Tesseract code, files or dependency, and has not run it. When the person has Tesseract
+installed and chooses it, create, cut and insert hand the build to Tesseract's skills, and everything else stays here.
+
+1. Write the brief and the frame as usual, and record `timeline: tesseract` in `film.md` ([project](project.md) §3).
+2. Write the cue list as a plan: `cues.json` v2 whose picture is `{"kind": "plan", "sha256": null}`, with the sections,
+   their clocks and the turns the build must land. It is unbound; every reader but the registration refuses it.
+3. Stop at the hand-off and name it, with what to build in Tesseract, the brief, the frame and the plan it reads,
+   and the command that brings the master back.
+4. The exported master returns through `project.py add-version PROJECT --cues cues.json --file MASTER`, which
+   screens each planned turn for a frame change on the returned picture and writes the bound list (provenance
+   `plan-bound`); a turn with no frame change is a look (exit 1). Sound, checks and review then run here as on any path.
+
+In cut, when Tesseract owns the cut, `film.md` holds the frame and front matter only, and the readable edit is
+Tesseract's project. A `.tsrct` project reaches Premiere or After Effects through its own `tsrct-conv`; this skill's
+hand-off to an editor stays `exchange.py write`, which needs no proprietary tool.
+
+Its terms, quoted from Tesseract's `TERMS.md` (Mirage US LLC, last updated 2026-09-21). This skill does not claim to
+have verified them:
+
+> 2.2.2: "Nothing in these Terms grants you the right or license to [...] download, access, use, copy, modify, or
+> otherwise exploit, in any manner, the Tesseract Plugin to develop, make, have made, train, improve, offer,
+> distribute, license or sell any technology, product or service that serves as a substitute for, replicates,
+> eliminates or reduces the need for, or otherwise competes with, the Tesseract Plugin"
+>
+> 2.2.3: "The license granted under these Terms does not authorize Commercial Use of the Tesseract Plugin by or on
+> behalf of a Covered Business unless a separate written agreement executed by Mirage expressly authorizes that
+> use", where a Covered Business is a for-profit business with annual revenue of US$1,000,000 or more.
+
+Tesseract is proprietary. Read its terms before use; the choice is yours.
 
 ## 6. Blender
 
@@ -226,10 +324,14 @@ in the composition engine.
 - **pyloudnorm** (BS.1770 meter in Python), **ffmpeg-normalize** (batch loudnorm).
 - **librosa** 1.0 (requires Python 3.12+) for onset and beat tracking.
 - **Bundled with this skill:** `tempo_map.py` (tempo, phase, downbeats, drops and drift of a track),
-  `make_sound_kit.py` (a synthesised, rights-clean starter palette and temp track with exact sync points) and
-  `mix_cues.py` (the effects stem, bed and mix from the cue list and the palette).
-- **earshot** (MIT; young) gives agents measurements and labels for sounds, cue sync sheets and code-made
-  effects; treat its labels as hints, never as a listening verdict.
+  `make_sound_kit.py` (a synthesised, rights-clean starter palette and temp track with exact sync points),
+  `conform.py` (a take fitted to the spotted cue list's sections), `mix_cues.py` (the effects stem, bed and mix from
+  the spotted list and the palette) and `listen.py` (measure, transcript, sync, sheet and labels; [sound](sound.md)
+  §13).
+- **earshot** (MIT; young) gives agents measurements and labels for sounds, cue sync sheets and code-made effects.
+  The skill's `listen.py` follows its shape and credits it in `NOTICE`. Finding sounds by description, realness
+  scores, A/B comparison, code-made effects and its MCP server stay in earshot. Its rule holds here too. Times
+  and levels are meters, labels in a mix are half right, and taste is out of reach.
 - **Demucs** for stem separation: code MIT, pretrained-weights licence unclear (see
   [claims-and-rights](claims-and-rights.md)).
 - SoX upstream has not released since 2015; prefer FFmpeg.
@@ -296,9 +398,12 @@ that give generated HTML motion away, and the person keeps a scene to adjust by 
 
 ## 13. Machine hygiene
 
-- Run one heavy render at a time; check free memory before starting; prefer one or two workers on a laptop. Size
-  workers from one worker's measured peak memory at the target resolution, not from a guess: a 4K browser worker
-  with motion-blur accumulation needs several times what a 1080p one does.
+- Run one heavy render at a time; check free memory before starting; prefer one or two workers on a laptop.
+  `with_lock.py -- CMD` waits for the machine's render lock and for free memory (`--min-free-gib`, 3 by default)
+  before it runs CMD, up to `--wait-min` (20 by default; exit 2 when the wait runs out), and reports a lock older
+  than 45 minutes rather than removing it. Size workers from one worker's measured peak memory at the
+  target resolution, not from a guess: a 4K browser worker with motion-blur accumulation needs several times what a
+  1080p one does.
 - Render from a frozen copy of the source so edits during a render cannot leak into it.
 - Stop only processes you started, by their own PID; a pattern kill on a shared machine stops other people's
   jobs. Leave other jobs' lock files alone.

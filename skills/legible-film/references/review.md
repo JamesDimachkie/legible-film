@@ -155,6 +155,18 @@ for scores, with their evidence, basis and confidence, as a tool for the person.
 - **Visible:** noticeable on a normal viewing.
 - **Pause-only:** visible only when paused.
 
+**The cold read** tests the frame, not the film. `grade.py cold PROJECT` (or `grade.py cold --file F`) builds a packet
+from the first seconds (`--seconds`, 5 by default), never the brief. It holds a `frame_sheet.py` sheet of frames every
+half second, the captions' words, and three questions (what is this, for whom, and why care?). Give it to a fresh agent
+with no part in the work, then record the answer with `grade.py cold PROJECT --record --assessment ANSWER.json` (the
+reader, the three answers, `matched` or `mismatched`, and the file's SHA-256 the packet printed). It is stored as
+`matched` or `mismatched`, labelled with the reader's model and the file's hash, and never as confirmed. Without a
+subagent, the packet goes to the person. A mismatch is a look in the context group; fix the first seconds or the frame,
+not the reader.
+
+**The frame change at each cue** is a screen too ([qc](qc.md) §2). It says the picture changed within a frame of a
+turn or a contact; whether it is the intended change is for the person screening.
+
 ## 5. Verifying findings
 
 A critic's finding is a hypothesis. Before acting on anything blocking or visible, seek the strongest reason it

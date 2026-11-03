@@ -107,12 +107,94 @@ def ambiguous_flash():
     return frames
 
 
-def check_media(tool, record, j, name, frames, expected, red=False, candidate=False):
+def relay_strips(light=235, dark=20):
+    """Three strips, each a third of the centre window, flip one at a time every 3 frames at 24 fps.
+
+    Consecutive swings never share pixels, but each strip reverses 9 frames later in the same place, so the field
+    holds 8 transitions a second of a third of its area: a flash by WCAG's count that adjacent pairing would miss."""
+    edges = [(192, 255), (255, 318), (318, 384)]
+    state = [light, dark, light]
+    frames = []
+    for frame in range(72):
+        if frame and frame % 3 == 0:
+            strip = (frame // 3 - 1) % 3
+            state[strip] = dark if state[strip] == light else light
+        image = np.full((324, 576, 3), 128, dtype=np.uint8)
+        for (left, right), value in zip(edges, state):
+            image[:, left:right] = value
+        frames.append(image)
+    return frames
+
+
+def texture(seed=3):
+    """Low-contrast blocks twice the frame's width, for a scene that pans."""
+    rng = np.random.default_rng(seed)
+    small = rng.integers(60, 150, (324 // 12 + 1, 1152 // 12 + 1), dtype=np.uint8)
+    return np.kron(small, np.ones((12, 12), dtype=np.uint8))[:324, :1152]
+
+
+def strobe(pan=3, jitter=0, red=False):
+    """A block over 40% of the centre window strobes at 4 Hz (24 fps) while the scene pans or the block jumps."""
+    scene = texture()
+    frames = []
+    for frame in range(72):
+        image = np.repeat(scene[:, pan * frame:pan * frame + 576, None], 3, axis=2).copy()
+        if (frame // 3) % 2:
+            left = 210 + jitter * ((frame // 6) % 3 - 1)
+            image[120:200, left:left + 156] = (255, 0, 0) if red else (250, 250, 250)
+        frames.append(image)
+    return frames
+
+
+def scroll_text():
+    """Dense dark lines of small type on white scroll up 6 px a frame: motion, and no place flashes."""
+    font = ImageFont.load_default()
+    page = Image.new('L', (576, 1296), 245)
+    draw = ImageDraw.Draw(page)
+    line = 'lines of small body copy scroll upward through the window at a steady reading pace '
+    for row in range(0, 1296, 14):
+        draw.text((8, row), (line * 2)[:96], fill=10, font=font)
+    nearest = getattr(Image, 'Resampling', Image).NEAREST
+    page = np.asarray(page.resize((576, 2592), nearest).crop((0, 0, 576, 1296)))
+    return [np.repeat(page[6 * frame:6 * frame + 324, :, None], 3, axis=2) for frame in range(72)]
+
+
+def slide_bars():
+    """Three wide dark bars slide left across a light ground at 9 px a frame, each crossing once."""
+    frames = []
+    for frame in range(72):
+        image = np.full((324, 576, 3), 235, dtype=np.uint8)
+        for bar in range(3):
+            left = 616 + bar * 260 - 9 * frame
+            image[60:264, max(0, left):max(0, min(576, left + 150))] = 25
+        frames.append(image)
+    return frames
+
+
+def staged_crossfade():
+    """The left half darkens and the right half brightens in alternating steps of about 0.15 relative luminance.
+
+    Each step moves half of a centre window one way, so swings alternate direction, but no pixel ever reverses:
+    nothing flashes. Counting swings without asking whether the same pixels go back finds 10 in under half a
+    second; a same-place reading finds none and leaves the swings for review."""
+    darkening = [225, 204, 179, 149, 108, 39]
+    brightening = darkening[::-1]
+    frames = []
+    for frame in range(72):
+        steps = min(max(frame - 11, 0), 10)
+        image = np.empty((324, 576, 3), dtype=np.uint8)
+        image[:, :288] = darkening[(steps + 1) // 2]
+        image[:, 288:] = brightening[steps // 2]
+        frames.append(image)
+    return frames
+
+
+def check_media(tool, record, j, name, frames, expected, red=False, candidate=False, fps=30):
     """Compare the actual definite flash result, retaining pattern-only inspection prompts."""
     path = Path(j(name + '.mkv'))
     report_path = Path(j(name + '.json'))
     try:
-        encode(path, frames, 30)
+        encode(path, frames, fps)
     except (OSError, RuntimeError) as error:
         record('flash: ' + name, False, str(error))
         return
@@ -186,6 +268,38 @@ def check_area_boundary(record, scripts_dir):
     candidate = scanner.busiest_second(detector.ends + detector.ambiguous_ends)[0]
     record('flash: simultaneous opposing quarter-area swings stay a pattern candidate',
            definite <= 6 and candidate > 6, f'classic={definite} candidate={candidate}')
+    # Swings that alternate direction on different pixels: half the pixels step darker, then the other half step
+    # brighter, and no pixel ever goes back. They are not flashes, and they stay visible for review.
+    detector = scanner.CoherentZig()
+    pixels = np.concatenate([np.full(5000, .75, dtype=np.float32), np.full(5000, .02, dtype=np.float32)])
+    detector.push(0, pixels.copy())
+    for step in range(1, 11):
+        if step % 2:
+            pixels[:5000] -= .146
+        else:
+            pixels[5000:] += .146
+        detector.push(step / 30, pixels.copy())
+    detector.finish()
+    counted = scanner.busiest_second(detector.ends)[0]
+    unreversed = scanner.busiest_second(getattr(detector, 'coherent_ends', []))[0]
+    record('flash: swings no opposite swing reverses in the same pixels are kept for review, not counted',
+           counted <= 6 and unreversed > 6, f'counted={counted} unreversed={unreversed}')
+    detector = scanner.CoherentZig()
+    pixels = np.full(9000, .5, dtype=np.float32)
+    strips = [slice(0, 3000), slice(3000, 6000), slice(6000, 9000)]
+    levels = [.9, .05, .9]
+    pixels[strips[1]] = .05
+    pixels[strips[0]] = pixels[strips[2]] = .9
+    for frame in range(30):
+        if frame and frame % 3 == 0:
+            strip = (frame // 3 - 1) % 3
+            levels[strip] = .05 if levels[strip] == .9 else .9
+            pixels[strips[strip]] = levels[strip]
+        detector.push(frame / 24, pixels.copy())
+    detector.finish()
+    counted = scanner.busiest_second(detector.ends)[0]
+    record('flash: a relay whose consecutive swings never share pixels is still counted', counted > 6,
+           f'counted={counted}')
     for changed in (2499, 2500):
         detector = scanner.GeneralZig()
         for frame in range(30):
@@ -200,7 +314,7 @@ def check_area_boundary(record, scripts_dir):
                (count > 6) == (changed >= 2500), str(count))
 
 
-def run_flash_cases(tool, record, j, scripts_dir):
+def run_flash_cases(tool, record, j, scripts_dir, skip=None):
     """Screen false-positive motion and threshold-area flashes, plus the repository showcase."""
     check_area_boundary(record, scripts_dir)
     check_media(tool, record, j, 'subpixel-drifting-text', drifting_text(), False)
@@ -212,9 +326,31 @@ def run_flash_cases(tool, record, j, scripts_dir):
     check_media(tool, record, j, 'red-above-quarter-moving-texture', threshold_flash(1, red=True), True, red=True)
     check_media(tool, record, j, 'flash-in-moving-content', threshold_flash(1, moving_content=True), True)
     check_media(tool, record, j, 'flash-over-moving-checks', ambiguous_flash(), False, candidate=True)
-    showcase = Path(scripts_dir).resolve().parents[2] / '.github' / 'media' / 'atlasfold-showcase.mp4'
+    # A flash is a change and its reversal in the same place. Real strobes still fail, including relays whose
+    # consecutive swings never share pixels; motion and swings nothing reverses never fail, and the unreversed
+    # swings stay a look rather than a silent pass.
+    check_media(tool, record, j, 'relay-3-strips', relay_strips(), True, fps=24)
+    check_media(tool, record, j, 'relay-3-strips-low-contrast', relay_strips(179, 137), True, fps=24)
+    check_media(tool, record, j, 'strobe-in-panning-scene', strobe(), True, fps=24)
+    check_media(tool, record, j, 'strobe-jumping-block', strobe(pan=0, jitter=12), True, fps=24)
+    check_media(tool, record, j, 'red-strobe-in-panning-scene', strobe(red=True), True, red=True, fps=24)
+    check_media(tool, record, j, 'scrolling-text', scroll_text(), False, fps=24)
+    check_media(tool, record, j, 'sliding-bars', slide_bars(), False, fps=24)
+    check_media(tool, record, j, 'staged-crossfade-never-reverses', staged_crossfade(), False, candidate=True,
+                fps=24)
+    repository = Path(scripts_dir).resolve().parents[2]
+    showcase = repository / '.github' / 'media' / 'atlasfold-showcase.mp4'
+    # The showcase ships with a checkout of the repository, not with an installed skill: missing from a checkout it
+    # is a failure; missing from an installation it is a counted skip.
+    checkout = (repository / '.github' / 'workflows' / 'ci.yml').is_file() and (repository / '.claude-plugin').is_dir()
     if not showcase.is_file():
-        record('flash: repository showcase has no definite flash failure', False, f'missing {showcase}')
+        if checkout:
+            record('flash: repository showcase has no definite flash failure', False, f'missing {showcase}')
+        elif skip:
+            skip('flash: repository showcase has no definite flash failure',
+                 'an installed skill does not include the repository showcase')
+        else:
+            print('SKIP  flash: repository showcase (an installed skill does not include the repository showcase)')
         return
     report = Path(j('showcase.json'))
     if report.exists():

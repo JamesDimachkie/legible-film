@@ -1,0 +1,2 @@
+html,body {margin:0;background:#000}
+#stage {position:absolute;inset:0;display:grid;place-items:center}

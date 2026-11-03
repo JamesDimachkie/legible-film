@@ -6,13 +6,14 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-blue" alt="Licence: Apache-2.0"></a>
 </p>
 
-<h3 align="center">Your coding agent edits the video. You can read every cut.</h3>
+<h3 align="center">Your coding agent makes the video. Picture and sound keep one clock.</h3>
 
-Legible Film is an Agent Skill that makes Claude Code, Codex and other coding agents into video editors you can
-follow. The agent cuts interviews, podcasts, tutorials and montages from their transcripts and shots, makes launch
-films and kinetic type, captions and mixes, and checks the file a viewer will receive. The edit is a script you can
-read and change, every render is a version that never changes, and every check says what it looked at and what it
-could not.
+Legible Film is an Agent Skill that makes Claude Code, Codex and other coding agents into a video assistant you can
+follow, for any kind of video. The agent draws launch films and motion graphics in an engine, cuts interviews,
+podcasts and tutorials from their transcripts, puts animation inside footage on the words it belongs to, designs
+sound for a finished picture, follows an editor's Premiere revisions, and makes quick conversions and checks. Every
+film states who it is for and what they should know first; picture and sound share one cue list; every render is a
+version that never changes; and every check says what it looked at and what it could not.
 
 <p align="center">
   <img src=".github/media/first-cut.gif" alt="A Claude Code run with the Legible Film skill, sped up: the request, the agent's steps, a frame of the cut and the check it printed" width="100%">
@@ -125,11 +126,13 @@ $py = (python skills/legible-film/scripts/setup.py --json | Out-String | Convert
 
 </details>
 
-The first check ends `14 checks pass · 2 need you · 1 not assessed`: the file measures clean, a person still has to
-watch and listen, and the captions it could not assess say what to give it. The cut is
-`legible-film-first-cut/cuts/v001/preview.mp4` in your home folder. The render and the last check exit 1, which in
-every script means it ran and left something to look at (here a join with no audible pause, at 0:14); 2 means it
-could not run. To watch it in the Screening Room, run
+The first check ends `14 checks pass · 2 need you · 3 not assessed; 4 unconfirmed`: the file measures clean, a person
+still has to watch and listen, each item it could not assess (captions, the cold read, sync) says what to give it, and
+the four context fields (what the film is, for whom, why, and what the viewer knows by when) stay unconfirmed until
+someone states them, which never fails a check. The cut is `legible-film-first-cut/cuts/v001/preview.mp4` in your
+home folder. The render exits 1, which in every script means it ran and left something to look at (here a join with
+no audible pause, at 0:14, and a background level drop at 0:04.75); 2 means it could not run. The last check exits 0.
+To watch it in the Screening Room, run
 `"$PY" skills/legible-film/scripts/screen.py serve ~/legible-film-first-cut --open` (in PowerShell, `& $py
 skills/legible-film/scripts/screen.py serve $HOME/legible-film-first-cut --open`).
 [The example's README](examples/first-cut/README.md) explains what the checks found.
@@ -152,13 +155,28 @@ which version is which. Legible Film keeps the edit, the versions and the checks
   and its story in one sentence, then the lines in the order they play, with what is on screen beside them. Strike a
   word to cut it. Every render is a new version; a diff lists the lines, words, durations and captions that changed, and
   the agent compares the rendered picture and sound with the version you approved.
+- **One clock for picture and sound.** The cue list is exported from whatever owns the timeline (a page, the paper
+  edit, a finished picture), with the picture's exact identity, so a retime makes the old list, bed and mix stale
+  and every tool refuses them. Each cue has a scale (a turn, a follow span, a contact, a silence), and the delivered
+  file is measured two ways, whether the frame changes at each cue and whether the sound follows the list.
 - **Checks on the file a viewer receives,** in plain states: pass, look, fail, needs you, not assessed. Nothing is
   called watched or heard until a person has watched or heard it.
 
 ## How it works
 
-The loop is Map, Plan, Cut, Check, Screen, Revise, Deliver, sized to the job: a trim or a 9:16 crop is one step on
-one file; an interview cut gets the whole loop and a project folder the agent and you share.
+The agent reads the request, picks one of six paths by who owns the timeline, and loads only what that path needs:
+
+| Path | For | The timeline |
+|---|---|---|
+| create | launch films, motion graphics, social posts, loops, kinetic type, explainers drawn in code | a page (the film kit, HyperFrames, or Tesseract when you choose it) |
+| cut | interviews, podcasts, tutorials, tightening, shorts, trailers from finished films, montages | the paper edit, `film.md` |
+| insert | animation, titles and tracked graphics inside footage, timed to its words | the host edit |
+| sound | effects, a score or a rescore for a picture that stays as it is | the picture |
+| editor | an editor's Premiere or Resolve revisions, stale captions, a hand-off as XML | their timeline |
+| quick | one file: a trim, reframe, conversion, captions, a check, a question about its sound | the file |
+
+Every path but quick starts by stating the frame (what it is, for whom, why, and what the viewer knows by which
+second), asking only for what is missing, and every path ends the same way: Check, Screen, Revise, Deliver.
 
 When a film's look is open (a designed film, titles, music, a grade), it starts from your taste. The agent asks in
 one message for references (films, ads, channels, a frame, your product) and what to take from each, each question
@@ -191,42 +209,47 @@ Start with a command and what it applies to, or describe the job in your own wor
 ```
 /legible-film cut a 60-second story from interview.mp4 and the b-roll in broll/
 /legible-film look: three launch films I like are in refs/, match their pace, not their colour
+/legible-film motion a 20-second product loop for our homepage, sound off by default
+/legible-film score the approved picture: sparse, warm, a hit when the logo locks
 /legible-film shorts three 30-second clips from podcast.mp4 for Reels, captions burned in
-/legible-film quick trim the first 3 seconds of clip.mp4 and make a 9:16 version
-/legible-film grade final.mp4 for YouTube
-/legible-film premiere follow the editor's last two exports and tell me which captions are stale
-/legible-film tighten interview.mp4: take out the dead air, keep every word
+/legible-film convert demo.mov to a web MP4 that starts playing at once
 /legible-film handoff v003 to Premiere so the editor can finish it
 ```
 
 B-roll is supplementary footage placed over the interview. Burned-in captions are written into the picture and cannot
 be switched off; they are for feeds that play muted.
 
-| Command | For |
-|---|---|
-| `setup` (also `doctor`) | What this machine can do and how to fix the rest; installs local transcription or the film kit's browser with your yes |
-| `quick` | A simple change to one file: trim, 9:16, convert, compress, GIF |
-| `map` | Make the sources readable: transcripts, shots, sound |
-| `look` (also `moodboard`) | Your references, or your expectations when you have none, for this film |
-| `plan` (also `brief`, `film`) | The brief when one is needed, and the paper edit |
-| `cut` | Render the paper edit into a version |
-| `check` | Check a version or any file |
-| `screen` (also `review`) | Open the Screening Room |
-| `revise` | Turn notes into a new version, and show what else changed |
-| `deliver` | Final files, captions, mastering and a delivery report |
-| `captions` | Captions for an existing video |
-| `shorts` (also `cutdown`) | Short clips from a long video, or a new length or shape |
-| `score`, `mix` | Sound to picture; a voice over music |
-| `kit` (also `teaser`) | A type-led film, a beat-cut teaser, a sting or a loop |
-| `insert` | An animation in place of a passage's picture, timed to its words |
-| `graphics` (also `cavalry`) | A lower third, logo or title over the footage, made in Cavalry (driven by the agent) or another engine |
-| `studio` | The best film a budget allows |
-| `premiere` | Follow an editor's Premiere timeline and captions through revisions |
-| `handoff` (also `export`) | A version as a timeline Premiere or Resolve opens, with its captions |
-| `tighten` | Shorten the dead air in a recording, as a paper edit you can read and undo |
-| `taste` (also `preferences`) | The preferences you have confirmed, read at Plan and checked where measurable |
-| `spatial` (also `track`, `blur`) | Pin a graphic to a moving surface, put a title behind a person, blur a moving face |
-| `grade` | A scorecard for a version or any video |
+Every 2.0 command still works, and each opens one path
+([commands](skills/legible-film/references/commands.md) has the full map):
+
+| Command | Path | For |
+|---|---|---|
+| `kit` (also `teaser`) | create | A type-led film, a beat-cut teaser, a sting or a loop |
+| `look` (also `moodboard`) | create | Your references, or your expectations when you have none, for this film |
+| `taste` (also `preferences`) | create | The preferences you have confirmed, read while planning and checked where measurable |
+| `studio` | create | The best film a budget allows |
+| `launch`, `design`, `motion` | create | New in 2.1: a launch film, a designed film or motion graphics |
+| `map` | cut | Make the sources readable: transcripts, shots, sound |
+| `plan` (also `brief`, `film`) | cut | The brief when one is needed, and the paper edit |
+| `cut` | cut | Render the paper edit into a version |
+| `shorts` (also `cutdown`) | cut | Short clips from a long video, or a new length or shape |
+| `tighten` | cut | Shorten the dead air in a recording, as a paper edit you can read and undo |
+| `screen` (also `review`) | the project's own | Open the Screening Room |
+| `revise` | the project's own | Turn notes into a new version, and show what else changed |
+| `deliver` | the project's own | Final files, captions, mastering and a delivery report |
+| `insert` | insert | An animation in place of a passage's picture, timed to its words |
+| `graphics` (also `cavalry`) | insert | A lower third, logo or title over the footage, made in Cavalry (driven by the agent) or another engine |
+| `spatial` (also `track`, `blur`) | insert | Pin a graphic to a moving surface, put a title behind a person, blur a moving face |
+| `score`, `mix` | sound | Sound to picture; a voice over music |
+| `sound`, `sfx` | sound | New in 2.1: sound or effects for a picture |
+| `premiere` | editor | Follow an editor's Premiere timeline and captions through revisions |
+| `handoff` (also `export`) | editor | A version as a timeline Premiere or Resolve opens, with its captions |
+| `quick` | quick | A simple change to one file: trim, reframe, convert, compress, GIF |
+| `convert` | quick | New in 2.1: convert one file |
+| `check` | quick, or the project's own | Check a version or any file |
+| `captions` | quick, or the project's own | Captions for a video |
+| `grade` | quick | A scorecard for a version or any video |
+| `setup` (also `doctor`) | before any path | What this machine can do and how to fix the rest; installs local transcription or the film kit's browser with your yes |
 
 More requests are in [examples/prompts.md](examples/prompts.md).
 
@@ -287,11 +310,10 @@ fit, accessibility), each scored 0 to 10 with the moments that justify it.
 When a person edits in Premiere, their timeline stays the source of truth and the agent assists. `check.py --file` with
 the export's captions, its Final Cut Pro XML and the source transcripts checks the export as delivered, and
 `exchange.py` follows every caption into the next revision (unchanged, moved, stale, split or removed), naming what it
-cannot map rather than guessing.
-[Assisting an editor](skills/legible-film/references/recipes.md#assisting-an-editor-in-premiere) has the steps. The
-other way round, `exchange.py write` hands a version to an editor as a Final Cut Pro 7 XML sequence of the original
-clips with their handles, plus its captions and a list of what the XML cannot carry
-([Hand a cut to an editor](skills/legible-film/references/recipes.md#hand-a-legible-film-cut-to-an-editor)).
+cannot map rather than guessing. [The editor path](skills/legible-film/paths/editor.md) has the steps. The other way
+round, `exchange.py write` hands a version to an editor as a Final Cut Pro 7 XML sequence of the original clips with
+their handles, plus its captions and a list of what the XML cannot carry
+([Hand-off from a paper edit](skills/legible-film/paths/editor.md#hand-off-from-a-paper-edit)).
 
 ## What's inside
 
@@ -302,10 +324,10 @@ clips with their handles, plus its captions and a list of what the XML cannot ca
 |---|---|
 | The loop | `setup.py`, `project.py`, `map.py`, `look.py`, `transcribe.py`, `cut.py`, `tighten.py`, `strip.py`, `check.py`, `screen.py`, `grade.py`, `exchange.py`, `taste.py` |
 | Footage | `assemble.py`, `reframe.py`, `transcript_cut.py`, `captions.py`, `track.py`, `matte.py`, `spatial.py` |
-| Sound | `tempo_map.py`, `spot_cues.py`, `make_sound_kit.py`, `sound_library.py`, `mix_cues.py`, `sound_check.py`, `voice_clean.py` |
+| Sound | `tempo_map.py`, `conform.py`, `spot_cues.py`, `make_sound_kit.py`, `sound_library.py`, `mix_cues.py`, `sound_check.py`, `listen.py`, `voice_clean.py` |
 | Film kit | `new_film.py`, `film_check.py`, `make_film.py`, `film_render.py`, `motion_blur.py` |
-| Checks | `qc_file.py`, `frame_sheet.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py`, `region_check.py`, `cue_onsets.py`, `sync_check.py`, `compare_versions.py`, `onion_frames.py` |
-| The environment | `selftest.py`, `kit_selftest.py` |
+| Checks | `qc_file.py`, `frame_sheet.py`, `flash_scan.py`, `blank_scan.py`, `motion_scan.py`, `region_check.py`, `cue_list.py`, `cue_onsets.py`, `sync_check.py`, `compare_versions.py`, `delivery_check.py`, `onion_frames.py` |
+| The environment | `selftest.py`, `kit_selftest.py`, `with_lock.py` |
 
 What each one answers is in [references/scripts.md](skills/legible-film/references/scripts.md); every script
 explains itself with `--help`.
@@ -346,6 +368,9 @@ Cavalry's own MCP server and looks at any frame of it, and you keep the scene to
 | The scorecard | Experimental | a blind test on real and damaged cuts: 4 dimensions told them apart on both, 7 on one, 4 not yet; printed beside every score |
 | Agents choosing the story (compared spines, an independent review of each cut) | Experimental | calibrated judges; review raised blind scores on two films; not yet shown on harder material |
 | The film kit | Tested | its own self-test in CI |
+| The six paths, the frame and the command map (2.1) | Experimental | the command-map test in the docs check, in CI; the routing eval harness is in [evals](evals/README.md), with no 2.1 results published |
+| Cue lists bound to their picture, registered masters, conform and attach-mix (2.1) | Experimental | each tool's acceptance checks in the self-test; a tool is named in the skill's steps only after its check passes |
+| Listening by instrument, `listen.py` (2.1) | Experimental | known-answer cases and local replays, every number with its n and spread; its sync screen's null is uncalibrated, so follow coupling is a screening signal, never significance; its labels are hints, and the sound is unheard until a person listens |
 | Graphics over footage (`~ over`), and Cavalry driven through its MCP server | Experimental | known-answer self-tests: PNG and PNG MOV overlays frame for frame through a cut, ProRes 4444 and VP9 decoded with their colours and transparency; one Cavalry title and one lower third built, seen, rendered, cut and checked on Windows, and Cavalry driven from a fresh Claude Code session; macOS untested |
 
 ## Evidence
@@ -423,12 +448,26 @@ the skill's folder), with the Python `setup.py` names (`$PY`, as in [Try it](#tr
 ```
 
 `--smoke` decodes, checks, imports a transcript, renders a cut and checks its captions on synthetic media, in
-about ten seconds. The full run builds synthetic media with known answers and runs every script's cases, about 1,600
-of them: 10 to 20 minutes on CI's machines, and 20 to 45 on a laptop. It records any case it could not run, with the
+about ten seconds. The full run builds synthetic media with known answers and runs every script's cases, about 2,150
+of them: 26 to 32 minutes on CI's Linux and Windows machines. It records any case it could not run, with the
 reason (some need faster-whisper, a browser or Windows speech synthesis). Without
 `--force`, a run may reuse an earlier pass on the same environment; `--quick` checks the dependencies in a second. A
 pass shows the scripts measure these synthetic answers on your machine; it says nothing about the quality of a
 particular film.
+
+## What stays manual
+
+These are not built, or stay outside the skill, in 2.1:
+
+- Writing an original score; earshot's own sound-making, sound finding and realness scores (an optional,
+  separate tool).
+- Warping reading holds into an existing timeline, and refining word onsets against the audio.
+- Frame-exact 3D.
+- Cue export from engines other than the film kit, HyperFrames (its timelines with the `lf-cues` block) and pages that
+  declare `window.__cues`.
+- Builds in Tesseract, which run in its own skills; this skill hands off the brief, the frame and a plan cue list,
+  and takes the master back.
+- Every act of watching and listening.
 
 ## Limits
 
@@ -449,7 +488,8 @@ particular film.
   from Cavalry, After Effects or another engine). Pins and titles behind a person take still images only, and the film
   kit's renders are opaque, so a kit animation enters as a full-frame cutaway.
 - The self-test runs on Windows, Linux and macOS with Python 3.12, and on Linux with Python 3.9 and FFmpeg 5.1,
-  the oldest supported; Python 3.13 passes its quick and smoke checks on Windows. Other versions are untested.
+  the oldest supported; Python 3.13 passes its quick and smoke checks on Windows. Other versions are untested. The
+  2.1 tools are verified on Linux and Windows; on macOS they have run only in the CI self-test.
 
 ## Related tools
 
@@ -458,6 +498,8 @@ particular film.
 - [Editly](https://github.com/mifi/editly) renders a video from a declarative JSON timeline.
 - [cook](https://github.com/Leonxlnx/cook) runs long visual builds in code against reference images and videos; the
   look step here (references first, motion studied frame by frame, stills beside their references) draws on it.
+- [HyperFrames](https://github.com/heygen-com/hyperframes) renders HTML to video from a paused timeline; the create
+  path exports a HyperFrames page's cue list from its timeline labels and keeps the sound on that clock.
 - [Strobe](https://github.com/hridaya423/strobe) renders HyperFrames and Remotion projects on the GPU, several times
   faster on macOS and Windows; it is new and not tested here, and
   [engines](skills/legible-film/references/engines.md#faster-renders-of-hyperframes-and-remotion-projects-checked-2026-10-31)

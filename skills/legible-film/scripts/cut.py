@@ -91,6 +91,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
@@ -111,7 +112,8 @@ def load_sibling(name):
 project = load_sibling('project')
 
 FRONT_KEYS = ('title', 'size', 'fps', 'target', 'captions', 'music', 'pad', 'max_pause', 'fit', 'crop',
-              'background', 'font', 'loudness', 'bars', 'audience', 'takeaway', 'story')
+              'background', 'font', 'loudness', 'bars', 'audience', 'takeaway', 'story',
+              'path', 'timeline', 'page', 'frame')
 # The film's direction (references/finding-the-story.md section 2): who it is for, what they leave with, its spine.
 DIRECTION_KEYS = ('audience', 'takeaway', 'story')
 SHORT_CLIP = 20.0  # seconds; a cut longer than this without a stated direction is warned about
@@ -270,11 +272,15 @@ def split_front_matter(lines, problems):
         return {}, start
     found = {}
     for index in range(start + 1, len(lines)):
-        text = lines[index].strip()
-        if text == '---':
-            return found, index + 1
+        raw = lines[index]
+        text = raw.strip()
         if not text or text.startswith('#'):
             continue
+        # Nested record fields belong to their parent, not to cut's top-level settings.
+        if raw[0].isspace():
+            continue
+        if text == '---':
+            return found, index + 1
         key, separator, value = text.partition(':')
         if not separator:
             problems.error(index + 1, f'front matter line is not "key: value": {text}', 'write it as key: value')
@@ -3917,6 +3923,19 @@ def declared_ranges(plan):
     return ranges
 
 
+CUT_FADE_CUE_ROLE = '__cut_fade_plate__'
+
+
+def without_generated_fade_cues(document):
+    """Remove sound cues for generated fade plates, leaving every other cue intact."""
+    if not isinstance(document, dict) or not isinstance(document.get('events'), list):
+        return document
+    events = [event for event in document['events']
+              if not (isinstance(event, dict) and event.get('role') == CUT_FADE_CUE_ROLE
+                      and event.get('enabled') is False)]
+    return dict(document, events=events)
+
+
 def build_edit(plan, settings, source_map, version_dir, problems, captions_file):
     """The edit.json for assemble.py at the film's size, plus the extra keys cut.py records."""
     items, starts = picture_items(plan, settings, problems)
@@ -4095,16 +4114,16 @@ def build_group(captions, words, prefix, notes, line_length=42):
     return None
 
 
-def build_captions(plan, version_dir, work_dir, notes, size=None):
+def build_captions(plan, version_dir, work_dir, notes, size=None, wanted=True):
     """captions.srt/.vtt/.json: each group of kept words segmented by captions.py build (so caption rules live in
     one place, and every caption word keeps its transcript word ID), the cues joined without overlap and written by
-    captions.py. Returns the caption file name for burning, or None."""
+    captions.py. Returns the caption file name for burning, or None. `wanted` is false for `captions: none`."""
     prefix = version_dir / 'captions'
     if not plan['words']:
         # Nothing to burn: a burn of no cues failed at the end of the render (64 s for a preview, 5 min for a final).
         write_empty_captions(prefix)
         note = 'no spoken words to caption: the caption files are empty and nothing was burned'
-        if note not in notes:
+        if wanted and note not in notes:
             notes.append(note)
         return None
     captions = load_sibling('captions')
@@ -4570,7 +4589,7 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
              and ('transcript review' in item['message'] or 'transcript energy review' in item['message'])]
     began = time.time()
     try:
-        captions_file = build_captions(plan, staging, work, notes, settings.get('size'))
+        captions_file = build_captions(plan, staging, work, notes, settings.get('size'), bool(settings['captions']))
         edit, starts = build_edit(plan, settings, source_map, staging, problems, captions_file)
         if plan.get('layer_uses'):
             settings['_layers'] = layer_records(plan, root)
@@ -4588,6 +4607,12 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
         size = render_size(settings['size'], args.final)
         render_edit = json.loads(json.dumps(edit))
         render_edit['size'] = list(size)
+        for overlay in render_edit.get('overlays', []):
+            if overlay.get('kind') == 'image' and overlay.get('src') == 'gen-fade':
+                overlay['role'] = CUT_FADE_CUE_ROLE
+        # assemble.py writes edit-cues.json v2 bound to this paper edit: film.md and the sources it was cut from.
+        render_edit['paper'] = {'film_md_sha256': hashlib.sha256(film_text.encode('utf-8')).hexdigest(),
+                                'sources': source_identities(source_map, edit['sources'])}
         proxies = {} if args.final else plan_proxies(edit, settings, source_map, size, root, ffmpeg,
                                                      lambda text: job.update(0.12, line=f'rendering {name}: {text}'))
         for alias, proxy in proxies.items():
@@ -4654,6 +4679,14 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
         for sidecar in ('assemble-report.json', 'declared.json', 'edit-cues.json', 'caption-burn.json'):
             if (work / sidecar).is_file():
                 shutil.copy2(work / sidecar, staging / sidecar)
+        cue_list = load_sibling('cue_list')
+        if (staging / 'edit-cues.json').is_file():
+            cue_path = staging / 'edit-cues.json'
+            cue_document = project.load_json(cue_path, None)
+            filtered = without_generated_fade_cues(cue_document)
+            if filtered != cue_document:
+                project.save_json(cue_path, filtered)
+            cue_list.check(staging / 'edit-cues.json')   # the list every reader will load must read here
         offset = sync_offset(edit, starts, work / 'assemble-report.json')
         frame = 1 / float(settings['fps'])
         if offset is None:
@@ -4674,9 +4707,10 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
         if changed:
             raise RuntimeError(', '.join(changed) + ' changed while this version rendered, so it may mix two files; '
                                'nothing was published. Map it again if the change is intended, then render again.')
+        sources = source_identities(source_map, edit['sources'])
+        identity = version_identity(cue_list, staging, film_text, sources)
         manifest = write_manifest(staging, name, parent, args, settings, size, film_text, notes, offset,
-                                  sorted(proxies), time.time() - began, root, length, frames_out,
-                                  source_identities(source_map, edit['sources']))
+                                  sorted(proxies), time.time() - began, root, length, frames_out, sources, identity)
         publish(staging, root / 'cuts' / name)
     except BaseException as error:
         remove_tree(staging)
@@ -4728,8 +4762,27 @@ def source_identities(source_map, aliases):
     return identities
 
 
+def version_identity(cue_list, staging, film_text, sources):
+    """manifest.json identity for a rendered paper version: its source (the paper fingerprint), the picture
+    stream's packet hash and frame schedule (picture-timing.json, written here), the cue list's hash, and
+    binding: receipt, since this render made the picture from what it fingerprinted."""
+    paper = cue_list.paper_identity(hashlib.sha256(film_text.encode('utf-8')).hexdigest(), sources)
+    found = cue_list.picture_identity(staging / 'preview.mp4')
+    if found['schedule'] is not None:
+        cue_list.write_schedule(found['schedule'], staging / 'picture-timing.json')
+    cues = staging / 'edit-cues.json'
+    listed = cue_list.check(cues) if cues.is_file() else None
+    return {'source': {'kind': 'paper', 'path': 'film.md', 'sha256': paper['sha256'],
+                       'film_md_sha256': paper['film_md_sha256']},
+            'picture_sha256': found['sha256'], 'picture_timing': cue_list.timing_block(found['schedule']),
+            'binding': 'receipt', 'receipt': None,
+            'cues_sha256': sha256_file(cues) if cues.is_file() else None,
+            'cues_provenance': listed.provenance if listed else None,
+            'conform_sha256': None, 'mix': None, 'registered': False}
+
+
 def write_manifest(staging, name, parent, args, settings, size, film_text, notes, offset, proxies, seconds, root,
-                   length, frames=None, sources=None):
+                   length, frames=None, sources=None, identity=None):
     """manifest.json: the version's identity, its parent, sizes, every file's SHA-256 and its sources' identities."""
     resolved = [note.strip() for note in (args.resolves or '').split(',') if note.strip()]
     known = {note.get('id') for note in (project.load_json(root / 'notes.json', {}) or {}).get('notes', [])}
@@ -4755,6 +4808,8 @@ def write_manifest(staging, name, parent, args, settings, size, film_text, notes
                 'audio_master': settings.get('_audio_master'),
                 'title_font': settings.get('_title_font_info'),
                 'sync_max_offset_s': round(offset, 4) if offset is not None else None, 'notes': notes}
+    if identity is not None:
+        manifest['identity'] = identity
     preference = preference_summary(root, project.load_json(staging / 'lines.json', {}))
     if preference is not None:
         manifest['preferences'] = preference
@@ -5238,6 +5293,340 @@ def run_tighten(args):
     return load_sibling('tighten').tighten_project(args, sys.modules[__name__])
 
 
+def checked_version_files(folder, manifest):
+    """Verify the original version's recorded files before using or copying them."""
+    files = manifest.get('files')
+    if not isinstance(files, dict) or not files:
+        raise ValueError('the version has no file hashes; render a final version again')
+    base = folder.resolve()
+    for relative, expected in files.items():
+        path = (folder / relative).resolve()
+        if not path.is_relative_to(base) or not path.is_file() or sha256_file(path) != expected:
+            raise ValueError(f'version file changed or is missing: {relative}')
+    for stem in (folder / 'stems').glob('*.wav'):
+        relative = stem.relative_to(folder).as_posix()
+        if relative not in files:
+            raise ValueError(f'unrecorded stem in version: {relative}')
+    for required in ('preview.mp4', 'edit.json', 'edit-cues.json', 'film.md', 'stems/dialogue.wav'):
+        if required not in files:
+            raise ValueError(f'version is missing recorded {required}; render it again with --final')
+    return dict(files)
+
+
+def attached_stem_role(name):
+    """Return the bus role of an attached stem or the original track name."""
+    match = re.fullmatch(r'attached-(music|effects|bed)(?:-\d+)?', name)
+    return match.group(1) if match else name
+
+
+def same_attached_picture(cue_list, before, after):
+    """Compare packets, display geometry and the shared frame schedule."""
+    if before.get('sha256') != after.get('sha256'):
+        return False, 'the picture packets changed'
+    state, reason = cue_list.geometry_compare(before.get('geometry'), after.get('geometry'))
+    if state == 'changed':
+        return False, reason
+    if before.get('untimed') or after.get('untimed') or not before.get('schedule') or not after.get('schedule'):
+        return False, 'the picture timing cannot be verified'
+    difference = cue_list.compare_schedules(before['schedule'], after['schedule'])
+    if difference:
+        return False, difference
+    return True, reason if state == 'unverified' else ''
+
+
+def version_picture_matches(cue_list, folder, identity, files, picture):
+    """Verify the source picture against its version's packet and timing record."""
+    if not identity.get('picture_sha256') or identity['picture_sha256'] != picture.get('sha256'):
+        return False, 'the picture packet hash differs from the version'
+    timing = identity.get('picture_timing') or {}
+    schedule_name = timing.get('pts_file')
+    if not isinstance(schedule_name, str) or schedule_name not in files or not timing.get('pts_sha256'):
+        return False, 'the version has no recorded frame schedule'
+    if picture.get('untimed') or not picture.get('schedule'):
+        return False, 'the picture timing cannot be verified'
+    expected = cue_list.read_schedule(folder / schedule_name, timing['pts_sha256'])
+    if expected is None:
+        return False, 'the version frame schedule is missing'
+    difference = cue_list.compare_schedules(expected, picture['schedule'], timing.get('fps_exact'))
+    return (False, difference) if difference else (True, '')
+
+
+def prepare_attached_version(staging, mix_cue_path):
+    """Carry the mixed list forward and leave checks for the new picture to run."""
+    shutil.copy2(mix_cue_path, staging / 'edit-cues.json')
+    shutil.copy2(mix_cue_path, staging / 'mix-cues.json')
+    for name in ('checks.json', 'checks-final.json'):
+        (staging / name).unlink(missing_ok=True)
+    if (staging / 'qa').exists():
+        shutil.rmtree(staging / 'qa')
+
+
+def stem_has_sound(ffmpeg, path, start=0, end=None):
+    """Whether a stem contains nonzero samples over the requested span."""
+    command = [ffmpeg, '-hide_banner', '-nostdin', '-i', str(path), '-ss', str(start)]
+    if end is not None:
+        command += ['-t', str(end - start)]
+    command += ['-vn', '-af', 'astats=metadata=0:reset=0', '-f', 'null', '-']
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, timeout=1800)
+    except subprocess.TimeoutExpired:
+        raise ValueError('retained stem inspection timed out') from None
+    if result.returncode:
+        raise ValueError('cannot inspect retained stem: ' + result.stderr.decode(errors='replace')[-300:])
+    output = result.stderr.decode(errors='replace')
+    if re.search(r'Number of NaNs:\s*[1-9]', output) or re.search(r'Number of Infs:\s*[1-9]', output):
+        raise ValueError('a retained stem contains non-finite samples')
+    peaks = re.findall(r'Peak level dB:\s*(-inf|[-+0-9.eE]+)', output)
+    return any(value != '-inf' for value in peaks)
+
+
+def same_cue_timing(original, spotted):
+    """Compare authored clock and event timing while allowing spotting decisions."""
+    def fps(data):
+        value = data.get('fps_exact', data.get('fps'))
+        return float(Fraction(str(value))) if value is not None else None
+    def keyed(data, key, convert):
+        items = data.get(key, [])
+        if not isinstance(items, list) or any(not isinstance(item, dict) or 'id' not in item for item in items):
+            raise ValueError('cue timing needs uniquely named events and sections')
+        result = {str(item['id']): convert(item) for item in items}
+        if len(result) != len(items):
+            raise ValueError('cue timing needs uniquely named events and sections')
+        return result
+    def timing(data):
+        rate = fps(data)
+        sections = keyed(data, 'sections', lambda s: (s.get('a'), s.get('b'), s.get('clock')))
+        def event(item):
+            t = item.get('t')
+            if t is None and rate and item.get('frame') is not None:
+                t = float(item['frame']) / rate
+            if t is None or not math.isfinite(float(t)):
+                raise ValueError('event timing is missing or invalid')
+            section = item.get('section')
+            inherited_clock = (sections.get(str(section)) or (None, None, None))[2]
+            return (round(float(t), 9), item.get('t_end'), item.get('scale', 'contact'), section,
+                    item.get('clock', inherited_clock), item.get('lead_ms', 0), item.get('sync', 'attack'))
+        return rate, sections, keyed(data, 'events', event)
+    old_rate, old_sections, old_events = timing(original)
+    new_rate, new_sections, new_events = timing(spotted)
+    same_rate = old_rate == new_rate or (old_rate is not None and new_rate is not None
+                                         and abs(old_rate - new_rate) < 1e-9)
+    return (same_rate and original.get('clock') == spotted.get('clock')
+            and old_sections == new_sections and old_events == new_events)
+
+
+def attach_inputs(root, args):
+    """Validate the version, its cue list, mixer report and each processed bus."""
+    if not project.VERSION_NAME.fullmatch(args.version):
+        raise ValueError('version must be a version name such as v001')
+    folder = root / 'cuts' / args.version
+    manifest_path = folder / 'manifest.json'
+    if not manifest_path.is_file():
+        raise ValueError('no such version: ' + args.version)
+    manifest = project.load_json(manifest_path, {})
+    stems_dir = folder / 'stems'
+    if not manifest.get('final') or not stems_dir.is_dir():
+        raise ValueError(f'no final stems; run cut.py render "{root}" --final')
+    files = checked_version_files(folder, manifest)
+    cue_path = folder / 'edit-cues.json'
+    if not cue_path.is_file():
+        raise ValueError('the version has no edit-cues.json; render it again with --final')
+    cues_hash = sha256_file(cue_path)
+    identity = manifest.get('identity') or {}
+    if identity.get('cues_sha256') != cues_hash:
+        raise ValueError('the version cue list is not bound to its manifest')
+    cue_list = load_sibling('cue_list')
+    listed = cue_list.load(cue_path, owner=folder)
+    if listed.state != 'fresh' or listed.sha256 != cues_hash:
+        raise ValueError('the version cue list is not bound to this version: ' + listed.message)
+    bus_dir = Path(args.buses)
+    if not bus_dir.is_dir():
+        raise ValueError('--buses must name the mixer output folder, not voice.wav or mix.wav')
+    report_path = Path(args.report)
+    report = project.load_json(report_path, None)
+    if not isinstance(report, dict):
+        raise ValueError('cannot read the mixer report')
+    if report.get('exit_code') != 0:
+        raise ValueError('the mixer report did not pass')
+    if (report.get('mastering') or {}).get('preset') != 'none' or report.get('gain_applied_db') != 0:
+        raise ValueError('attach needs mixer buses made with --master none and no gain normalization')
+    mix_inputs = report.get('inputs') or {}
+    mix_cue_hash = mix_inputs.get('cues')
+    mix_cue_path = cue_path
+    if mix_cue_hash != cues_hash:
+        if not isinstance(mix_inputs.get('cues_path'), str):
+            raise ValueError('the mixer report does not identify its cue list')
+        mix_cue_path = Path(mix_inputs['cues_path'])
+        if not mix_cue_path.is_file() or sha256_file(mix_cue_path) != mix_cue_hash:
+            raise ValueError('the mixer cue list differs from its report')
+        listed = cue_list.load(mix_cue_path, owner=folder)
+        if listed.state != 'fresh' or listed.sha256 != mix_cue_hash:
+            raise ValueError('the mixer cue list is not bound to this version: ' + listed.message)
+        original = project.load_json(cue_path, None)
+        spotted = project.load_json(mix_cue_path, None)
+        if not isinstance(original, dict) or not isinstance(spotted, dict):
+            raise ValueError('cannot read the version and mixer cue lists')
+        if not same_cue_timing(original, spotted):
+            raise ValueError('the mixer cue list changes version timing; re-export the version cues')
+    reference = stems_dir / 'dialogue.wav'
+    if not reference.is_file() or files.get('stems/dialogue.wav') != sha256_file(reference):
+        raise ValueError('the version needs its recorded dialogue stem')
+    reference_hash = sha256_file(reference)
+    voices = (report.get('inputs') or {}).get('voice') or []
+    if len(voices) != 1 or voices[0].get('sha256') != reference_hash or voices[0].get('at_s') != 0 or voices[0].get('gain_db') != 0:
+        raise ValueError('the mixer voice reference is not the version dialogue stem at its original gain and time')
+    outputs = report.get('outputs') or {}
+    buses = {}
+    for role in ('music', 'effects', 'bed'):
+        path = bus_dir / (role + '.wav')
+        if path.is_file():
+            if outputs.get(path.name) != sha256_file(path):
+                raise ValueError(f'{path.name} does not match the mixer report')
+            if role == 'bed':
+                ffmpeg = find_tool('ffmpeg')
+                if not ffmpeg:
+                    raise ValueError('FFmpeg is required to check the ambience bus')
+                if not stem_has_sound(ffmpeg, path):
+                    continue
+            buses[role] = path
+        elif path.name in outputs:
+            raise ValueError(f'the mixer report names a missing bus: {path.name}')
+    if not buses:
+        raise ValueError('no processed buses found')
+    replace = {role for group in (args.replace or []) for role in group}
+    stem_paths = {path.stem: path for path in sorted(stems_dir.glob('*.wav'))}
+    unknown = replace - {attached_stem_role(name) for name in stem_paths}
+    if unknown:
+        raise ValueError('no version stems for --replace: ' + ', '.join(sorted(unknown)))
+    if 'dialogue' in replace:
+        raise ValueError('dialogue cannot be replaced by a mixer bus')
+    retained = {name: path for name, path in stem_paths.items() if attached_stem_role(name) not in replace}
+    silence_looks = []
+    all_silences = [event for event in listed.events if isinstance(event, dict)
+                    and event.get('scale') == 'silence' and event.get('scope', 'new') == 'all']
+    if all_silences:
+        ffmpeg = find_tool('ffmpeg')
+        if not ffmpeg:
+            raise ValueError('FFmpeg is required to check retained stems')
+        for event in all_silences:
+            for name, path in retained.items():
+                if stem_has_sound(ffmpeg, path, float(event['t']), float(event['t_end'])):
+                    role = attached_stem_role(name)
+                    message = (f"all-scoped silence {float(event['t']):g}..{float(event['t_end']):g}s: "
+                               f'retained stem {name} (role {role}) has sound; use --replace ROLE for a '
+                               'replaceable stem, or change the silence scope')
+                    message += ('; dialogue cannot be replaced' if role == 'dialogue'
+                                else f' (for this stem: --replace {role})')
+                    silence_looks.append(message)
+        if silence_looks and getattr(args, 'strict', False):
+            raise ValueError('strict: ' + '; '.join(silence_looks))
+    music_input = (report.get('inputs') or {}).get('music')
+    if 'music' in buses and any(attached_stem_role(name) == 'music' and music_input == sha256_file(path)
+                                for name, path in retained.items()):
+        raise ValueError('the music bus processes the retained music stem; use --replace music to avoid doubling it')
+    return (folder, manifest, files, report, report_path, buses, retained, sorted(replace), reference_hash,
+            cue_list, mix_cue_path, silence_looks)
+
+
+def run_attach_mix(args):
+    """Create an immutable version from a final cut and processed mixer buses."""
+    root = load_project(args.project)
+    with project.file_lock(root / 'cuts' / 'render', timeout=RENDER_WAIT):
+        (folder, manifest, files, report, report_path, buses, retained, replaced, reference_hash,
+         cue_list, mix_cue_path, silence_looks) = attach_inputs(root, args)
+        ffmpeg, ffprobe = find_tool('ffmpeg'), find_tool('ffprobe')
+        if not ffmpeg or not ffprobe:
+            raise ValueError('FFmpeg and ffprobe are required')
+        source_picture = cue_list.picture_identity(folder / 'preview.mp4')
+        valid, reason = version_picture_matches(cue_list, folder, manifest.get('identity') or {}, files, source_picture)
+        if not valid:
+            raise ValueError('the source picture is not bound to this version: ' + reason)
+        edit = project.load_json(folder / 'edit.json', {})
+        fades = edit.get('film_fades') or {}
+        if not isinstance(fades, dict):
+            raise ValueError('version fades are invalid')
+        duration = float(manifest['duration_s'])
+        frames = int(manifest['frames'])
+        if duration <= 0 or frames <= 0:
+            raise ValueError('version duration and frame count must be positive')
+        name = project.next_version(root)
+        final = root / 'cuts' / name
+        if final.exists():
+            raise ValueError('next version already exists')
+        captured = {str(path): sha256_file(path) for path in [report_path, mix_cue_path, *buses.values()]}
+        manifest_hash = sha256_file(folder / 'manifest.json')
+        with tempfile.TemporaryDirectory(prefix=f'.{name}.attach-', dir=root / 'cuts') as temp:
+            work = Path(temp)
+            staging = work / 'version'
+            shutil.copytree(folder, staging)
+            prepare_attached_version(staging, mix_cue_path)
+            stage_stems = staging / 'stems'
+            for path in stage_stems.glob('*.wav'):
+                if attached_stem_role(path.stem) in replaced:
+                    path.unlink()
+            bus_copies = {}
+            for role, path in buses.items():
+                dest = stage_stems / ('attached-' + role + '.wav')
+                number = 2
+                while dest.exists():
+                    dest = stage_stems / f'attached-{role}-{number}.wav'
+                    number += 1
+                shutil.copy2(path, dest)
+                bus_copies[role] = dest
+            shutil.copy2(report_path, staging / 'attached-mix-report.json')
+            selected = [stage_stems / path.name for path in retained.values()] + list(bus_copies.values())
+            output = staging / 'preview.mp4'
+            output.unlink()
+            master = manifest.get('audio_master')
+            notes = list(silence_looks)
+            if master:
+                mix = work / 'sum.wav'
+                normalized = work / 'master.wav'
+                mix_for_master(ffmpeg, selected, duration, fades, mix)
+                first, second = loudnorm_passes(ffmpeg, mix, normalized, float(master['target_lufs']))
+                mux_master(ffmpeg, folder / 'preview.mp4', normalized, duration, frames, output)
+                master_report = measure_master(ffmpeg, ffprobe, output, master['platform'], float(master['target_lufs']),
+                                               master.get('target_source', 'version'), first, second)
+                project.save_json(staging / 'audio-master.json', master_report)
+                notes.extend(master_warnings(master_report))
+            else:
+                mux_preview(ffmpeg, folder / 'preview.mp4', selected, duration, fades, output, frames)
+            verify_mux_output(ffprobe, output, frames, duration, notes)
+            same, picture_note = same_attached_picture(cue_list, source_picture, cue_list.picture_identity(output))
+            if not same:
+                raise ValueError('the mux changed the picture identity: ' + picture_note)
+            if picture_note:
+                notes.append('picture identity unverified: ' + picture_note)
+            checked_version_files(folder, manifest)
+            if sha256_file(folder / 'manifest.json') != manifest_hash or any(sha256_file(path) != value for path, value in captured.items()):
+                raise ValueError('an input changed while attaching the mix; no version was published')
+            provenance = {'report_sha256': captured[str(report_path)],
+                          'cues_sha256': captured[str(mix_cue_path)],
+                          'buses': {role: captured[str(path)] for role, path in buses.items()},
+                          'stems': {name: {'from': args.version, 'sha256': sha256_file(path),
+                                           'role': attached_stem_role(name)} for name, path in retained.items()},
+                          'replaced': replaced, 'voice_reference': reference_hash,
+                          'fades': args.version, 'master': args.version}
+            manifest['version'] = name
+            manifest['parent'] = args.version
+            manifest['created'] = project.now()
+            manifest['label'] = args.label or ''
+            manifest['mix'] = provenance
+            manifest['identity']['mix'] = provenance
+            manifest['identity']['cues_sha256'] = captured[str(mix_cue_path)]
+            manifest['notes'] = list(manifest.get('notes') or []) + notes
+            manifest['files'] = {path.relative_to(staging).as_posix(): sha256_file(path)
+                                 for path in sorted(staging.rglob('*')) if path.is_file() and path.name != 'manifest.json'}
+            project.save_json(staging / 'manifest.json', manifest)
+            publish(staging, final)
+        project.set_current(root, name)
+        project.set_stage(root, 'check', line=f'{name} mix attached; not checked yet')
+        print(f'{name} attached; original {args.version} is unchanged. Unheard.')
+        for look in silence_looks:
+            print('LOOK: ' + look)
+        return 1 if silence_looks else 0
+
+
 # ----------------------------------------------------------------------------------------------- main
 
 def argument_parser():
@@ -5281,6 +5670,15 @@ def argument_parser():
     tighten.add_argument('--out', help='paper edit path (default PROJECT/film.md)')
     tighten.add_argument('--silence-only', action='store_true', help='use measured quiet without a transcript')
     tighten.add_argument('--force', action='store_true', help='replace existing outputs; keep the old edit as .bak')
+    attach = sub.add_parser('attach-mix', help='attach processed buses to a final cut')
+    attach.add_argument('project')
+    attach.add_argument('--version', required=True)
+    attach.add_argument('--buses', required=True)
+    attach.add_argument('--report', required=True)
+    attach.add_argument('--replace', action='append', nargs='+', default=[])
+    attach.add_argument('--strict', action='store_true',
+                        help='refuse attachment when retained stems contain sound in an all-scoped silence')
+    attach.add_argument('--label', default='')
     return parser
 
 
@@ -5290,7 +5688,7 @@ def main():
     project.safe_output()
     try:
         handler = {'check': run_check, 'render': run_render, 'diff': run_diff, 'draft': run_draft,
-                   'tighten': run_tighten}[args.command]
+                   'tighten': run_tighten, 'attach-mix': run_attach_mix}[args.command]
         return handler(args)
     except ImportError as error:
         name = 'PIL' if error.name and (error.name == 'PIL' or error.name.startswith('PIL.')) else 'numpy'

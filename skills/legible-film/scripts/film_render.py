@@ -5,6 +5,7 @@
   python film_render.py film-folder --from 120 --to 179 --preview --out preview.mp4
   python film_render.py film-folder --samples 4 --shutter 180 --grain 1.5 --out picture.mp4
   python film_render.py film-folder --size 1080x1920
+  python film_render.py film-folder --cues film-folder/cues.json --out picture-v1.mp4
 
 Ranges are inclusive output frame indices; sample times stay on the whole-film clock.
 --size WxH passes w/h URL parameters and sets the CSS viewport, so the page recomposes.
@@ -13,6 +14,18 @@ With no --out, writes FOLDER_OUTPUTWIDTHxOUTPUTHEIGHT.mp4 (or .mkv) beside the f
 720x1280 from 1080x1920); without it the output is the page size. --lossless writes RGB
 FFV1/Matroska (use .mkv): no subsampling or matrix round-trip. Default H.264 High, slow, CRF 14, explicit level, closed GOP,
 BT.709 RGB-to-YUV conversion and filter-graph tags, fast start. No audio.
+
+--cues LIST renders the kept frozen copy that list names (FOLDER/.lf-frozen/<snapshot_sha256>/, written by the cue
+export) and refuses when the list is stale against FOLDER, when the copy is missing, or when its bytes differ from
+the export snapshot in any file, line endings included. Without --cues the copy holds only the files the page
+fingerprint covers (the exclusions in cue_list.py skipped).
+
+The manifest (OUTPUT.manifest.json) is the render's receipt: source_fingerprint (the copy's page fingerprint),
+snapshot_sha256 and cues_sha256 with --cues, every frozen file by its exact-byte SHA-256 and its file_digest (digest
+lf1), the page's pre-rewrite file digests and vendored URL hashes from the freeze record (so project.py add-version
+can rebuild the fingerprint), render_trace: traced (every page request was intercepted and
+served from the copy; one that leaves it stops the render), the requests served, and picture_sha256, geometry and
+frame schedule of the output's picture stream. Later steps that write a new picture or container append an entry.
 
 Copies the folder, serves only that copy on localhost, streams bounded PNG/JPEG samples,
 accumulates float32 linear sRGB (or --blend gamma), optional linear bloom, deterministic
@@ -56,6 +69,9 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location('lf_render_common', HERE / 'render_common.py')
 C = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(C)
+_cue_spec = importlib.util.spec_from_file_location('lf_cue_list', HERE / 'cue_list.py')
+cue_list = importlib.util.module_from_spec(_cue_spec)
+_cue_spec.loader.exec_module(cue_list)
 
 
 class RenderFailure(RuntimeError):
@@ -63,8 +79,24 @@ class RenderFailure(RuntimeError):
 
 
 class QuietServer(http.server.SimpleHTTPRequestHandler):
+    served = None   # the request log of this render: [{'path', 'status'}]
+
     def log_message(self, *args):
         pass
+
+    def log_request(self, code='-', size='-'):
+        if self.served is not None:
+            self.served.append({'path': self.path.split('?', 1)[0], 'status': int(code) if str(code).isdigit() else code})
+
+
+def picture_entry(step, path):
+    """A receipt entry for a file a step wrote: its picture stream's packet hash, geometry and frame schedule."""
+    found = cue_list.picture_identity(path)
+    schedule = found['schedule']
+    return {'step': step, 'file': Path(path).name, 'output_sha256': C.sha256(path), 'picture_sha256': found['sha256'],
+            'geometry': found['geometry'], 'fps_exact': found['fps_exact'],
+            'pts_sha256': cue_list.schedule_sha256(schedule) if schedule else None, 'schedule': schedule,
+            'untimed': found['untimed']}
 
 
 def read_exact(stream, n):
@@ -191,6 +223,8 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument('folder')
     p.add_argument('--out', help='new output path; default FOLDER_WIDTHxHEIGHT beside the source folder')
+    p.add_argument('--cues', help="render the kept frozen copy this cue list names (FOLDER/.lf-frozen/<snapshot>/); "
+                   'refused when the list is stale or the copy differs from the export snapshot')
     p.add_argument('--size', help='CSS layout size WxH, e.g. 1080x1920 or 1080x1080')
     p.add_argument('--page', default='index.html', help='relative local entry page, may include query parameters')
     p.add_argument('--workers', type=int, default=1)
@@ -250,6 +284,25 @@ def main():
         avail = C.free_memory() if not a.force else None
         if avail is not None and avail < 512 * 1024 ** 2:
             raise ValueError('less than 512 MiB free for capture inspection; --force overrides')
+        listed = record = None
+        if a.cues:
+            try:
+                listed = cue_list.load(a.cues, owner=source)
+            except cue_list.CueListError as error:
+                raise ValueError(f'{a.cues}: {error}') from None
+            if listed.kind != 'page':
+                raise ValueError(f'{a.cues} is a {listed.kind} list; --cues renders the kept copy of a page list')
+            snapshot = listed.picture['snapshot_sha256']
+            record = cue_list.frozen_record(source, snapshot)
+            if record is None:
+                raise ValueError(f'the kept copy {cue_list.FROZEN_DIR}/{snapshot} that {a.cues} names is missing; '
+                                 'export the cue list again (film_check.py or film_capture.mjs cues)')
+            if record.get('fingerprint') != listed.picture['sha256']:
+                raise ValueError(f'the kept copy {snapshot[:12]} records another page fingerprint than {a.cues}')
+            problems = cue_list.verify_frozen(source / cue_list.FROZEN_DIR / snapshot, record['frozen_files'], snapshot)
+            if problems:
+                raise ValueError('the kept copy differs from the export snapshot (' + '; '.join(problems[:5]) +
+                                 '); export the cue list again')
         with tempfile.TemporaryDirectory(prefix='lf-render-', dir=output.parent if output.parent.is_dir() else None) as tmp:
             tmp = Path(tmp)
             frozen = tmp / 'frozen'
@@ -257,9 +310,21 @@ def main():
             for root, dirs, files in os.walk(source, followlinks=False):
                 if any((Path(root) / name).is_symlink() for name in dirs + files):
                     raise ValueError('source contains a symlink; replace it with a local asset before rendering')
-            shutil.copytree(source, frozen)
-            hashes = {f.relative_to(frozen).as_posix(): C.sha256(f) for f in sorted(frozen.rglob('*')) if f.is_file()}
-            server = C.LocalServer(('127.0.0.1', 0), functools.partial(QuietServer, directory=str(frozen)))
+            if record is not None:
+                kept = source / cue_list.FROZEN_DIR / record['snapshot_sha256']
+                names = sorted(record['frozen_files'])
+            else:
+                kept, names = source, cue_list.page_files(source)
+            for rel in names:
+                (frozen / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(kept / rel, frozen / rel)
+            hashes = {rel: C.sha256(frozen / rel) for rel in names}
+            if record is not None and hashes != record['frozen_files']:
+                raise ValueError('the kept copy changed while it was copied for the render; export again')
+            digests = {rel: cue_list.file_digest(frozen / rel) for rel in names}
+            served = []
+            handler = type('ServedRequests', (QuietServer,), {'served': served})
+            server = C.LocalServer(('127.0.0.1', 0), functools.partial(handler, directory=str(frozen)))
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             if a.page.startswith(('/', '\\')) or '..' in a.page.split('?')[0].split('/') or '#' in a.page:
@@ -317,7 +382,28 @@ def main():
             decoded = C.decoded_count(a.ffprobe, assembled)
             if decoded != count:
                 raise RenderFailure(f'frame count: expected {count}, decoded {decoded}')
+            if record is not None:
+                pre = record.get('source_digests')   # the page's pre-rewrite file digests, as freeze recorded them
+                vendored = {v['url']: v['sha256'] for v in record.get('vendored') or []}
+                fingerprint = record['fingerprint']
+            else:
+                pre, vendored = digests, {}
+                fingerprint = cue_list.page_fingerprint(frozen, {}, names)
+            missing = [r for r in served if r.get('status') not in (200, 206, 304)]   # 304: revalidated from the copy
+            entry = dict(picture_entry('film_render.py', assembled), file=output.name)
             manifest = {'version': 1, 'source': str(source), 'frozen_sha256': hashes, 'info': info,
+                        'source_fingerprint': fingerprint, 'digest': cue_list.DIGEST,
+                        'frozen': {rel: {'sha256': hashes[rel], 'file_digest': digests[rel]} for rel in names},
+                        'source_digests': pre,
+                        'vendored': [{'url': u, 'sha256': h} for u, h in sorted(vendored.items())],
+                        'snapshot_sha256': record['snapshot_sha256'] if record else None,
+                        'cues': str(Path(a.cues).resolve()) if a.cues else None,
+                        'cues_sha256': listed.sha256 if listed else None,
+                        'binding_reasons': (list(record.get('reasons') or []) if record else []) +
+                                           [f"a request the copy does not hold: {r['path']}" for r in missing],
+                        'render_trace': 'traced', 'requests': served,
+                        'picture_sha256': entry['picture_sha256'], 'geometry': entry['geometry'],
+                        'pts_sha256': entry['pts_sha256'], 'entries': [entry],
                         'output': str(output),
                         'tool_sha256': {name: C.sha256(HERE / name) for name in
                                         ('film_render.py', 'film_capture.mjs', 'render_common.py')},

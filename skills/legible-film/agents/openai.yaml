@@ -1,5 +1,5 @@
 interface:
   display_name: "Legible Film"
-  short_description: "Cut, caption, check and revise video, with an edit you can read"
+  short_description: "Make, cut, score and check video, picture and sound on one clock"
 policy:
   allow_implicit_invocation: true

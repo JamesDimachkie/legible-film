@@ -17,6 +17,26 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
+_browser_spec = importlib.util.spec_from_file_location('selftest_browser', Path(__file__).with_name('_browser.py'))
+BROWSER = importlib.util.module_from_spec(_browser_spec)
+_browser_spec.loader.exec_module(BROWSER)
+SKIP = None
+
+
+def room_started(info, stale_pid=None):
+    """Whether a discovery record names a room that started: it has a port and a pid other than a planted stale one.
+    The pid need not be the Popen pid; on Windows a virtual environment's python.exe is a launcher that runs the
+    interpreter as a child process with its own pid."""
+    return isinstance(info, dict) and bool(info.get('port')) and info.get('pid') not in (None, stale_pid)
+
+
+def skipped(name, reason, count):
+    """A counted skip through selftest.py's skip(), or a printed one when run alone."""
+    if SKIP:
+        SKIP(name, reason, count)
+    else:
+        print(f'SKIP  {name} ({reason})')
+
 
 def regression_cases(tool, record, original, scripts_dir):
     """Keep known-answer regressions independent of the ordinary room fixture."""
@@ -783,13 +803,10 @@ def reader_notes_case(tool, record, original):
            found == [(6, None, 'A plan before any section.'), (8, 'Story', 'The viewer meets the lesson.'),
                      (10, 'Story', 'They feel the lesson land; the queue it came from is on screen.'),
                      (14, 'Ending', 'The queue empties.')], str(found) + output[-300:])
-    module, node = os.environ.get('LF_PLAYWRIGHT_MODULE'), shutil.which('node')
-    chrome = next((p for p in (Path('C:/Program Files/Google/Chrome/Application/chrome.exe'),
-                                Path('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'))
-                   if p.is_file()), None)
+    found = BROWSER.discover()
+    module, node, chrome = found['module'], found['node'], found['chrome']
     if not (module and node and chrome):
-        print('SKIP  screen: notes in place and a paused seek in view (LF_PLAYWRIGHT_MODULE, Node or browser '
-              'unavailable)')
+        skipped('screen: notes in place and a paused seek in view', found['missing'], 1)
         return
     script = root / 'notes-case.cjs'
     script.write_text('''const {chromium} = require(process.argv[2]);
@@ -902,8 +919,10 @@ def check_room_keys(record, root, module, node, chrome, url):
            result.returncode == 0, result.stderr[-600:])
 
 
-def run_screen_cases(tool, record, j, scripts_dir):
+def run_screen_cases(tool, record, j, scripts_dir, skip=None):
     """Exercise static data, live writes, access, seeking, and agent commands."""
+    global SKIP
+    SKIP = skip
     polish_decision_cases(tool, record, j)
     check_room_record_and_dead_job(record, j, scripts_dir)
     run_fix2_screen_cases(record, j, scripts_dir)
@@ -1019,7 +1038,8 @@ def run_screen_cases(tool, record, j, scripts_dir):
         quick.server_close()
     record('screen: the server starts without a reverse DNS lookup (slow on macOS)', quick.server_port > 0)
     info_path = root / 'screening/server.json'
-    info_path.write_text(json.dumps({'pid': 1073741823, 'url': 'stale'}), encoding='utf-8')
+    stale_pid = 1073741823
+    info_path.write_text(json.dumps({'pid': stale_pid, 'url': 'stale'}), encoding='utf-8')
     proc = subprocess.Popen([sys.executable, str(Path(scripts_dir) / 'screen.py'), 'serve', str(root), '--port', '0'],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
@@ -1030,10 +1050,10 @@ def run_screen_cases(tool, record, j, scripts_dir):
                 info = json.loads(info_path.read_text(encoding='utf-8'))
             except (OSError, ValueError):
                 info = {}
-            if info.get('pid') == proc.pid:
+            if room_started(info, stale_pid):
                 break
             time.sleep(.05)
-        replaced = info.get('pid') == proc.pid
+        replaced = room_started(info, stale_pid)
         if not replaced:
             proc.terminate()
             try:
@@ -1161,11 +1181,8 @@ def run_screen_cases(tool, record, j, scripts_dir):
         decisions = (root / 'decisions.jsonl').read_text(encoding='utf-8')
         record('screen: approval records review and decision', code == 200
                and bool(status['reviewed']['v002']['approved']) and 'approved' in decisions, body.decode())
-        module = os.environ.get('LF_PLAYWRIGHT_MODULE')
-        node = shutil.which('node')
-        chrome = next((p for p in (Path('C:/Program Files/Google/Chrome/Application/chrome.exe'),
-                                    Path('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'))
-                       if p.is_file()), None)
+        found = BROWSER.discover()
+        module, node, chrome = found['module'], found['node'], found['chrome']
         if module and node and chrome:
             live_script = root / 'live-case.cjs'
             live_script.write_text('''const {chromium} = require(process.argv[2]);
@@ -1214,7 +1231,7 @@ def run_screen_cases(tool, record, j, scripts_dir):
                         other_info = json.loads(other_info_path.read_text(encoding='utf-8'))
                     except (OSError, ValueError):
                         other_info = {}
-                    if other_info.get('pid') == other_proc.pid:
+                    if room_started(other_info):
                         break
                     time.sleep(.05)
                 two_script = root / 'two-rooms-case.cjs'
@@ -1237,7 +1254,7 @@ const assert=require('assert');
  await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});
 ''', encoding='ascii')
-                if other_info.get('pid') == other_proc.pid:
+                if room_started(other_info):
                     other_url = other_proc.stdout.readline().strip()
                     two = subprocess.run([node, str(two_script), module, str(chrome), url, other_url],
                                          capture_output=True, text=True, timeout=30)
@@ -1250,7 +1267,7 @@ const assert=require('assert');
                 other_proc.terminate()
                 other_proc.wait(timeout=10)
         else:
-            print('SKIP  screen: live browser note (LF_PLAYWRIGHT_MODULE, Node or browser unavailable)')
+            skipped('screen: live browser note, room keys and two rooms', found['missing'], 3)
         host, port = '127.0.0.1', info['port']
         for _ in range(4):
             client = socket.create_connection((host, port), timeout=5)
@@ -1299,11 +1316,8 @@ const assert=require('assert');
                         '--decision', 'shorter', '--rejected', 'longer', '--by', 'agent')
     decisions = [json.loads(line) for line in (root / 'decisions.jsonl').read_text(encoding='utf-8').splitlines()]
     record('screen: append agent decision', code == 0 and decisions[-1]['rejected'] == ['longer'], output[-300:])
-    module = os.environ.get('LF_PLAYWRIGHT_MODULE')
-    node = shutil.which('node')
-    chrome = next((p for p in (Path('C:/Program Files/Google/Chrome/Application/chrome.exe'),
-                                Path('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'))
-                   if p.is_file()), None)
+    found = BROWSER.discover()
+    module, node, chrome = found['module'], found['node'], found['chrome']
     if module and node and chrome:
         script = root / 'playwright-case.cjs'
         script.write_text('''const {chromium} = require(process.argv[2]);
@@ -1378,9 +1392,9 @@ const assert = require('assert');
                                            ('scorecard', root.parent / 'screen-regression/screening/index.html')],
                             module, node, chrome)
     else:
-        for name in ('static line click seeks playback', 'static presentation and review controls',
-                     'frame observation after a seek'):
-            print('SKIP  screen: ' + name + ' (LF_PLAYWRIGHT_MODULE, Node or browser unavailable)')
+        # Three static-room checks, the round-2 room and four launch-room checks on each of two pages.
+        skipped('screen: static line click, presentation and review controls, frame observation, launch room',
+                found['missing'], 12)
     (root / 'cuts/v003').mkdir()
     (root / 'cuts/current').write_text('v003\n', encoding='utf-8')
     with (root / 'decisions.jsonl').open('a', encoding='utf-8') as stream:

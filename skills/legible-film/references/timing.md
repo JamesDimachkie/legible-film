@@ -1,38 +1,56 @@
 # Timing: one clock for picture and sound
 
-How each passage keeps time, how picture and sound share events, where a sound sits against a picture event, and
-how long text needs on screen. Use it during Plan and whenever something "feels off" without an obvious cause.
+How each film keeps one clock, where a sound sits against a picture event, and how long text needs on screen. §0 is
+the contract every path follows; the sections after it add what the contract does not say.
 
-Contents: [1. Choose the clock](#1-choose-the-clock-for-each-passage) · [2. The cue list is a contract](#2-the-cue-list-is-a-contract) ·
+Contents: [0. The contract](#0-the-contract) · [1. Speech as the clock](#1-speech-as-the-clock) ·
+[2. Sync points come from the picture](#2-sync-points-come-from-the-picture) ·
 [3. Where a sound sits](#3-where-a-sound-sits-against-a-picture-event) · [4. Tolerances](#4-tolerances) ·
 [5. Frame arithmetic](#5-frame-arithmetic) · [6. Reading windows](#6-reading-windows) ·
 [7. Reading and action](#7-reading-and-action) · [8. Inserting holds](#8-inserting-holds) ·
 [9. When music is the clock](#9-when-music-is-the-clock)
 
-## 1. Choose the clock for each passage
+## 0. The contract
 
-Each passage follows one clock, and choosing it is a creative decision:
+One timeline owns each film: a page, the paper edit, an editor's timeline, a finished picture, a single file, or a
+Tesseract project (`film.md` `timeline`). Every passage names its clock (speech, music, action or silence) in
+`cues.json` `sections[]`.
 
-- **Action:** a chain of visible causes sets the timing (a silent demo, a product action).
-- **Speech:** narration or dialogue sets it; picture events land on words. Transcript word starts are estimates, often off
-  by a few frames: put an anchor's first visible change on its word's start or up to a frame before, confirm
-  timing-critical anchors against the source audio, and list the anchors for the person's pass with sound.
-- **Music:** a beat grid sets it; changes land on bars, beats or the music's own events.
-- **Deliberate silence:** nothing new arrives, so a result or a sentence can be read.
+The cue list is exported from the owner; never duplicate authored timing by hand: `film_check.py` for the kit,
+`film_capture.mjs cues` for a page, `assemble.py`'s `edit-cues.json` for a paper edit. A finished picture with no
+page gets observed anchors, confirmed on frames and labelled `observed` with their uncertainty; a build the skill
+cannot export from gets a `plan` list, unbound until its turns are checked on the master. The list records its
+picture's exact identity (a page's files byte for byte; a video's picture stream and timing). Every reader
+(through `cue_list.py`) refuses a stale list, reports one it cannot check as `unverified`, and reads a v1 list as
+unversioned. A retime re-exports before any mix; a revision invalidates stale beds and mixes.
 
-A film can change clock between passages. An intended offset (a sound that anticipates, a landing just after the
-beat) is valid when it is intended; drift is not.
+Four scales. A **turn** is a section change; sound may lead or trail it by a stated `lead_ms`. A **follow** span
+(`t` to `t_end`) has sound density that tracks motion. A **contact** is a hit at `sync` attack, apex or end.
+**Silence** is a cue with a span, a scope (no new sound, the effects bus, or every bus) and a decision. Every turn
+gets a recorded decision. A run the picture means (`run: true`) is kept, not thinned. Centre does not mean more hits.
 
-## 2. The cue list is a contract
+Measure the delivered file two ways, labelled: the frame changes at each cue (a screen; the person screening judges
+whether it is the intended change); the sound follows the list (`cue_onsets.py`, with chance). Turn leads and follow
+coupling are screens against an uncalibrated null, or inconclusive; transport is `sync_check.py` against the master.
+None is a pass mark; a correlation is not taste. Sound is unheard until a named person listens; intended silence is
+recorded.
 
-- Keep every shared event in one timing source (a module, a JSON file, a table the build reads): an ID, a time on
-  the film clock, and what happens. Specs, the cue list and every builder use the same absolute times.
+create, insert and sound carry all of it; cut carries it when sound is designed, and measures every join; editor
+and quick change nothing outside the declared edit, and check that.
+
+## 1. Speech as the clock
+
+Transcript word starts are estimates, often off by a few frames and sometimes by a tenth of a second or more. Put an
+anchor's first visible change on its word's start or up to a frame before, confirm timing-critical anchors against
+the source audio, and list the anchors for the person's pass with sound. An intended offset (a sound that
+anticipates, a landing just after the beat) is valid when it is recorded as a decision; drift is not.
+
+## 2. Sync points come from the picture
+
 - Compute sync points from the animation itself: the contact frame, the frame of peak velocity, the frame a settle
-  becomes visually complete, the frame a line becomes readable. Never type them by hand; the picture moves under a
-  hand-typed number as soon as anything is retimed.
-- Scene-local clocks are fine. Record each scene's offset from the film clock in the same source.
-- After any picture-only change, re-export the cue list and compare it byte for byte with the list the mix used.
-  Reuse the mix only when they are identical.
+  becomes visually complete, the frame a line becomes readable. A hand-typed number stays put while the picture moves
+  under it.
+- Scene-local clocks are fine; the exporter adds each scene's offset (a HyperFrames composition's `data-start`).
 - A counter, a check mark or a total updates in the same frame as the event that causes it; a beat of delay reads
   as lag.
 - An animation has not moved at all on the frame it starts, so its first visible change comes a frame later.
@@ -52,9 +70,11 @@ audio.
 | A whip or fast camera move | the take's energy apex, on the picture's peak velocity | Cut a whip on its fastest frame; give "air" to real scene transitions, not to every move. |
 | A reverse swell into an event | the take's end, on the event | |
 | A headline landing | one soft cue, or none | One documented film sounded every headline with a single soft tick and left exits and settles silent: one film's taste filter, not a rule. |
-| A text sequence | one quiet cue per meaningful phrase, or silence | Dense typing gets a few word-level accents, not a sound per key. |
+| A text sequence | decide each run | A run the picture means keeps a sound per event (`run: true`); a few word-level accents, or silence, are choices too. |
 | Events on the same frame | decide whether they are one gesture | A mixer that merges them makes one fuller sound; two separate hits a frame or two apart smear. |
 | Exits, settles, scrolls, progress bars | usually nothing | The music or the next event carries them. |
+| A turn the sound leads | the accent, before the turn's first visible change | Start at `lead_ms` -83 to -208, 2 to 5 frames at 24 fps; negative puts the sound first. Measured films led turns by 2 to 7 frames. |
+| A music-led transition | the accent, on the transition's first visible change | Put the cut half a beat after the accent. Seen at three transitions in two measured films; it is a choice the person hears, not a rule. |
 
 Ease-out curves look landed long before they end: a quartic ease-out has covered 90% of its distance by 44% of
 its duration, and an exponential one by 33%. A sound cued on the tween's last frame arrives after the eye has
@@ -63,9 +83,9 @@ already seen the landing. Cue the frame where the move becomes visually complete
 Consistency carries meaning: give each sound family one meaning (selection, completion, error) and keep it, and
 when one kind of action gets a sound, give every repeat of it the same sound.
 
-In `cues.json`, each event's `sync` names the take's own sync point: `attack`, `apex` or `end`. Its `role` names the
-sound to play from the palette, so `mix_cues.py` can place the take and `cue_onsets.py` can check it
-([sound](sound.md) §6).
+In `cues.json`, each event's `scale` says how readers treat it, `sync` names the take's own sync point (`attack`,
+`apex` or `end`) and `role` names the sound to play from the palette, so `mix_cues.py` can place the take and
+`cue_onsets.py` can check it ([sound](sound.md) §6).
 
 ## 4. Tolerances
 
@@ -73,32 +93,20 @@ sound to play from the palette, so `mix_cues.py` can place the take and `cue_ons
   (sound late), and acceptability at +90 ms and −185 ms. Viewers notice early sound sooner than late sound. These
   are broadcast transport limits, not creative targets.
 - EBU R37 asks each production stage to stay within **5 ms early to 15 ms late**, and an emission chain within
-  40 ms early to 60 ms late. These are transport limits: set the film's own sync tolerance separately. A frame
+  40 ms early to 60 ms late. These are transport limits; set the film's own sync tolerance separately. A frame
   is 17 ms at 60 fps and 42 ms at 24 fps, so a one-frame tolerance does not by itself meet the per-stage figures.
-- There is no single sync tolerance: a run of repeated hits exposes an offset that an isolated event hides.
-- Measure the delivered offsets with `cue_onsets.py` (sounds against the cue list) and `sync_check.py` (delivered
-  audio against the approved mix). In a full mix with music, compare the share of cues answered with chance
-  (`--chance`): busy music lands near any cue by luck. Measurements locate problems; whether a hit feels right is
-  decided by listening.
+- There is no single sync tolerance. A run of repeated hits exposes an offset that an isolated event hides.
+- In a full mix with music, compare the share of cues answered with chance (`cue_onsets.py --chance`); busy music
+  lands near any cue by luck.
 
 ## 5. Frame arithmetic
 
-Pair tempo and frame rate so each beat spans an integer count of frames; otherwise cue frames round differently from
-beat to beat and picture and music drift by up to a frame.
-
-| BPM | Frames per beat at 24 fps | at 25 fps | at 30 fps | at 60 fps |
-|---|---|---|---|---|
-| 75 | 19.2 | 20 | 24 | 48 |
-| 90 | 16 | 16.67 | 20 | 40 |
-| 100 | 14.4 | 15 | 18 | 36 |
-| 120 | 12 | 12.5 | 15 | 30 |
-| 125 | 11.52 | 12 | 14.4 | 28.8 |
-| 150 | 9.6 | 10 | 12 | 24 |
-
-`frames_per_beat = 60 × fps / BPM`. With supplied music at an awkward tempo, keep the frame rate, place each cue on
-the frame nearest the measured beat time, and note why; never retime the music to suit the grid. A helper such as
-`at(bar, beat, sixteenth)` that returns a whole frame keeps every cue on the grid; a cue deliberately off it gets a
-written reason beside it.
+`frames_per_beat = 60 × fps / BPM`. When it is not a whole number, cue frames round differently from beat to beat,
+so place each cue meant to land on a beat on the frame nearest the measured beat time. With supplied music, keep the
+frame rate and never retime the music to suit the grid. A helper such as `at(bar, beat, sixteenth)` that returns a
+whole frame keeps a beat-led passage on its grid; a cue deliberately off it gets a written reason beside it. Landing
+on beats is a choice a passage makes on purpose, since the reference films land turns on cuts and cut on beats only
+at chance.
 
 Two more pieces of arithmetic. A conventional FFmpeg `xfade` overlap of `d` seconds shortens the combined
 timeline by `d` and shifts every later cue by `d` (`xfade` takes `offset = first clip length − d`). The paper edit's
@@ -168,25 +176,27 @@ Motion and reading compete for the same eyes. Patterns that let the picture carr
   durations of all earlier holds.
 - An animation or sound that spans a hold point needs its own decision: shifting only the events that start later
   does not lengthen an action already in progress.
-- Warp the cue list with the same holds, re-export it, and re-run `cue_onsets.py` on the new mix.
+- Re-export the cue list from the retimed owner (the old list is now stale), and re-run `cue_onsets.py` on the
+  new mix.
 - Check the result at viewing size and in motion. A measured interval is not comprehension.
 
 ## 9. When music is the clock
 
-- Decide early which events coincide with the music (section changes, the main reveal, contacts) and which float.
-  In a music-led passage, a landing meant for a downbeat that arrives 0.2-0.5 s after it reads as late; an
-  intended off-beat or action-led landing is not late.
-- Pick the structure early: tempo, bar length, the drop, any re-drop, the climax, the final hit. One beat module
-  that lists the events, exported as the sound cue list, keeps picture and music on one clock.
-- Conform a chosen track to the film at bar lines with short crossfades, and judge it against the real cut.
-- Find the track's beat phase from its kick attacks, not from bass energy: in one film a bass-energy estimate put
-  the conform 68 ms early, and the listener heard it ("off on some beats just by a hair"). Measure swing when the
-  groove has one, and place off-beat events with the same swing.
-- Measure a track before building on it: `tempo_map.py` reports its tempo, its phase from attacks, its downbeats and
+- Pick the structure early: tempo, bar length, the drop, any re-drop, the climax, the final hit. Decide which events
+  coincide with the music (section changes, the main reveal, contacts) and which float. In a music-led passage, a
+  landing meant for a downbeat that arrives 0.2-0.5 s after it reads as late; an intended off-beat or action-led
+  landing is not late.
+- Measure a track before building on it. `tempo_map.py` reports its tempo, its phase from attacks, its downbeats and
   drops, how far beats sit from the grid (residual) and how far the tempo wanders (drift). Fit only the stretch the
   film uses (`--window`), give the tempo you asked for (`--bpm`) so it cannot lock to half or double, and let
   `--drop-at-beat N` compute the offset into the track that lands the drop on film beat N.
+- Find the track's beat phase from its kick attacks, not from bass energy. In one film a bass-energy estimate put
+  the conform 68 ms early, and the listener heard it ("off on some beats just by a hair"). Measure swing when the
+  groove has one, and place off-beat events with the same swing.
+- Conform a chosen take to the list's sections at bar lines with short crossfades (`conform.py --tempo TEMPO.json
+  --snap bar`, the tempo from `tempo_map.py --json`). Spot first and conform against the spotted list, since its map
+  is bound by hash to the list the mix reads. Judge it against the real cut.
 - State the film's own timing contract for the events meant to coincide (one music-led film held its hits within
   about 5 ms of the eighth-note grid), and check the delivered file against it.
 - Build loops in whole bars, so music and picture come round together.
-- Generated music usually ignores requested sections; see [sound](sound.md).
+- Generated music usually ignores requested sections; see [sound](sound.md) §5.

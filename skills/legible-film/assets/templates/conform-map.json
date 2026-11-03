@@ -1,0 +1,9 @@
+{
+  "cues_sha256": "<the SHA-256 of the cues.json this map was written against; conform.py refuses any other list>",
+  "fields": "sections[].id names a section of the cue list, whose bounds come from the list and are never repeated here; take_start: seconds into the music take where the section begins; edits: further entry points inside the section, at film seconds from the section's start; xfade_ms: the crossfade at each seam; gain_db: the music gain for the section, applied once",
+  "sections": [
+    {"id": "open", "take_start": 0.0, "edits": [], "xfade_ms": 40, "gain_db": -4},
+    {"id": "drop", "take_start": 8.5, "edits": [{"at": 0.0, "take_start": 8.5}, {"at": 4.0, "take_start": 20.5}], "xfade_ms": 40, "gain_db": -2},
+    {"id": "hold", "take_start": 51.0, "edits": [], "xfade_ms": 80, "gain_db": -8}
+  ]
+}

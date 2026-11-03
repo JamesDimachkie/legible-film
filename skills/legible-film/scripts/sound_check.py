@@ -58,6 +58,8 @@ def load(name):
 
 
 io, spotting, dialogue = load("sound_io"), load("spot_cues"), load("dialogue_io")
+listen = load("listen")
+cue_list = load("cue_list")
 project = load("project")
 RATE = 48000
 
@@ -89,6 +91,7 @@ def measure(ffmpeg, path, a, windows):
     x = io.decode(ffmpeg, path, RATE)
     duration = len(x) / RATE
     measured = io.meter(ffmpeg, path)
+    listening = listen.measure(path, samples=x, ffmpeg=ffmpeg)
     raw = io.run(
         [
             ffmpeg,
@@ -176,6 +179,8 @@ def measure(ffmpeg, path, a, windows):
         "file": str(path),
         "duration_s": duration,
         "loudness": measured,
+        "listening_measurements": listening["measurements"],
+        "listening_reference": listening["reference"],
         "phone_band": phone_meter,
         "checks": checks,
     }
@@ -288,9 +293,14 @@ def main():
         if not isinstance(roles, dict):
             raise ValueError("palette roles must be an object")
         if a.cues:
-            spec, events, fps = spotting.read_cues(a.cues)
+            listed = cue_list.load_for("sound_check.py", a.cues)
+            spec, events, fps = spotting.read_cues(a.cues, loaded=listed, prog="sound_check.py")
             for ev in events:
                 if spotting.silent(ev):
+                    span = listed.silence_span(ev) if listed.version == "v2" else None
+                    if span:   # a v2 silence is its span
+                        windows.append((max(0, span[0]), span[1]))
+                        continue
                     t, half = spotting.time_of(ev, fps), ev.get("window_ms", 120) / 1000
                     windows.append((max(0, t - half), t + half))
             for window in spec.get("silent_windows", []) if isinstance(spec, dict) else []:

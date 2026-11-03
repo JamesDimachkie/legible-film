@@ -1,13 +1,27 @@
 {
+  "version": "v2",
   "clock": "seconds from the first frame of the film",
-  "fps": 60,
-  "version": "v1",
-  "exported_from": "the timing source the picture code reads",
-  "fields": "t: seconds; sound: required, silent or optional; sync: attack or apex; tolerance_ms: largest offset still on cue; window_ms: how far either side of t to check (t 6.0 with window_ms 800 checks 5.2-6.8 s)",
+  "fps": "24000/1001",
+  "exported_from": "film_capture.mjs cues --source timelines",
+  "provenance": "exported",
+  "picture": {"kind": "page", "path": "film/", "sha256": "<page fingerprint, written by the exporter>",
+              "snapshot_sha256": "<the kept frozen copy, written by the exporter>",
+              "source_files": {"index.html": "<exact-byte SHA-256>", "assets/logo.svg": "<exact-byte SHA-256>"}},
+  "sections": [
+    {"id": "open", "a": 0.0, "b": 3.0, "clock": "speech", "label": "what this is"},
+    {"id": "drop", "a": 3.0, "b": 12.0, "clock": "music", "gain_db": {"effects": 0}},
+    {"id": "hold", "a": 12.0, "b": 14.0, "clock": "silence"}
+  ],
   "events": [
-    {"id": "send-contact", "t": 3.0, "picture": "the send button is pressed", "sound": "required", "sync": "attack", "tolerance_ms": 17},
-    {"id": "whip-to-result", "t": 5.2, "picture": "camera whip at its peak velocity", "sound": "required", "sync": "apex", "tolerance_ms": 25},
-    {"id": "result-read", "t": 6.0, "picture": "the result is read", "sound": "silent", "window_ms": 800},
-    {"id": "logo-lock", "t": 9.5, "picture": "the mark locks", "sound": "optional", "sync": "attack"}
+    {"id": "drop-in", "t": 3.0, "scale": "turn", "sync": "attack", "lead_ms": -83, "section": "drop",
+     "sound": "required", "role": "hit", "hero": true, "decision": "the hit leads the cut by two frames",
+     "picture": "cut from black to the wordmark", "x": 0.0, "y": -0.2, "pan": "x", "pitch_st": 0,
+     "gain_db": 0, "tolerance_ms": 17},
+    {"id": "type-run", "t": 4.0, "t_end": 6.5, "scale": "follow", "section": "drop", "role": "key",
+     "run": true, "intent": "key density follows the typing", "picture": "the line types itself"},
+    {"id": "tap-3", "t": 7.25, "scale": "contact", "sync": "apex", "sound": "optional", "role": "tap",
+     "span": "type-run"},
+    {"id": "breath", "t": 12.0, "t_end": 14.0, "scale": "silence", "sound": "silent", "scope": "new",
+     "decision": "the ending breathes"}
   ]
 }

@@ -29,6 +29,7 @@ Node, Playwright, Chromium and film_check.py beside make_film.py. Exit 0 all pas
 skipped), 1 any failure. These synthetic films prove the pipeline, not any film's quality.
 """
 import argparse
+import importlib.util
 import json
 from fractions import Fraction
 import os
@@ -441,6 +442,9 @@ def run_make_cases(tool, record, j, scripts_dir):
     record('make_film: silent report says unwatched and audio intentionally absent, nothing posted',
            '**unwatched**' in text and 'audio intentionally absent' in text and 'unheard' not in text
            and 'Nothing has been posted' in text and 'WEAKEST POINT' in text)
+    record('make_film: the delivery report carries a Context section from the kit frame (none here, so the missing '
+           'fields are named)', '## Context' in text and 'no frame in the spec' in text,
+           next((x for x in text.splitlines() if 'frame' in x), 'no frame line'))
 
     def video_hash(path):
         result = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), '-map', '0:v:0', '-c:v', 'copy',
@@ -568,19 +572,26 @@ def run_make_cases(tool, record, j, scripts_dir):
            all(Path(renders, n).stat().st_mtime_ns == t for n, t in before.items()) and
            (renders / 'clean_320x180-preview.mp4').is_file(), f"exit {code}")
 
-    # 5b. What a change reruns. A picture-only edit (the cue list unchanged) re-renders both sizes and reuses the
-    #     sound; a new master remixes and re-muxes and reuses both renders.
+    # 5b. What a change reruns. A picture-only edit changes the page's exact files, so the cue list re-exports with
+    #     the new identity (SPEC §6) even though its times are unchanged: both sizes re-render and spotting reruns
+    #     against the new list, so every reader of the spotted list finds it fresh; a mux may resume when the render's
+    #     bytes did not change. A new master remixes and re-muxes and reuses both renders.
     base = ('--sizes', '320x180,180x320', '--samples', 2, '--out', j('make-out', 'draft'), '--resume')
     tool('make_film.py', clean, *base, '--master', 'broadcast')
     page = clean / 'index.html'
     original_page = page.read_bytes()
+    _cue_spec = importlib.util.spec_from_file_location('selftest_make_cue_list', Path(scripts_dir) / 'cue_list.py')
+    cue_list = importlib.util.module_from_spec(_cue_spec)
+    _cue_spec.loader.exec_module(cue_list)
     try:
         page.write_bytes(original_page + b'<!-- a picture-only edit: the timeline and its cues are unchanged -->')
         code, out = tool('make_film.py', clean, *base, '--master', 'broadcast', '--json', j('make-resume-edit.json'))
         resumed = set(load(j('make-resume-edit.json')).get('resumed', []))
-        record('make_film: --resume after a picture-only edit re-renders both sizes and reuses the sound',
-               code == 0 and not {'render 320x180', 'render 180x320'} & resumed
-               and {'spotting', 'sound kit', 'sound'} <= resumed, f'exit {code}; resumed {sorted(resumed)}')
+        spotted = Path(j('make-out', 'draft', 'qa', 'cues.spotted.json'))
+        state = cue_list.check(spotted).state if spotted.is_file() else 'missing'
+        record('make_film: --resume after a picture-only edit re-renders both sizes and reruns spotting against the '
+               'new list, which reads fresh', code == 0 and not {'render 320x180', 'render 180x320', 'spotting'} & resumed
+               and state == 'fresh', f'exit {code}; resumed {sorted(resumed)}; spotted list {state}')
         code, out = tool('make_film.py', clean, *base, '--master', 'web', '--json', j('make-resume-master.json'))
         resumed = set(load(j('make-resume-master.json')).get('resumed', []))
         record('make_film: --resume with a new master remixes and re-muxes, reusing both renders',

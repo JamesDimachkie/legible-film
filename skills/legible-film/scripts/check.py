@@ -93,6 +93,7 @@ or needs a look, 2 when it cannot run. --verify: 0 current, 1 an input or tool c
 or a checks file written before inputs were recorded).
 """
 import argparse
+import hashlib
 import importlib.util
 import json
 import math
@@ -176,6 +177,10 @@ def tools_record(model=None):
     names = {'check.py', 'project.py'} | INVOKED
     if names & {'qc_file.py', 'transcribe.py'}:
         names.add('render_common.py')
+    if 'tempo_map.py' in names:
+        names.add('sound_io.py')
+    if 'delivery_check.py' in names:
+        names.update(('with_lock.py', 'setup.py'))
     for name in sorted(names):
         path = HERE / name
         scripts[name] = P.file_sha256(path) if path.is_file() else None
@@ -405,11 +410,14 @@ def dropout_item(video, has_audio):
         return item('dropouts', 'No holes in the sound', 'pass',
                     f'no digital silence of {DROPOUT_S:g} s or more inside the film')
     listed = ', '.join(f'{P.format_time(start)} ({end - start:.2f} s)' for start, end in holes[:8])
-    more = f' and {len(holes) - 8} more' if len(holes) > 8 else ''
-    return item('dropouts', f'{len(holes)} hole(s) in the sound', 'look',
-                f'digital silence at {listed}{more}: the room tone drops out. Fill each with room tone from a quiet '
-                f'moment of the same source (a ~ music line under it), or move the edge past it; a silence you '
-                f'designed can stay', holes[0][0])
+    more = f' and {len(holes) - 8} more (every hole is listed in the record)' if len(holes) > 8 else ''
+    found = item('dropouts', f'{len(holes)} hole(s) in the sound', 'look',
+                 f'digital silence at {listed}{more}: the room tone drops out. Fill each with room tone from a quiet '
+                 f'moment of the same source (a ~ music line under it), or move the edge past it; a silence you '
+                 f'designed can stay', holes[0][0])
+    # The detail names eight; the record keeps every hole, so a long list can be read back and checked one by one.
+    found['holes'] = [[round(start, 3), round(end, 3)] for start, end in holes]
+    return found
 
 
 def flash_definite(row):
@@ -433,9 +441,10 @@ def flash_item(report):
     if not definite:
         first = flagged[0]
         at = first.get('general_at_s') if isinstance(first, dict) else None
-        return item('flash', 'Possible flashing pattern, or camera movement', 'look',
+        return item('flash', 'Possible flashing pattern, camera movement or moving shapes', 'look',
                     f'{len(flagged)} window(s) where a pattern detector counted more than three reversals in a '
-                    'second; camera movement over fine detail also does this. Watch the moment at normal speed: a '
+                    'second, or swings that no opposite swing reverses in the same pixels did (shapes sliding or '
+                    'morphing); camera movement over fine detail also does this. Watch the moment at normal speed: a '
                     'flashing pattern fails WCAG 2.3.1. Not WCAG certification', at)
     first = definite[0]
     at = None
@@ -1309,9 +1318,699 @@ def person_items(reviewed, has_audio, has_captions):
     return result
 
 
+def context_items(frame, cold, file_hash):
+    """Report each frame field and a hash-bound cold read separately."""
+    frame = frame if isinstance(frame, dict) else {}
+    states = frame.get('state') if isinstance(frame.get('state'), dict) else {}
+    waiver = frame.get('waived') if isinstance(frame.get('waived'), dict) else {}
+    result = []
+    for key in ('what', 'audience', 'why', 'knows_by'):
+        value = frame.get(key)
+        if key == 'knows_by':
+            present = isinstance(value, list) and bool(value) and all(
+                isinstance(row, dict) and number(row.get('s')) is not None and math.isfinite(row['s']) and row['s'] >= 0 and
+                isinstance(row.get('channel'), str) and bool(row['channel'].strip()) for row in value)
+        else:
+            present = isinstance(value, str) and bool(value.strip())
+        state = states.get(key, 'missing')
+        if state == 'waived' and isinstance(waiver.get('reason'), str) and waiver['reason'].strip():
+            entry = item('context_' + key, 'Context: ' + key, 'pass', 'waived: ' + waiver['reason'])
+        elif present and state == 'confirmed':
+            entry = item('context_' + key, 'Context: ' + key, 'pass', 'confirmed')
+        else:
+            detail = 'missing or incomplete' if not present else str(state)
+            entry = item('context_' + key, 'Context: ' + key, 'unconfirmed', detail)
+        entry['group'] = 'context'
+        result.append(entry)
+    if not isinstance(cold, dict) or cold.get('state') not in ('matched', 'mismatched') or not cold.get('by'):
+        entry = item('context_cold', 'Not assessed: cold read', 'skip', 'no named cold read recorded')
+    elif not file_hash or cold.get('file_sha256') != file_hash:
+        entry = item('context_cold', 'Not assessed: cold read', 'skip', 'record is not for this file')
+    else:
+        entry = item('context_cold', 'Cold read', 'pass' if cold['state'] == 'matched' else 'look',
+                     f"{cold['state']}; assessed by {cold['by']}; file {file_hash}")
+    entry['group'] = 'context'
+    result.append(entry)
+    return result
+
+
+def binding_item(identity):
+    """Show the binding recorded in a version without claiming its freshness was checked."""
+    identity = identity if isinstance(identity, dict) else {}
+    binding = identity.get('binding')
+    reason = identity.get('binding_reason') or identity.get('override_reason') or identity.get('unverified_reason') \
+        or identity.get('decision') or identity.get('reason')
+    reasons = identity.get('binding_reasons')
+    if isinstance(reasons, list):
+        values = ([str(reason)] if reason else []) + [str(value) for value in reasons if value]
+        reason = '; '.join(dict.fromkeys(values)) or None
+    if binding in ('receipt', 'plan-bound'):
+        entry = item('sync_binding', 'Recorded binding', 'pass', str(binding) + '; cue freshness is checked separately')
+    elif binding == 'screened':
+        entry = item('sync_binding', 'Recorded binding', 'look', 'screened: no render receipt')
+    elif binding in ('overridden', 'unverified'):
+        entry = item('sync_binding', 'Recorded binding', 'look', f'{binding}: {reason or "reason not recorded"}')
+    else:
+        entry = item('sync_binding', 'Not assessed: binding', 'skip', 'no recognized binding recorded')
+    for key in ('render_trace', 'cues_provenance', 'receipt'):
+        if identity.get(key) is not None:
+            entry['detail'] += f'; {key}: {identity[key]}'
+    entry['group'] = 'sync'
+    return entry
+
+
+def cue_contract_items(data, freshness, required=False):
+    """Report cue identity and turn decisions without treating plans as bound."""
+    if data is None:
+        entry = item('sync_cues', 'Cue list' if required else 'Not assessed: cue list',
+                     'fail' if required else 'skip', 'required cue list missing' if required else 'no cue list')
+        entry['group'] = 'sync'
+        return [entry]
+    if freshness == 'stale':
+        entry = item('sync_cues', 'Cue list', 'fail', 'stale: re-export')
+        entry['group'] = 'sync'
+        return [entry]
+    if freshness == 'unbound':
+        entry = item('sync_cues', 'Not assessed: cue list', 'skip',
+                     'plan is not yet bound to a picture; open item: register the master before delivery')
+        entry['group'] = 'sync'
+        return [entry]
+    state = 'pass' if freshness == 'fresh' else 'look'
+    entry = item('sync_cues', 'Cue list', state, str(freshness or 'freshness not established'))
+    entry['group'] = 'sync'
+    events = data.get('events', []) if isinstance(data, dict) else []
+    missing = [str(event.get('id', '?')) for event in events if isinstance(event, dict)
+               and event.get('scale') == 'turn' and not str(event.get('decision') or '').strip()]
+    turns = [event for event in events if isinstance(event, dict) and event.get('scale') == 'turn']
+    fps = number(data.get('fps')) if isinstance(data, dict) else None
+
+    def turn_time(turn):
+        at = number(turn.get('t'))
+        frame = number(turn.get('frame'))
+        return at if at is not None else frame / fps if frame is not None and fps and fps > 0 else None
+
+    sections = data.get('sections', []) if isinstance(data, dict) else []
+    for section in sections[1:] if isinstance(sections, list) else []:
+        if not isinstance(section, dict) or section.get('decision'):
+            continue
+        at = number(section.get('a'))
+        if at is not None and not any(turn_time(turn) is not None and abs(turn_time(turn) - at) < 1e-6
+                                      for turn in turns):
+            missing.append('section ' + str(section.get('id', '?')))
+    decision = item('sync_turn_decisions', 'Turn decisions', 'look' if missing else 'pass',
+                    'missing: ' + ', '.join(missing) if missing else f'{len(turns)} turn decisions recorded')
+    decision['group'] = 'sync'
+    return [entry, decision]
+
+
+def sync_measurement_items(measurements):
+    """Keep picture and sound measures separate, including their unassessed parts."""
+    data = measurements if isinstance(measurements, dict) else {}
+    entries = []
+
+    def add(key, label, state, detail, measurement=None, at=None):
+        row = item(key, label, state, detail, at)
+        row['group'] = 'sync'
+        if measurement is not None:
+            row['measurement'] = measurement
+        entries.append(row)
+
+    frames = data.get('frame_change_at_cue') or {}
+    frame_rows = frames.get('rows') or []
+    if not frame_rows:
+        add('sync_frame_0', 'Not assessed: frame change at cue', 'skip',
+            frames.get('reason') or 'no cue frame was measured')
+    for index, row in enumerate(frame_rows):
+        state = {'change': 'pass', 'look': 'look'}.get(row.get('state'), 'skip')
+        label = ('Not assessed: ' if state == 'skip' else '') + 'Frame change at cue ' + str(row.get('id', index))
+        detail = row.get('reason') or ('a change occurred; its meaning needs a person' if state == 'pass' else
+                                      'no qualifying frame change at this cue')
+        add('sync_frame_' + str(index), label, state, detail, row, row.get('t'))
+
+    sound = data.get('sound_follows_list') or {}
+    summary = sound.get('summary') or {}
+    definite = ('missing', 'LATE', 'EARLY', 'UNEXPECTED SOUND', 'outside audio', 'RESIDUAL')
+    failures = [row for row in sound.get('rows', []) if row.get('status') in definite
+                and row.get('sound') != 'optional']
+    if failures:
+        state = 'look'
+    elif sound.get('state') == 'measured':
+        state = 'look' if summary.get('failures') else 'pass'
+    else:
+        state = 'skip'
+    label = ('Not assessed: ' if state == 'skip' else '') + 'Sound follows the list'
+    detail = sound.get('reason') or json.dumps(summary, ensure_ascii=False)
+    add('sync_sound_follows_list', label, state, detail, sound)
+
+    leads = data.get('turn_leads') or []
+    if leads:
+        add('sync_turn_leads', 'Turn leads measured', 'pass',
+            f'{len(leads)} measured; compare each with its declared lead', leads)
+    else:
+        add('sync_turn_leads', 'Not assessed: turn leads', 'skip', 'no turn lead was measured')
+    for index, row in enumerate(data.get('follow') or []):
+        assessed = row.get('state') == 'screening'
+        label = ('Follow screen (uncalibrated null) ' if assessed else 'Not assessed: follow screen ') + str(row.get('id', index))
+        detail = row.get('reason') or json.dumps({key: row.get(key) for key in
+            ('state', 'best_r', 'lag_s', 'n', 'seed', 'null_iterations', 'null_p95', 'null_spread', 'null_note')},
+            ensure_ascii=False)
+        add('sync_follow_' + str(index), label, 'pass' if assessed else 'skip', detail, row)
+    for index, row in enumerate(data.get('silence') or []):
+        add('sync_silence_' + str(index), 'Not assessed: silence scope ' + str(row.get('id', index)), 'skip',
+            row.get('reason') or 'full audio level does not establish bus scope or allowed tails', row,
+            row.get('start_s'))
+    return entries
+
+
+def version_schedule_path(folder, name):
+    """A version's timing file must resolve within that version."""
+    if not isinstance(name, str) or not name or Path(name).is_absolute():
+        raise ValueError('the version timing file must be a relative path')
+    root = Path(folder).resolve()
+    path = (root / name).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        raise ValueError('the version timing file resolves outside the version') from None
+    return path
+
+
+def version_picture_items(folder, video, identity, cue_list):
+    """Compare the version's actual picture packets and schedule with its manifest."""
+    folder, video = Path(folder), Path(video)
+    master = folder / 'preview.mp4'
+    expected = identity.get('picture_sha256')
+    timing = identity.get('picture_timing') or {}
+    label, state, detail = 'Not assessed: version picture identity', 'skip', 'no picture identity recorded'
+    actual = None
+    if expected and master.is_file():
+        try:
+            actual = cue_list.picture_identity(master)
+            if actual['sha256'] != expected:
+                label, state, detail = 'Version picture identity', 'fail', 'picture packets differ from the manifest'
+            elif not timing.get('pts_file') or not actual.get('schedule'):
+                detail = 'picture packets match; the recorded or actual frame schedule is unavailable'
+            else:
+                schedule_path = version_schedule_path(folder, timing['pts_file'])
+                recorded = cue_list.read_schedule(schedule_path, timing.get('pts_sha256'))
+                if recorded is None:
+                    detail = 'picture packets match; the recorded frame schedule is missing'
+                else:
+                    change = cue_list.compare_schedules(recorded, actual['schedule'], timing.get('fps_exact'))
+                    label, state = 'Version picture packets and timing', 'fail' if change else 'pass'
+                    detail = change or 'packet hash and presentation schedule match the manifest'
+        except ValueError as error:
+            if str(error).startswith('stale'):
+                label, state, detail = 'Version picture identity', 'fail', str(error)
+            else:
+                label, state, detail = 'Not assessed: version picture identity', 'skip', str(error)
+        except (OSError, RuntimeError, KeyError) as error:
+            label, state, detail = 'Not assessed: version picture identity', 'skip', str(error)
+    row = item('sync_picture_identity', label, state, detail)
+    row['group'] = 'sync'
+    rows = [row]
+    geometry = identity.get('geometry') or identity.get('picture_geometry')
+    if not isinstance(geometry, dict) or not geometry:
+        row = item('sync_picture_geometry', 'Not assessed: version display geometry', 'skip',
+                   'the manifest records no geometry for comparison')
+    elif actual is None or not actual.get('geometry'):
+        row = item('sync_picture_geometry', 'Not assessed: version display geometry', 'skip',
+                   'the actual master display geometry could not be read')
+    else:
+        status, reason = cue_list.geometry_compare(geometry, actual.get('geometry'))
+        result = {'equal': 'pass', 'changed': 'fail', 'unverified': 'look'}.get(status, 'skip')
+        row = item('sync_picture_geometry', 'Version display geometry', result,
+                   reason or 'display geometry matches the manifest')
+    row['group'] = 'sync'
+    rows.append(row)
+    if actual is not None and master.is_file() and not P.same_file(video, master):
+        try:
+            delivered = cue_list.picture_identity(video)
+            if delivered['sha256'] != actual['sha256']:
+                state, detail = 'look', 'delivered picture packets differ; a re-encode or edit needs picture review'
+            elif not actual.get('schedule') or not delivered.get('schedule'):
+                state, detail = 'skip', 'a picture schedule is unavailable'
+            elif not actual.get('geometry') or not delivered.get('geometry'):
+                state, detail = 'skip', 'a display geometry is unavailable'
+            else:
+                change = cue_list.compare_schedules(actual['schedule'], delivered['schedule'], timing.get('fps_exact'))
+                status, reason = cue_list.geometry_compare(actual.get('geometry'), delivered.get('geometry'))
+                if change or status == 'changed':
+                    state, detail = 'fail', change or reason
+                elif status == 'unverified':
+                    state, detail = 'look', reason
+                else:
+                    state, detail = 'pass', 'picture packets, timing and display geometry match the version master'
+        except (OSError, ValueError, RuntimeError, KeyError) as error:
+            state, detail = 'skip', str(error)
+        row = item('sync_delivered_picture', ('Not assessed: ' if state == 'skip' else '') +
+                   'delivered picture against master', state, detail)
+        row['group'] = 'sync'
+        rows.append(row)
+    return rows
+
+
+def mux_origin_item(master, video, cue_list, report):
+    """Compare picture movement with audio movement on the container clock."""
+    def result(state, detail, measurement=None):
+        label = ('Not assessed: ' if state == 'skip' else '') + 'picture-to-audio mux offset'
+        row = item('sync_mux_origin', label, state, detail)
+        row['group'] = 'sync'
+        if measurement is not None:
+            row['measurement'] = measurement
+        return row
+
+    summary = (report or {}).get('summary') or {}
+    verdict = summary.get('verdict', '')
+    if verdict != 'consistent with the reference within tolerance' and not verdict.startswith('constant offset'):
+        return result('skip', 'audio transport could not be aligned to the version master')
+    try:
+        reference = cue_list.picture_identity(master)
+        delivered = cue_list.picture_identity(video)
+        first, second = reference.get('schedule'), delivered.get('schedule')
+        if not first or not second or not first.get('pts_us') or not second.get('pts_us'):
+            return result('skip', 'picture packet timestamps are unavailable')
+
+        def audio_start(path):
+            stream = next((row for row in probe_media(path).get('streams', [])
+                           if row.get('codec_type') == 'audio'), None)
+            if stream is None:
+                raise ValueError('an audio stream is missing')
+            value = float(stream['start_time'])
+            if not math.isfinite(value):
+                raise ValueError('audio stream origin is not finite')
+            return value
+
+        picture_shift_ms = cue_list.schedule_shift_us(first, second) / 1000
+        audio_timestamp_shift_ms = (audio_start(video) - audio_start(master)) * 1000
+        audio_content_shift_ms = float(summary['median_lag_ms'])
+        if not math.isfinite(audio_content_shift_ms):
+            raise ValueError('audio content offset is unavailable')
+        difference_ms = picture_shift_ms - audio_timestamp_shift_ms - audio_content_shift_ms
+        tolerance_ms = cue_list.tolerance_us(first.get('fps_exact')) / 1000
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, StopIteration) as error:
+        return result('skip', str(error) or 'stream timing is unavailable')
+    state = 'pass' if abs(difference_ms) <= tolerance_ms else 'fail'
+    measurement = {'picture_shift_ms': round(picture_shift_ms, 3),
+                   'audio_timestamp_shift_ms': round(audio_timestamp_shift_ms, 3),
+                   'audio_content_shift_ms': round(audio_content_shift_ms, 3),
+                   'relative_shift_ms': round(difference_ms, 3), 'tolerance_ms': round(tolerance_ms, 3)}
+    return result(state, f'picture relative to sound moved {difference_ms:+.3f} ms; '
+                  f'tolerance {tolerance_ms:.3f} ms', measurement)
+
+
+def version_receipt_item(folder, manifest):
+    """Check a receipt only when its bytes are recorded inside the version."""
+    identity = manifest.get('identity') if isinstance(manifest.get('identity'), dict) else {}
+    source = identity.get('source') if isinstance(identity.get('source'), dict) else {}
+    name = identity.get('receipt')
+    if not name:
+        return None
+    state, detail = 'skip', 'the receipt path is not bound to bytes in the version'
+    files = manifest.get('files') if isinstance(manifest.get('files'), dict) else {}
+    try:
+        path = version_schedule_path(folder, name)
+        expected = files.get(Path(name).as_posix())
+        if expected:
+            state = 'fail'
+            if not path.is_file():
+                state, detail = 'fail', 'the recorded receipt is missing or its bytes changed'
+            else:
+                content = path.read_bytes()
+                if hashlib.sha256(content).hexdigest() != expected:
+                    raise ValueError('stale: the recorded receipt bytes changed')
+                receipt = json.loads(content.decode('utf-8-sig'))
+                if not isinstance(receipt, dict):
+                    state, detail = 'fail', 'the recorded receipt is not a JSON object'
+                else:
+                    comparisons = [('source_fingerprint', source.get('sha256')),
+                                   ('snapshot_sha256', source.get('snapshot_sha256')),
+                                   ('cues_sha256', identity.get('cues_sha256')),
+                                   ('picture_sha256', identity.get('picture_sha256')),
+                                   ('render_trace', identity.get('render_trace')),
+                                   ('binding', identity.get('binding'))]
+                    mismatch = [key for key, value in comparisons if value is not None
+                                and key in receipt and receipt[key] != value]
+                    missing = [key for key, value in comparisons[:5] if value is not None and key not in receipt]
+                    if mismatch:
+                        state, detail = 'fail', 'receipt differs from the version: ' + ', '.join(mismatch)
+                    elif missing:
+                        state, detail = 'look', 'receipt lacks fields for comparison: ' + ', '.join(missing)
+                    else:
+                        state, detail = 'pass', 'recorded receipt bytes and available identity fields match'
+    except (OSError, ValueError, TypeError) as error:
+        detail = (str(error) or detail) if state == 'fail' else 'the receipt is outside the version or its path is invalid'
+    row = item('sync_receipt', ('Not assessed: ' if state == 'skip' else '') + 'render receipt', state, detail)
+    row['group'] = 'sync'
+    return row
+
+
+def attached_bus_names(files, role):
+    """The attached copies of a mixer bus recorded in the version's files map."""
+    if role not in ('music', 'effects', 'bed'):
+        return []
+    pattern = re.compile(r'^stems/attached-' + re.escape(role) + r'(?:-\d+)?\.wav$')
+    return sorted(name for name in files if isinstance(name, str) and pattern.fullmatch(name))
+
+
+def retained_stem_name(name):
+    """A retained stem name must stay inside the version's stems folder."""
+    return (isinstance(name, str) and name not in ('', '.', '..') and '/' not in name and '\\' not in name
+            and ':' not in name
+            and not Path(name).is_absolute())
+
+
+def attached_mix_report(folder, mix, files):
+    """Read the report only when its bytes match the version and the mix record."""
+    report_path = version_schedule_path(folder, 'attached-mix-report.json')
+    expected = mix.get('report_sha256')
+    if not expected or files.get('attached-mix-report.json') != expected or not report_path.is_file():
+        raise ValueError('the attached mixer report is missing or its hash differs')
+    content = report_path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != expected:
+        raise ValueError('the attached mixer report is missing or its hash differs')
+    report = json.loads(content.decode('utf-8-sig'))
+    if not isinstance(report, dict) or report.get('exit_code') != 0:
+        raise ValueError('the attached mixer report is invalid or did not pass')
+    return report
+
+
+def conform_evidence(identity, mix_report, verify_media=True):
+    """Assess a conform using the mixer report's hash-indexed input paths."""
+    refs = []
+    if not isinstance(mix_report, dict):
+        return 'skip', 'no verified mixer report provides conform inputs', refs
+    inputs = mix_report.get('inputs') if isinstance(mix_report.get('inputs'), dict) else {}
+    conform_hash, bed_hash = inputs.get('conform'), inputs.get('music')
+    if not conform_hash:
+        return 'skip', 'the mixer report records no conform report', refs
+    files = inputs.get('files') if isinstance(inputs.get('files'), dict) else {}
+
+    def paths_for(role, expected):
+        paths = []
+        if not isinstance(expected, str) or not expected:
+            return paths
+        for raw, value in files.items():
+            if not isinstance(raw, str) or value != expected:
+                continue
+            path = Path(raw)
+            if path.is_absolute():
+                paths.append(path)
+                refs.append((role, path))
+        return paths
+
+    def match(paths, expected, label, content=False):
+        if not paths:
+            return None, 'skip', f'the mixer report records no {label} path'
+        mismatch = False
+        for path in paths:
+            try:
+                if not path.is_file():
+                    continue
+                value = path.read_bytes() if content else None
+                digest = hashlib.sha256(value).hexdigest() if content else P.file_sha256(path)
+                if digest == expected:
+                    return value if content else path, None, None
+                mismatch = True
+            except (OSError, ValueError):
+                continue
+        if mismatch:
+            return None, 'fail', f'the {label} bytes differ from the mixer report'
+        return None, 'skip', f'the recorded {label} path is unavailable'
+
+    report_paths = paths_for('conform_report', conform_hash)
+    bed_paths = paths_for('conform_bed', bed_hash)
+    content, state, detail = match(report_paths, conform_hash, 'conform report', content=True)
+    if state:
+        return state, detail, refs
+    try:
+        conform = json.loads(content.decode('utf-8-sig'))
+    except (ValueError, UnicodeError):
+        return 'fail', 'the conform report is not readable JSON', refs
+    if not isinstance(conform, dict):
+        return 'fail', 'the conform report is not a JSON object', refs
+    source_hash = conform.get('music_sha256')
+    source_paths = paths_for('conform_source', source_hash)
+    if not verify_media:
+        return 'skip', 'conform input paths recorded', refs
+    if identity.get('conform_sha256') and identity['conform_sha256'] != conform_hash:
+        return 'fail', 'the version and mixer name different conform reports', refs
+    if conform.get('binding') != 'bound' or not identity.get('cues_sha256') \
+            or conform.get('cues_sha256') != identity.get('cues_sha256') \
+            or inputs.get('cues') != identity.get('cues_sha256'):
+        return 'fail', 'the conform and mixer do not bind the version cue list', refs
+    if not bed_hash or conform.get('bed_sha256') != bed_hash or not source_hash:
+        return 'fail', 'the conform and mixer do not bind the same source and bed', refs
+    for paths, expected, label in ((bed_paths, bed_hash, 'conformed bed'),
+                                   (source_paths, source_hash, 'source music')):
+        _, state, detail = match(paths, expected, label)
+        if state:
+            return state, detail, refs
+    return 'pass', 'conform report, cue list, source music and bed match recorded hashes; unheard', refs
+
+
+def version_mix_items(folder, manifest):
+    """Verify the attached mixer report and the copied buses and retained stems when present."""
+    folder = Path(folder)
+    identity = manifest.get('identity') if isinstance(manifest.get('identity'), dict) else {}
+    mix = identity.get('mix') if isinstance(identity.get('mix'), dict) else manifest.get('mix')
+    files = manifest.get('files') if isinstance(manifest.get('files'), dict) else {}
+
+    def row(key, state, detail):
+        result = item('sync_' + key, ('Not assessed: ' if state == 'skip' else '') + key, state, detail)
+        result['group'] = 'sync'
+        return result
+
+    if not isinstance(mix, dict):
+        return [row('mix', 'skip', 'no mixer report and media are bound here'),
+                row('masking', 'skip', 'no bound masking decisions were supplied')], None
+    if not isinstance(mix.get('buses'), dict) or not isinstance(mix.get('stems'), dict):
+        return [row('mix', 'skip', 'the version records mix hashes but no report and sound paths to verify'),
+                row('masking', 'skip', 'the registered mixer report path is not bound')], None
+    try:
+        if isinstance(manifest.get('mix'), dict) and manifest['mix'] != mix:
+            raise ValueError('the two mix records differ')
+        report = attached_mix_report(folder, mix, files)
+        inputs = report.get('inputs') if isinstance(report.get('inputs'), dict) else {}
+        outputs = report.get('outputs') if isinstance(report.get('outputs'), dict) else {}
+        cue_hash = mix.get('cues_sha256')
+        if not cue_hash or cue_hash != identity.get('cues_sha256') or inputs.get('cues') != cue_hash:
+            raise ValueError('the mixer report and version do not bind the same cue list')
+        if not mix['buses']:
+            raise ValueError('the attached mix records no processed buses')
+        for role, expected in mix['buses'].items():
+            names = attached_bus_names(files, role)
+            candidates = [name for name in names if files.get(name) == expected]
+            if not expected or outputs.get(role + '.wav') != expected or not candidates:
+                raise ValueError(f'the {role} bus is not bound by the report and version')
+            paths = [version_schedule_path(folder, name) for name in candidates]
+            if not any(path.is_file() and P.file_sha256(path) == expected for path in paths):
+                raise ValueError(f'the attached {role} bus is missing or its hash differs')
+        for name, entry in mix['stems'].items():
+            if not retained_stem_name(name) or not isinstance(entry, dict):
+                raise ValueError('a retained stem record is invalid')
+            rel = 'stems/' + name + '.wav'
+            expected = entry.get('sha256')
+            path = version_schedule_path(folder, rel)
+            if not expected or files.get(rel) != expected or not path.is_file() \
+                    or P.file_sha256(path) != expected:
+                raise ValueError(f'the retained stem {name} is missing or its hash differs')
+        dialogue = mix['stems'].get('dialogue')
+        if not isinstance(dialogue, dict) or not mix.get('voice_reference') \
+                or mix['voice_reference'] != dialogue.get('sha256'):
+            raise ValueError('the voice reference differs from the retained dialogue stem')
+        voices = inputs.get('voice')
+        if not isinstance(voices, list) or len(voices) != 1 or not isinstance(voices[0], dict) \
+                or voices[0].get('sha256') != mix['voice_reference'] \
+                or voices[0].get('at_s') != 0 or voices[0].get('gain_db') != 0:
+            raise ValueError('the mixer report does not bind the retained dialogue at its original time and gain')
+    except (OSError, ValueError, TypeError) as error:
+        return [row('mix', 'fail', str(error)),
+                row('masking', 'skip', 'the attached mixer report and media could not be verified')], None
+    mix_row = row('mix', 'pass', f"report, {len(mix['buses'])} buses and {len(mix['stems'])} retained stems "
+                  'match their recorded hashes and cue list; unheard')
+    pairs = report.get('masking')
+    if not isinstance(pairs, list):
+        masking = row('masking', 'skip', 'the bound mixer report has no masking candidates list')
+    elif pairs:
+        names = [', '.join(str(value) for value in pair.get('ids', []))
+                 if isinstance(pair, dict) and isinstance(pair.get('ids'), list) else 'unnamed pair' for pair in pairs]
+        masking = row('masking', 'look', 'candidate pairs: ' + '; '.join(names) + '; a person must listen')
+    else:
+        masking = row('masking', 'pass', 'no masking candidates recorded; a person must listen')
+    return [mix_row, masking], report
+
+
+def project_sync_items(folder, video, manifest, required=False):
+    """Check a version's cue identity, then attach distinct listening measures."""
+    folder, video = Path(folder), Path(video)
+    identity = manifest.get('identity') if isinstance(manifest.get('identity'), dict) else {}
+    source_expected = identity.get('cues_sha256')
+    registered_name = identity.get('cues') if identity.get('registered') is True else None
+    files = manifest.get('files') if isinstance(manifest.get('files'), dict) else {}
+    path_error = None
+    if registered_name in ('cues.json', 'edit-cues.json'):
+        # Registration may rewrite the stored list's picture path or bind a plan. The source hash is retained in
+        # identity; the version's files map records the bytes of its own copy.
+        expected = files.get(registered_name)
+        try:
+            candidates = [version_schedule_path(folder, registered_name)]
+        except (OSError, ValueError) as error:
+            candidates, path_error = [], str(error)
+    else:
+        expected = source_expected
+        candidates = [folder / 'cues.json', folder / 'edit-cues.json']
+    present = [path for path in candidates if path.is_file()]
+    matched = [path for path in present if expected and P.file_sha256(path) == expected]
+    selected = matched[0] if matched else present[0] if len(present) == 1 else None
+    rows, transcript = [], None
+    INVOKED.add('cue_list.py')
+    spec = importlib.util.spec_from_file_location('lf_check_cue_list', HERE / 'cue_list.py')
+    cue_list = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cue_list)
+    rows += version_picture_items(folder, video, identity, cue_list)
+    data, state = None, None
+    if path_error:
+        entry = item('sync_cues', 'Cue list', 'fail', path_error)
+        entry['group'] = 'sync'
+        rows.append(entry)
+    elif expected and present and not matched:
+        state = 'stale'
+        data = {}
+    elif len(present) > 1 and not matched:
+        entry = item('sync_cues', 'Cue list', 'look', 'more than one cue list; the version does not select one')
+        entry['group'] = 'sync'
+        rows.append(entry)
+    elif selected:
+        try:
+            listed = cue_list.check(selected, owner=folder)
+            if expected and listed.sha256 != expected:
+                raise ValueError('stale: cue-list bytes changed during the check; re-export')
+            provenance = identity.get('cues_provenance')
+            if listed.version == 'v2' and provenance and provenance != listed.provenance:
+                raise ValueError('stale: cue provenance differs from the version manifest; re-export')
+            if listed.version == 'v1':
+                validator_spec = importlib.util.spec_from_file_location('lf_check_cue_onsets', HERE / 'cue_onsets.py')
+                validator = importlib.util.module_from_spec(validator_spec)
+                validator_spec.loader.exec_module(validator)
+                INVOKED.add('cue_onsets.py')
+                _, _, problems = validator.validate(listed.doc)
+                if problems:
+                    raise ValueError('the legacy cue list cannot be checked: ' + '; '.join(problems))
+            data = dict(listed.doc) if isinstance(listed.doc, dict) else {'events': listed.events}
+            if listed.fps is not None:
+                data['fps'] = listed.fps
+            state = listed.state
+            if state == 'fresh' and (not expected or not source_expected):
+                state = 'unverified: the version records no cue-list hash'
+            contract = cue_contract_items(data, state, required)
+            contract[0]['detail'] = listed.message if state == listed.state else state
+            rows += contract
+        except (OSError, ValueError, RuntimeError) as error:
+            entry = item('sync_cues', 'Cue list', 'fail', str(error))
+            entry['group'] = 'sync'
+            rows.append(entry)
+    else:
+        rows += cue_contract_items(None, None, required or bool(source_expected))
+    if state == 'stale' and not any(row['id'] == 'sync_cues' for row in rows):
+        contract = cue_contract_items(data, state, required)
+        contract[0]['detail'] = 'stale: the cue-list bytes differ from the version; re-export'
+        rows += contract
+
+    if selected and state not in (None, 'stale', 'unbound'):
+        code, output = run_script('listen.py', 'sync', video, '--cues', selected, '--owner', folder, '--json')
+        try:
+            measured = json.loads(output) if code == 0 else None
+        except ValueError:
+            measured = None
+        if isinstance(measured, dict):
+            rows += sync_measurement_items(measured)
+            INVOKED.add('cue_onsets.py')
+        else:
+            row = item('sync_measurements', 'Not assessed: cue measurements', 'skip',
+                       why_not_run('listen.py sync', code, output))
+            row['group'] = 'sync'
+            rows.append(row)
+    else:
+        row = item('sync_measurements', 'Not assessed: cue measurements', 'skip',
+                   'no fresh or readable bound cue list')
+        row['group'] = 'sync'
+        rows.append(row)
+
+    code, output = run_script('listen.py', 'transcript', video, '--json')
+    try:
+        transcript = json.loads(output) if code == 0 else None
+    except ValueError:
+        transcript = None
+    if isinstance(transcript, dict):
+        row = item('sync_transcript', 'Listening transcript measured', 'pass',
+                   f"{len(transcript.get('events') or [])} onsets and "
+                   f"{len(transcript.get('sections') or [])} level changes; a person must listen")
+        INVOKED.add('tempo_map.py')
+    else:
+        row = item('sync_transcript', 'Not assessed: listening transcript', 'skip',
+                   why_not_run('listen.py transcript', code, output))
+    row['group'] = 'sync'
+    rows.append(row)
+
+    master = folder / 'preview.mp4'
+    report = None
+    if master.is_file() and not P.same_file(video, master):
+        with tempfile.TemporaryDirectory(prefix='lf-check-master-') as temp:
+            report_path = Path(temp) / 'sync.json'
+            report, why = run_report('sync_check.py', [video, master, '--json', report_path], report_path)
+        verdict = (report or {}).get('summary', {}).get('verdict', '')
+        if verdict == 'consistent with the reference within tolerance':
+            state = 'pass'
+        elif not report or verdict.startswith('inconclusive'):
+            state = 'skip'
+        else:
+            state = 'look'
+        row = item('sync_master', ('Not assessed: ' if state == 'skip' else '') + 'Transport against version master',
+                   state, verdict or why or 'transport not established')
+        if report:
+            row['measurement'] = report
+    else:
+        row = item('sync_master', 'Not assessed: transport against master', 'skip',
+                   'the checked file is the version master; no independent master supplied')
+    row['group'] = 'sync'
+    rows.append(row)
+    if master.is_file() and not P.same_file(video, master):
+        rows.append(mux_origin_item(master, video, cue_list, report))
+    else:
+        row = item('sync_mux_origin', 'Not assessed: picture-to-audio mux offset', 'skip',
+                   'the checked file is the version master; no independent master supplied')
+        row['group'] = 'sync'
+        rows.append(row)
+    receipt = version_receipt_item(folder, manifest)
+    if receipt is not None:
+        rows.append(receipt)
+    mix_rows, mix_report = version_mix_items(folder, manifest)
+    cue_row = next((entry for entry in rows if entry['id'] == 'sync_cues'), None)
+    cue_state = cue_row.get('state') if cue_row else 'skip'
+    if mix_rows[0]['state'] == 'pass' and cue_state != 'pass':
+        mix_state = 'fail' if cue_state == 'fail' else 'skip'
+        mix_rows[0] = item('sync_mix', ('Not assessed: ' if mix_state == 'skip' else '') + 'mix', mix_state,
+                           'the version cue list is not fresh, so the attached mix is not bound')
+        mix_rows[0]['group'] = 'sync'
+        mix_rows[1] = item('sync_masking', 'Not assessed: masking', 'skip',
+                           'the attached mix is not bound to a fresh cue list')
+        mix_rows[1]['group'] = 'sync'
+    conform_state, detail, _ = conform_evidence(identity, mix_report)
+    if conform_state == 'pass' and cue_state != 'pass':
+        conform_state = 'fail' if cue_state == 'fail' else 'skip'
+        detail = 'the version cue list is not fresh, so the conform is not bound'
+    row = item('sync_conform', ('Not assessed: ' if conform_state == 'skip' else '') + 'conform',
+               conform_state, detail)
+    row['group'] = 'sync'
+    rows.append(row)
+    rows += mix_rows
+    return rows, transcript
+
+
 def summarise(items):
     """Counts per state."""
-    summary = {state: 0 for state in ('pass', 'look', 'fail', 'you', 'skip')}
+    summary = {state: 0 for state in ('pass', 'look', 'fail', 'you', 'skip', 'unconfirmed')}
     for entry in items:
         summary[entry['state']] += 1
     return summary
@@ -1355,7 +2054,8 @@ def has_audio_stream(video):
 
 def run_checks(video, qa=None, spec=None, duration=None, final=False, target=DEFAULT_LOUDNESS, reviewed=None,
                captions_folder=None, speech=None, expected_frames=None, bars_allowed=False, vcodec='h264',
-               pix_fmt='yuv420p', color='bt709', captions_check=None, fps=None, duration_independent=False):
+               pix_fmt='yuv420p', color='bt709', captions_check=None, fps=None, duration_independent=False,
+               faststart=True):
     """Run the checks for one file in a fresh folder and return the checks.json content; with `qa`, this run's raw
     outputs replace the previous run's there. `speech` is (model, language) to compare captions with the audio.
     `captions_check(video, fresh, has_audio)` returns the caption items when given (--file and a final's sidecar);
@@ -1364,8 +2064,10 @@ def run_checks(video, qa=None, spec=None, duration=None, final=False, target=DEF
         raise ValueError('loudness target must be finite')
     with tempfile.TemporaryDirectory(prefix='lf-check-') as name:
         fresh = Path(name)
-        qc_args = [video, '--json', fresh / 'qc.json', '--vcodec', vcodec, '--pix-fmt', pix_fmt, '--color', color,
-                   '--technical']
+        qc_args = [video, '--json', fresh / 'qc.json', '--technical']
+        for option, value in (('--vcodec', vcodec), ('--pix-fmt', pix_fmt), ('--color', color)):
+            if value:
+                qc_args += [option, value]
         if spec:
             qc_args += ['--spec', spec]
         if fps:
@@ -1378,15 +2080,18 @@ def run_checks(video, qa=None, spec=None, duration=None, final=False, target=DEF
             qc_args += ['--duration', f'{duration:.6f}']
         if final:
             # The re-encode true peak needs sound; a silent final has nothing to clip.
-            qc_args += ['--lossy-check', '--faststart'] if has_audio_stream(video) else ['--faststart']
+            if has_audio_stream(video):
+                qc_args.append('--lossy-check')
+            if faststart:
+                qc_args.append('--faststart')
         qc, why = run_report('qc_file.py', qc_args, fresh / 'qc.json')
         if qc is None:
             raise RuntimeError(why)
         has_audio = bool(qc.get('audio'))
         basis = ', '.join(part for part in (
-            spec and f'{spec}', f'{vcodec.upper().replace("H264", "H.264")}', pix_fmt, f'{color.upper()} tags',
-            'fast start' if final else '') if part)
-        basis += ' (the web defaults unless --delivery or the flags name another)' if final and not spec else ''
+            spec and f'{spec}', vcodec and f'{vcodec.upper().replace("H264", "H.264")}', pix_fmt,
+            color and f'{color.upper()} tags', 'fast start' if final and faststart else '') if part)
+        basis += ' (the web defaults unless --delivery or the flags name another)' if final and not spec and faststart else ''
         items = [spec_item(qc, basis)] + loudness_items(qc, target, final, has_audio)
         declaration = P.load_json(captions_folder / 'declared.json', {}) if captions_folder else {}
         items.append(first_frame_item(video, declaration))
@@ -1431,8 +2136,162 @@ def front_matter(path):
     return values
 
 
+def split_inline(text):
+    """Split a flow-style YAML value without splitting quoted or nested commas."""
+    result, start, depth, quote, escaped = [], 0, 0, None, False
+    for i, char in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == '\\' and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in ('"', "'"):
+            quote = char
+        elif char in '[{':
+            depth += 1
+        elif char in ']}':
+            depth -= 1
+        elif char == ',' and depth == 0:
+            result.append(text[start:i].strip())
+            start = i + 1
+        if depth < 0:
+            raise ValueError('unbalanced frame value')
+    if quote or depth:
+        raise ValueError('unbalanced frame value')
+    result.append(text[start:].strip())
+    return result
+
+
+def frame_scalar(text):
+    text = text.strip()
+    quote, escaped = None, False
+    for index, char in enumerate(text):
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == '\\' and quote == '"':
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in ('"', "'"):
+            quote = char
+        elif char == '#' and (index == 0 or text[index - 1].isspace()):
+            text = text[:index].rstrip()
+            break
+    if not text or text in ('null', 'Null', 'NULL', '~'):
+        return None
+    if text.startswith('{') and text.endswith('}'):
+        result = {}
+        for part in split_inline(text[1:-1]):
+            if not part or ':' not in part:
+                raise ValueError('invalid frame map')
+            key, value = part.split(':', 1)
+            key = key.strip()
+            if not re.fullmatch(r'[A-Za-z_][A-Za-z_0-9]*', key) or key in result:
+                raise ValueError('invalid or repeated frame key')
+            result[key] = frame_scalar(value)
+        return result
+    if text.startswith('[') and text.endswith(']'):
+        return [frame_scalar(part) for part in split_inline(text[1:-1])] if text[1:-1].strip() else []
+    if text.startswith('"'):
+        return json.loads(text)
+    if text.startswith("'") and text.endswith("'"):
+        return text[1:-1].replace("''", "'")
+    if text[0] in '|>&*!':
+        raise ValueError('unsupported frame scalar')
+    if re.fullmatch(r'[-+]?(?:\d+(?:\.\d*)?|\.\d+)', text):
+        return float(text)
+    return text
+
+
+def project_path_name(path):
+    """Read only the top-level path declaration from film.md."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    lines = P.read_text(path).splitlines()
+    if not lines or lines[0].strip() != '---':
+        return None
+    values = []
+    for line in lines[1:]:
+        if line.strip() == '---':
+            break
+        match = re.match(r'^path\s*:\s*(.*)$', line)
+        if match:
+            try:
+                values.append(frame_scalar(match.group(1)))
+            except ValueError:
+                return None
+    return values[0] if len(values) == 1 and isinstance(values[0], str) else None
+
+
+def read_frame(path):
+    """Read the frame subset of front matter, leaving unsupported forms unconfirmed."""
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    lines = P.read_text(path).splitlines()
+    if not lines or lines[0].strip() != '---':
+        return {}
+    try:
+        end = next(i for i in range(1, len(lines)) if lines[i].strip() == '---')
+        matches = [i for i in range(1, end) if re.match(r'^frame\s*:', lines[i])]
+        if len(matches) != 1:
+            return {}
+        first = matches[0]
+        inline = lines[first].split(':', 1)[1].strip()
+        if inline:
+            parsed = frame_scalar(inline)
+            return parsed if isinstance(parsed, dict) else {}
+        frame, key, indent = {}, None, None
+        for line in lines[first + 1:end]:
+            if not line.strip() or line.lstrip().startswith('#'):
+                continue
+            prefix = len(line) - len(line.lstrip(' '))
+            if prefix == 0:
+                break
+            if '\t' in line[:prefix + 1]:
+                raise ValueError('tabs in frame indentation')
+            if indent is None:
+                indent = prefix
+            content = line.strip()
+            if prefix == indent:
+                if ':' not in content:
+                    raise ValueError('invalid frame entry')
+                key, value = content.split(':', 1)
+                key = key.strip()
+                if key in frame:
+                    raise ValueError('repeated frame entry')
+                frame[key] = frame_scalar(value) if value.strip() else ([] if key == 'knows_by' else {})
+            elif prefix > indent and key in ('state', 'waived', 'cold_read', 'knows_by'):
+                if key == 'knows_by':
+                    if content.startswith('- '):
+                        frame[key].append({})
+                        content = content[2:].strip()
+                    if not frame[key] or not isinstance(frame[key][-1], dict):
+                        raise ValueError('invalid knows_by entry')
+                    target = frame[key][-1]
+                else:
+                    target = frame[key]
+                if not isinstance(target, dict) or ':' not in content:
+                    raise ValueError('invalid nested frame entry')
+                child, value = content.split(':', 1)
+                child = child.strip()
+                if child in target:
+                    raise ValueError('repeated nested frame entry')
+                target[child] = frame_scalar(value)
+            else:
+                raise ValueError('unsupported frame indentation')
+        return frame
+    except (ValueError, StopIteration, TypeError, json.JSONDecodeError):
+        return {}
+
+
 VERSION_INPUTS = (('lines', 'lines.json'), ('edit', 'edit.json'), ('film', 'film.md'), ('declared', 'declared.json'),
-                  ('manifest', 'manifest.json'), ('caption_burn', 'caption-burn.json'))
+                  ('manifest', 'manifest.json'), ('caption_burn', 'caption-burn.json'), ('cues', 'cues.json'),
+                  ('edit_cues', 'edit-cues.json'), ('picture_timing', 'picture-timing.json'))
 
 
 def project_path(root, path):
@@ -1472,7 +2331,37 @@ def title_assets(folder):
     return paths
 
 
-def project_inputs(root, folder, video, digest, final, captions, speech, profile=None):
+def cue_related_inputs(root, folder):
+    """Record cue references and schedules a project check may read."""
+    spec = importlib.util.spec_from_file_location('lf_check_inputs_cue_list', HERE / 'cue_list.py')
+    cue_list = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cue_list)
+    INVOKED.add('cue_list.py')
+    found = []
+    for path in (folder / 'cues.json', folder / 'edit-cues.json'):
+        if not path.is_file():
+            continue
+        try:
+            listed = cue_list.check(path, owner=folder)
+        except (OSError, ValueError, RuntimeError):
+            continue
+        picture = listed.picture if isinstance(listed.picture, dict) else {}
+        timing = picture.get('timing') if isinstance(picture.get('timing'), dict) else {}
+        entries = [('cue_schedule', timing.get('pts_file'))]
+        events = listed.events if isinstance(listed.events, list) else []
+        entries += [('cue_reference', event.get('ref')) for event in events if isinstance(event, dict)]
+        for role, name in entries:
+            if not isinstance(name, str) or not name:
+                continue
+            reference = Path(name)
+            if not reference.is_absolute():
+                reference = path.parent / reference
+            if not any(P.same_file(reference, prior) for _, prior in found):
+                found.append((role, reference))
+    return [P.input_row(role, path, project_path(root, path)) for role, path in found]
+
+
+def project_inputs(root, folder, video, digest, final, captions, speech, profile=None, manifest=None):
     """The inputs a project check depends on: the checked file, the captions checked, the version's lines.json,
     edit.json, film.md, declared.json, manifest.json and caption-burn.json (recorded as absent when missing, so adding
     one expires the result), title assets, the map transcript candidates and listing used for speech settings, and
@@ -1480,7 +2369,61 @@ def project_inputs(root, folder, video, digest, final, captions, speech, profile
     rows = [P.input_row('final' if final else 'preview', video, project_path(root, video), digest),
             P.input_row('captions', captions, project_path(root, captions))]
     rows += [P.input_row(role, folder / name, project_path(root, folder / name)) for role, name in VERSION_INPUTS]
+    rows += cue_related_inputs(root, folder)
+    identity = (manifest or {}).get('identity') or {}
+    files = (manifest or {}).get('files') or {}
+    if not isinstance(files, dict):
+        files = {}
+    receipt = identity.get('receipt') if isinstance(identity, dict) else None
+    if receipt:
+        try:
+            path = version_schedule_path(folder, receipt)
+            rows.append(P.input_row('render_receipt', path, project_path(root, path)))
+        except (OSError, ValueError):
+            pass
+    mix = identity.get('mix') if isinstance(identity, dict) else None
+    if not isinstance(mix, dict):
+        mix = (manifest or {}).get('mix')
+    if isinstance(mix, dict) and isinstance(mix.get('buses'), dict) and isinstance(mix.get('stems'), dict):
+        try:
+            report = version_schedule_path(folder, 'attached-mix-report.json')
+            rows.append(P.input_row('mix_report', report, project_path(root, report)))
+        except (OSError, ValueError):
+            pass
+        for role in mix['buses']:
+            for name in attached_bus_names(files, role):
+                try:
+                    path = version_schedule_path(folder, name)
+                    rows.append(P.input_row('mix_bus', path, project_path(root, path)))
+                except (OSError, ValueError):
+                    pass
+        for name in mix['stems']:
+            if retained_stem_name(name):
+                try:
+                    path = version_schedule_path(folder, 'stems/' + name + '.wav')
+                    rows.append(P.input_row('mix_stem', path, project_path(root, path)))
+                except (OSError, ValueError):
+                    pass
+        try:
+            report_data = attached_mix_report(folder, mix, files)
+            _, _, refs = conform_evidence(identity if isinstance(identity, dict) else {}, report_data,
+                                           verify_media=False)
+            for role, path in refs:
+                rows.append(P.input_row(role, path, project_path(root, path)))
+        except (OSError, ValueError, TypeError):
+            pass
+    timing = identity.get('picture_timing') if isinstance(identity, dict) else None
+    if isinstance(timing, dict) and timing.get('pts_file'):
+        try:
+            schedule = version_schedule_path(folder, timing['pts_file'])
+            if not P.same_file(schedule, folder / 'picture-timing.json'):
+                rows.append(P.input_row('picture_timing', schedule, project_path(root, schedule)))
+        except ValueError:
+            pass
     rows += [P.input_row('title_asset', path, project_path(root, path)) for path in title_assets(folder)]
+    if final:
+        master = folder / 'preview.mp4'
+        rows.append(P.input_row('version_master', master, project_path(root, master)))
     if speech:
         map_folder = Path(root) / 'map'
         rows.append(P.transcript_listing_row(map_folder, project_path(root, map_folder)))
@@ -1518,7 +2461,32 @@ def project_caption_note(root, srt, given, final):
     return f"captions checked: {name}, the version's own"
 
 
-def check_project(root, version=None, final_file=None, speech=True, target=None, captions=None, profile=None):
+def stress_item(video):
+    """Attach a delivery stress screen, or say why it was not assessed."""
+    with tempfile.TemporaryDirectory(prefix='lf-stress-') as temporary:
+        folder = Path(temporary) / 'delivery'
+        code, output = run_script('delivery_check.py', video, folder)
+        try:
+            report = P.load_json(folder / 'report.json', None)
+        except (OSError, ValueError):
+            report = None
+    if code or not isinstance(report, dict):
+        entry = item('stress_delivery', 'Not assessed: delivery stress', 'skip',
+                     'delivery check could not run: ' + output[-400:])
+    elif report.get('state') != 'measured':
+        entry = item('stress_delivery', 'Not assessed: delivery stress', 'skip',
+                     report.get('reason') or 'delivery metrics unavailable')
+        entry['measurement'] = report
+    else:
+        entry = item('stress_delivery', 'Delivery stress screen', 'look',
+                     f"{report.get('frames_checked')} frames measured; inspect CAMBI and VMAF worst windows")
+        entry['measurement'] = report
+    entry['group'] = 'stress'
+    return entry
+
+
+def check_project(root, version=None, final_file=None, speech=True, target=None, captions=None, profile=None,
+                  stress=False):
     """Check a version (or a final file) of a project; write checks.json and update the status. With `captions`, the
     caption items check that sidecar (the one delivered with a final) instead of the version's captions.srt."""
     INVOKED.clear()
@@ -1548,11 +2516,16 @@ def check_project(root, version=None, final_file=None, speech=True, target=None,
     reviewed = P.reviews_for(entry, digest, digest == P.preview_sha256(root, version))
     model, language = speech_settings(root)
     srt = Path(captions) if captions else folder / 'captions.srt'
-    inputs = project_inputs(root, folder, video, digest, bool(final_file), srt, speech, profile)
+    inputs = project_inputs(root, folder, video, digest, bool(final_file), srt, speech, profile, manifest)
+    frame_path = folder / 'film.md' if (folder / 'film.md').is_file() else root / 'film.md'
+    if frame_path == root / 'film.md':
+        inputs.append(P.input_row('context_frame', frame_path, project_path(root, frame_path)))
+    previous = P.load_json(folder / ('checks-final.json' if final_file else 'checks.json'), {}) or {}
     prefix = 'final-' if final_file else ''
     outputs = [folder / 'qa' / (prefix + name) for name in QA_FILES]
     outputs += [folder / 'checks.json', folder / 'checks-final.json', root / 'status.json']
-    P.refuse_overwriting_inputs(outputs, [P.locate_input(row['path'], [root]) for row in inputs] + check_tool_inputs())
+    P.refuse_overwriting_inputs(outputs, [P.locate_input(row['path'], [root]) for row in inputs] + check_tool_inputs(),
+                                project=root)
     note = project_caption_note(root, srt, bool(captions), bool(final_file))
     speech_pair = (model, language) if speech else None
 
@@ -1563,6 +2536,22 @@ def check_project(root, version=None, final_file=None, speech=True, target=None,
                         folder, speech_pair, manifest.get('frames'),
                         settings.get('bars', '').lower() in ('allow', 'allowed', 'yes', 'true'),
                         captions_check=caption_check)
+    cold = previous.get('cold_read') if isinstance(previous, dict) else None
+    if final_file and not cold:
+        preview_checks = P.load_json(folder / 'checks.json', {}) or {}
+        cold = preview_checks.get('cold_read') if isinstance(preview_checks, dict) else None
+    checks['items'] += context_items(read_frame(frame_path), cold, digest)
+    checks['items'].append(binding_item(manifest.get('identity')))
+    sync_items, transcript = project_sync_items(folder, video, manifest,
+                                                required=project_path_name(frame_path) in ('create', 'insert', 'sound'))
+    checks['items'] += sync_items
+    if stress:
+        checks['items'].append(stress_item(video))
+    if transcript is not None:
+        checks['listening_transcript'] = transcript
+    checks['summary'] = summarise(checks['items'])
+    if cold:
+        checks['cold_read'] = cold
     try:
         checks['file'] = Path(video).resolve().relative_to(Path(root).resolve()).as_posix()
     except ValueError:
@@ -1638,12 +2627,13 @@ def file_settings(args):
     fps = None if args.spec and '@' in args.spec else wanted.get('fps')
     duration = args.duration if args.duration is not None else wanted.get('duration_s')
     frames = wanted.get('frames')
+    gif = args.edit == 'convert' and Path(args.file).suffix.lower() == '.gif'
     return {'spec': spec, 'fps': fps, 'duration': duration, 'frames': frames,
             'target': args.loudness if args.loudness is not None else wanted.get('loudness'),
-            'vcodec': args.vcodec or wanted.get('vcodec') or 'h264',
-            'pix_fmt': args.pix_fmt or wanted.get('pix_fmt') or 'yuv420p',
-            'color': args.color or wanted.get('color') or 'bt709',
-            'bars': bool(args.allow_bars or wanted.get('allow_bars')),
+            'vcodec': args.vcodec or wanted.get('vcodec') or ('gif' if gif else 'h264'),
+            'pix_fmt': args.pix_fmt or wanted.get('pix_fmt') or (None if gif else 'yuv420p'),
+            'color': args.color or wanted.get('color') or (None if gif else 'bt709'),
+            'faststart': not gif, 'bars': bool(args.allow_bars or wanted.get('allow_bars')),
             'captions_required': wanted.get('captions_required')}
 
 
@@ -1668,6 +2658,10 @@ def timeline_media(path):
 def file_inputs(args):
     """The inputs a --file check depends on, as (role, path), in order."""
     rows = [('export', args.file)]
+    export = Path(args.file)
+    rows.append(('cold_read', export.parent / (export.stem + '.grade') / 'cold' / 'checks.json'))
+    if args.against:
+        rows.append(('reference', args.against))
     rows += [(role, value) for role, value in (('captions', args.captions), ('timeline', args.timeline),
                                                ('edit_words', args.edit_words), ('speech_words', args.speech_words),
                                                ('delivery', args.delivery), ('caption_profile', args.caption_profile))
@@ -1694,6 +2688,8 @@ def file_inputs(args):
 
 def validate_file_args(args):
     """Refuse --file options that cannot work together, before anything runs."""
+    if bool(args.against) != bool(args.edit):
+        raise ValueError('--against and --edit must be given together')
     if args.timeline and args.edit_words:
         raise ValueError('give --timeline (with --project or --source-words) or --edit-words, not both')
     if args.timeline and not (args.timeline_project or args.source_words):
@@ -1701,7 +2697,8 @@ def validate_file_args(args):
     if (args.timeline_project or args.source_words or args.map or args.track) and not args.timeline:
         raise ValueError('--project, --source-words, --map and --track go with --timeline XML')
     for role, path in file_inputs(args):
-        if role not in ('map_sources', 'source_words', 'timeline_media', 'source_media', 'map_transcript_listing') \
+        if role not in ('map_sources', 'source_words', 'timeline_media', 'source_media', 'map_transcript_listing',
+                        'cold_read') \
                 and not Path(path).is_file():
             raise ValueError(f'no {role.replace("_", " ")} file: {path}')
     if args.timeline_project and not (Path(args.timeline_project) / 'map' / 'sources.json').is_file():
@@ -1711,6 +2708,253 @@ def validate_file_args(args):
             raise ValueError(f'no source words file: {path}')
 
 
+def probe_media(path):
+    """Read streams and duration from the media being compared."""
+    ffprobe = shutil.which('ffprobe')
+    if not ffprobe:
+        raise ValueError('ffprobe is required for an edit comparison')
+    result = subprocess.run([ffprobe, '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(path)],
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if result.returncode:
+        raise ValueError('cannot probe edit input: ' + result.stderr[-400:])
+    return json.loads(result.stdout)
+
+
+def edit_kind(value):
+    name, sep, rest = value.partition(':')
+    if name in ('trim', 'speed'):
+        try:
+            values = [float(part) for part in rest.split(',')]
+        except ValueError:
+            raise ValueError('invalid numeric edit parameters') from None
+        if not sep or not all(math.isfinite(v) for v in values):
+            raise ValueError('invalid numeric edit parameters')
+        if name == 'trim' and (len(values) != 2 or values[0] < 0 or values[1] <= values[0]):
+            raise ValueError('trim needs trim:A,B with 0 <= A < B')
+        if name == 'speed' and (len(values) != 1 or values[0] <= 0):
+            raise ValueError('speed needs a positive duration factor: speed:X')
+        return name, values
+    if sep or name not in ('reframe', 'convert', 'extract-audio', 'captions', 'compress'):
+        raise ValueError('edit must be trim:A,B, speed:X, reframe, convert, extract-audio, captions or compress')
+    return name, []
+
+
+def edit_metadata_items(source, output, kind):
+    """Compare the stated edit's duration, stream layout and audio origin."""
+    name, values = edit_kind(kind)
+    src, dst = source.get('streams', []), output.get('streams', [])
+
+    def stream(rows, which):
+        return next((row for row in rows if row.get('codec_type') == which), None)
+
+    def duration(data, rows):
+        video = stream(rows, 'video')
+        for value in ((video or {}).get('duration'), data.get('format', {}).get('duration')):
+            try:
+                value = float(value)
+                if math.isfinite(value) and value > 0:
+                    return value
+            except (ValueError, TypeError):
+                pass
+        return None
+
+    before, after = duration(source, src), duration(output, dst)
+    try:
+        rate = float(Fraction((stream(dst, 'video') or stream(src, 'video') or {}).get('avg_frame_rate', '0/1')))
+        tolerance = 1 / rate if rate > 0 else None
+    except (ValueError, ZeroDivisionError):
+        tolerance = None
+    expected = None
+    if before is not None:
+        expected = values[1] - values[0] if name == 'trim' else before * values[0] if name == 'speed' else before
+        if name == 'trim' and values[1] > before + (tolerance or 0):
+            raise ValueError('trim end is beyond the source duration')
+    if before is None or after is None or expected is None or tolerance is None:
+        rows = [item('edit_duration', 'Not assessed: edit duration', 'skip', 'duration or frame rate unavailable')]
+    else:
+        rows = [item('edit_duration', 'Edit duration', 'pass' if abs(after - expected) <= tolerance else 'fail',
+                     f'expected {expected:.6f} s, found {after:.6f} s; tolerance {tolerance:.6f} s')]
+    if name == 'extract-audio':
+        good = stream(dst, 'video') is None and stream(dst, 'audio') is not None
+        rows.append(item('edit_streams', 'Extracted audio streams', 'pass' if good else 'fail',
+                         'audio present and no video' if good else 'requires audio and no video'))
+    elif name in ('trim', 'speed', 'reframe', 'convert', 'captions', 'compress'):
+        counts = lambda rows: {key: sum(row.get('codec_type') == key for row in rows)
+                               for key in ('video', 'audio', 'subtitle')}
+        old, new = counts(src), counts(dst)
+        formats = str(output.get('format', {}).get('format_name', '')).split(',')
+        expected = {'video': 1, 'audio': 0, 'subtitle': 0} if name == 'convert' and 'gif' in formats else old
+        rows.append(item('edit_streams', 'Edit stream counts', 'pass' if expected == new else 'fail',
+                         f'source {old}, expected {expected}, output {new}'))
+    if name == 'trim':
+        old_audio, new_audio = stream(src, 'audio'), stream(dst, 'audio')
+        old_video, new_video = stream(src, 'video'), stream(dst, 'video')
+        if bool(old_audio) != bool(new_audio):
+            rows.append(item('edit_audio_offset', 'Trim audio timestamp offset', 'fail', 'audio stream changed'))
+        elif old_audio is None:
+            rows.append(item('edit_audio_offset', 'Not assessed: trim audio offset', 'skip', 'no audio stream'))
+        else:
+            try:
+                old = float(old_audio['start_time']) - float(old_video['start_time'])
+                new = float(new_audio['start_time']) - float(new_video['start_time'])
+                if not all(math.isfinite(v) for v in (old, new)) or tolerance is None:
+                    raise ValueError
+                rows.append(item('edit_audio_offset', 'Trim audio timestamp offset',
+                                 'pass' if abs(old - new) <= tolerance else 'fail',
+                                 f'source {old:.6f} s, output {new:.6f} s'))
+            except (KeyError, TypeError, ValueError):
+                rows.append(item('edit_audio_offset', 'Not assessed: trim audio offset', 'skip',
+                                 'stream start times unavailable'))
+    return rows
+
+
+def packet_signature(path, selector):
+    """Return a stream's packet hash and presentation schedule."""
+    ffmpeg, ffprobe = shutil.which('ffmpeg'), shutil.which('ffprobe')
+    if not ffmpeg or not ffprobe:
+        raise ValueError('FFmpeg and ffprobe are required')
+    hashed = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-i', str(path), '-map', '0:' + selector,
+                             '-c', 'copy', '-f', 'hash', '-hash', 'sha256', '-'],
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
+    timed = subprocess.run([ffprobe, '-v', 'error', '-select_streams', selector, '-show_packets',
+                            '-show_entries', 'packet=pts_time,duration_time', '-of', 'json', str(path)],
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if hashed.returncode or timed.returncode:
+        raise ValueError('cannot read stream packets')
+    rows = json.loads(timed.stdout).get('packets', [])
+    if not rows or any('pts_time' not in row or 'duration_time' not in row for row in rows):
+        raise ValueError('stream packet timestamps are unavailable')
+    times = [(float(row['pts_time']), float(row['duration_time'])) for row in rows]
+    if not all(math.isfinite(x) for row in times for x in row):
+        raise ValueError('stream packet timestamps are not finite')
+    return hashed.stdout.strip(), times
+
+
+def signatures_match(first, second, tolerance=.001):
+    hash_a, times_a = first
+    hash_b, times_b = second
+    return hash_a == hash_b and len(times_a) == len(times_b) and all(
+        abs(a - b) <= tolerance for pair_a, pair_b in zip(times_a, times_b) for a, b in zip(pair_a, pair_b))
+
+
+def edit_content_items(reference, output, kind, source, destination):
+    """Check the streams that the declared edit promises to keep."""
+    kind, values = edit_kind(kind)
+    if kind == 'trim':
+        return trim_audio_content_items(reference, output, values, source, destination)
+    if kind not in ('reframe', 'captions'):
+        return []
+    old, new = source.get('streams', []), destination.get('streams', [])
+    selected = ('audio',) if kind == 'reframe' else ('video', 'audio')
+    items = []
+    for media in selected:
+        src_count = sum(row.get('codec_type') == media for row in old)
+        dst_count = sum(row.get('codec_type') == media for row in new)
+        if src_count != dst_count:
+            items.append(item('edit_' + media, 'Edit ' + media + ' content', 'fail', 'stream count changed'))
+            continue
+        if not src_count:
+            items.append(item('edit_' + media, 'Not assessed: edit ' + media + ' content', 'skip', 'no stream'))
+            continue
+        try:
+            signatures = [(packet_signature(reference, f'{media[0]}:{i}'),
+                           packet_signature(output, f'{media[0]}:{i}')) for i in range(src_count)]
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            items.append(item('edit_' + media, 'Not assessed: edit ' + media + ' content', 'skip', str(error)))
+            continue
+        if all(signatures_match(a, b) for a, b in signatures):
+            items.append(item('edit_' + media, 'Edit ' + media + ' content', 'pass',
+                              'packet hashes and presentation timestamps match'))
+            continue
+        if kind == 'captions' or media != 'audio' or src_count != 1:
+            items.append(item('edit_' + media, 'Edit ' + media + ' content', 'fail',
+                              'packet hash or presentation timestamps changed'))
+            continue
+        with tempfile.TemporaryDirectory(prefix='lf-edit-audio-') as temp:
+            report_path = Path(temp) / 'sync.json'
+            report, why = run_report('sync_check.py', [output, reference, '--window', '0.5', '--max-lag-ms', '100',
+                                                      '--outside', '0,0', '--json', report_path], report_path)
+        if report is None:
+            items.append(item('edit_audio', 'Not assessed: edit audio content', 'skip', why))
+            continue
+        verdict = report.get('outside', {}).get('verdict', '')
+        if verdict == 'unchanged within tolerance' and report.get('summary', {}).get('verdict') == \
+                'consistent with the reference within tolerance':
+            state = 'pass'
+        elif verdict == 'changed outside the passage':
+            state = 'fail'
+        else:
+            state = 'skip'
+        label = 'Not assessed: edit audio content' if state == 'skip' else 'Edit audio content'
+        items.append(item('edit_audio', label, state, verdict or 'audio comparison inconclusive'))
+    return items
+
+
+def trim_audio_content_items(reference, output, bounds, source, destination):
+    """Compare the trimmed source sound with the delivered sound's transport."""
+    def result(state, detail, measurement=None):
+        label = ('Not assessed: ' if state == 'skip' else '') + 'Trim audio content offset'
+        row = item('edit_trim_content_offset', label, state, detail)
+        if measurement is not None:
+            row['measurement'] = measurement
+        return [row]
+
+    def stream(data, kind):
+        return next((row for row in data.get('streams', []) if row.get('codec_type') == kind), None)
+
+    src_audio, dst_audio = stream(source, 'audio'), stream(destination, 'audio')
+    if not src_audio and not dst_audio:
+        return result('skip', 'no audio stream')
+    if not src_audio or not dst_audio:
+        return result('fail', 'audio stream changed')
+    try:
+        rate = float(Fraction((stream(destination, 'video') or stream(source, 'video') or {})['avg_frame_rate']))
+        if not math.isfinite(rate) or rate <= 0:
+            raise ValueError
+        tolerance_ms = 1000 / rate
+        for data, audio in ((source, src_audio), (destination, dst_audio)):
+            video = stream(data, 'video')
+            audio_start, video_start = float(audio['start_time']), float(video['start_time'])
+            if not all(math.isfinite(value) for value in (audio_start, video_start)):
+                raise ValueError
+            if abs(audio_start - video_start) * 1000 > tolerance_ms:
+                return result('skip', 'nonzero stream origin needs a timestamp-aware audio comparison')
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return result('skip', 'frame rate or stream origin is unavailable')
+    duration = bounds[1] - bounds[0]
+    max_lag_ms = min(500, duration * 200)
+    if duration < .5 or max_lag_ms <= tolerance_ms:
+        return result('skip', 'the trimmed passage is too short for an audio offset comparison')
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        return result('skip', 'FFmpeg is required')
+    with tempfile.TemporaryDirectory(prefix='lf-trim-audio-') as temp:
+        clipped, report_path = Path(temp) / 'reference.wav', Path(temp) / 'sync.json'
+        command = [ffmpeg, '-v', 'error', '-nostdin', '-i', str(reference), '-ss', str(bounds[0]),
+                   '-t', str(duration), '-map', '0:a:0', '-ac', '2', '-ar', '48000',
+                   '-c:a', 'pcm_s16le', str(clipped)]
+        try:
+            run = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        except OSError as error:
+            return result('skip', 'cannot decode the source passage: ' + str(error))
+        if run.returncode:
+            return result('skip', 'cannot decode the source passage: ' + run.stderr.strip()[-200:])
+        report, why = run_report('sync_check.py', [output, clipped, '--window', str(min(.5, duration / 4)),
+            '--max-lag-ms', str(max_lag_ms), '--tolerance-ms', str(tolerance_ms), '--json', report_path], report_path)
+    if report is None:
+        return result('skip', why or 'audio comparison could not run')
+    summary = report.get('summary') or {}
+    verdict = summary.get('verdict', '')
+    if verdict == 'consistent with the reference within tolerance':
+        state = 'pass'
+    elif verdict.startswith('constant offset') or verdict.startswith('lag changes'):
+        state = 'fail'
+    else:
+        state = 'skip'
+    return result(state, (verdict or 'audio comparison inconclusive') +
+                  '; compared sampled audio with the declared source passage', summary)
+
+
 def check_file(args):
     """Check an editor's export as delivered (--file): its spec, sound and picture, and with the inputs given its
     captions, the timeline's words and a transcript of its speech. Returns checks.json content with its inputs and
@@ -1718,7 +2962,8 @@ def check_file(args):
     INVOKED.clear()
     validate_file_args(args)
     named = file_inputs(args)
-    P.refuse_overwriting_inputs([args.json], [path for _, path in named] + check_tool_inputs())
+    P.refuse_overwriting_inputs([args.json], [path for _, path in named] + check_tool_inputs(),
+                                guard_versions=True)
     wanted = file_settings(args)
     video = Path(args.file)
     digest = P.file_sha256(video)
@@ -1736,10 +2981,29 @@ def check_file(args):
     def caption_check(checked, fresh, has_audio):
         return file_caption_items(plan, checked, fresh, has_audio)
 
-    checks = run_checks(video, None, wanted['spec'], wanted['duration'], True, wanted['target'],
-                        expected_frames=wanted['frames'], bars_allowed=wanted['bars'], vcodec=wanted['vcodec'],
-                        pix_fmt=wanted['pix_fmt'], color=wanted['color'], captions_check=caption_check,
-                        fps=wanted['fps'], duration_independent=True)
+    kind = edit_kind(args.edit)[0] if args.edit else None
+    if kind == 'extract-audio':
+        checks = {'version': 1, 'file': str(video), 'final': True,
+                  'items': [item('audio_technical', 'Not assessed: audio technical checks', 'skip',
+                                 'audio-only export'), item('heard', 'Heard by you, with sound', 'you')], 'summary': {}}
+    else:
+        checks = run_checks(video, None, wanted['spec'], wanted['duration'], True, wanted['target'],
+                            expected_frames=wanted['frames'], bars_allowed=wanted['bars'], vcodec=wanted['vcodec'],
+                            pix_fmt=wanted['pix_fmt'], color=wanted['color'], captions_check=caption_check,
+                            fps=wanted['fps'], duration_independent=True, faststart=wanted['faststart'])
+    if args.against:
+        source, destination = probe_media(args.against), probe_media(video)
+        checks['items'] += edit_metadata_items(source, destination, args.edit)
+        checks['items'] += edit_content_items(args.against, video, args.edit, source, destination)
+    cold_path = video.parent / (video.stem + '.grade') / 'cold' / 'checks.json'
+    cold_record = P.load_json(cold_path, {}) or {}
+    checks['items'] += context_items({}, cold_record.get('cold_read'), digest)
+    sync = item('sync_cues', 'Not assessed: sync', 'skip', 'no cue list supplied')
+    sync['group'] = 'sync'
+    checks['items'].append(sync)
+    if getattr(args, 'stress', False):
+        checks['items'].append(stress_item(video))
+    checks['summary'] = summarise(checks['items'])
     checks['sha256'] = digest
     checks['inputs_base'] = 'given'
     checks['inputs'] = inputs
@@ -1795,17 +3059,24 @@ def verify(path):
 
 def print_checks(checks):
     """One line per item, then the readiness line."""
-    marks = {'pass': 'ok  ', 'look': 'LOOK', 'fail': 'FAIL', 'you': 'you ', 'skip': 'skip'}
+    marks = {'pass': 'ok  ', 'look': 'LOOK', 'fail': 'FAIL', 'you': 'you ', 'skip': 'skip',
+             'unconfirmed': 'unconfirmed'}
     for entry in checks['items']:
         detail = f"  ({entry['detail']})" if entry['detail'] else ''
         at = f" at {P.format_time(entry['at'])}" if isinstance(entry.get('at'), (int, float)) else ''
         print(f"  {marks[entry['state']]}  {entry['label']}{at}{detail}")
-    print(P.readiness(checks['summary']))
+    line = P.readiness(checks['summary'])
+    if checks['summary'].get('unconfirmed'):
+        line += f"; {checks['summary']['unconfirmed']} unconfirmed"
+    print(line)
 
 
 def add_file_arguments(parser):
     """The --file options: the export, what it should be, and the editor's inputs to check it against."""
     parser.add_argument('--file', help="check one video file, such as an editor's export, outside a project")
+    parser.add_argument('--against', help='the file before this edit')
+    parser.add_argument('--edit', help='trim:A,B, speed:X (duration factor), reframe, convert, extract-audio, '
+                                       'captions or compress')
     parser.add_argument('--spec', help='expected WIDTHxHEIGHT[@FPS] for --file')
     parser.add_argument('--duration', type=float, help='expected duration in seconds for --file')
     parser.add_argument('--allow-bars', action='store_true', help='the black borders in --file are intentional')
@@ -1828,7 +3099,7 @@ def add_file_arguments(parser):
     parser.add_argument('--json', help='write checks.json here (--file mode); never over an input')
 
 
-FILE_ONLY = ('spec', 'duration', 'allow_bars', 'vcodec', 'pix_fmt', 'color', 'delivery', 'timeline',
+FILE_ONLY = ('spec', 'duration', 'allow_bars', 'vcodec', 'pix_fmt', 'color', 'delivery', 'timeline', 'against', 'edit',
              'timeline_project', 'source_words', 'map', 'track', 'edit_words', 'speech_words', 'json')
 
 
@@ -1843,6 +3114,8 @@ def main():
                         help='optional integrated loudness target in LUFS')
     parser.add_argument('--verify', metavar='CHECKS.json',
                         help='re-hash the inputs and tools a checks file recorded: current (0) or what changed (1)')
+    parser.add_argument('--strict', action='store_true', help='treat unconfirmed or unassessed context and sync as looks')
+    parser.add_argument('--stress', action='store_true', help='screen delivery and a low-bitrate proxy')
     add_file_arguments(parser)
     args = parser.parse_args()
     P.safe_output()
@@ -1863,10 +3136,12 @@ def main():
             if root is None:
                 raise ValueError('no project folder here; give one, or use --file for a single video')
             checks = check_project(root, args.version, args.final, not args.no_speech, args.loudness, args.captions,
-                                   args.caption_profile)
+                                   args.caption_profile, args.stress)
         print_checks(checks)
         summary = checks['summary']
-        return 1 if summary['fail'] or summary['look'] else 0
+        strict_items = any(entry.get('group') in ('context', 'sync') and
+                           entry['state'] in ('unconfirmed', 'skip') for entry in checks['items'])
+        return 1 if summary['fail'] or summary['look'] or (args.strict and strict_items) else 0
     except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as error:
         print('cannot run: ' + str(error), file=sys.stderr)
         return 2

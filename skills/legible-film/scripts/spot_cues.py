@@ -17,8 +17,15 @@ Adjacent identical-role gestures <120 ms form a run: keep the first synced and
 at most one additional event as optional texture; withhold the remaining run.
 In any rolling half-open second [t,t+1), allow two layers of one role and five
 in all (including the main take). Palette role layers count when --palette is
-given. Excess gestures become disabled optional choices, never audible by default.
+given. An excess optional gesture becomes a disabled choice, never audible by default.
+A required or hero event is never dropped or demoted by this rule: it is kept, and the
+conflict is a look that names it and its neighbours in the crowded second (exit 1), so
+the person decides; --edits removes it. A v1 event without sound is required.
 The first event is favoured by time; edits may deliberately exceed these limits.
+A declared run is kept whole: an event with run: true, or a contact whose span names a
+follow event with run: true, is never merged, thinned or withheld by these rules (it still
+counts toward the density of other events). A v2 follow span is an annotation and a v2
+silence span is silent: neither is a take.
 
 Edits apply LAST by id: {"id": "keep"|"drop"|{"action":"keep", "role":"tap",
 "gain_db":-3}}; a top-level {"edits":{...}} also works. keep restores even a
@@ -36,6 +43,7 @@ import csv
 import importlib.util
 import json
 import math
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -46,6 +54,9 @@ _spec.loader.exec_module(io)
 _project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
 project = importlib.util.module_from_spec(_project_spec)
 _project_spec.loader.exec_module(project)
+_cue_spec = importlib.util.spec_from_file_location('lf_cue_list', Path(__file__).with_name('cue_list.py'))
+cue_list = importlib.util.module_from_spec(_cue_spec)
+_cue_spec.loader.exec_module(cue_list)
 
 
 def finite(value, name, minimum=None):
@@ -56,13 +67,18 @@ def finite(value, name, minimum=None):
     return float(value)
 
 
-def read_cues(path):
-    spec = json.loads(Path(path).read_text(encoding='utf-8'))
+def read_cues(path, loaded=None, prog='spot_cues.py'):
+    """(document, events, fps) through cue_list.load: a stale list or an unbound plan is refused there, a v1 or an
+    unverifiable list is read with its look printed, and a v2 rational fps arrives as a float."""
+    listed = loaded or cue_list.load_for(prog, path)
+    spec = listed.doc
     events = spec.get('events') if isinstance(spec, dict) else spec
     if not isinstance(events, list):
         raise ValueError('cues need an events list')
     fps = spec.get('fps') if isinstance(spec, dict) else None
-    if fps is not None and finite(fps, 'fps', 0) <= 0:
+    if listed.version == 'v2':
+        fps = listed.fps
+    elif fps is not None and finite(fps, 'fps', 0) <= 0:
         raise ValueError('fps must be positive')
     ids = set()
     for i, ev in enumerate(events):
@@ -96,7 +112,15 @@ def read_cues(path):
 
 
 def silent(ev):
-    return ev.get('sound') == 'silent' or ev.get('reading_hold') is True or ev.get('kind') == 'reading-hold'
+    return (ev.get('sound') == 'silent' or ev.get('reading_hold') is True or ev.get('kind') == 'reading-hold'
+            or ev.get('scale') in ('follow', 'silence'))
+
+
+def run_members(events):
+    """The ids of events in a declared run: run: true itself, or a contact whose span is a follow with run: true."""
+    runs = {str(ev['id']) for ev in events if ev.get('run') is True}
+    return {str(ev['id']) for ev in events
+            if str(ev['id']) in runs or (ev.get('span') is not None and str(ev.get('span')) in runs)}
 
 
 def time_of(ev, fps):
@@ -145,10 +169,21 @@ def density(events, fps, roles):
 
 def spot(spec, events, fps, roles, edits):
     original = {str(ev['id']): copy.deepcopy(ev) for ev in events}
+    kept_run = run_members(events)
+
+    def in_run(ev):
+        return str(ev['id']) in kept_run
+
     for ev in events:
         ev['spotting'] = []
         ev.setdefault('enabled', True)
-        if silent(ev):
+        if ev.get('scale') == 'follow':
+            ev['spotting'].append('follow span: an annotation, not a take' +
+                                  ('; its contacts are a declared run, kept whole' if ev.get('run') is True else ''))
+        elif ev.get('scale') == 'silence':
+            ev.update(enabled=True)
+            ev['spotting'].append('silence span: no take')
+        elif silent(ev):
             ev.update(sound='silent', enabled=True)
             ev['spotting'].append('kept silent: reading hold or declared silent cue')
     audible = sorted((ev for ev in events if active(ev)), key=lambda e: time_of(e, fps))
@@ -159,12 +194,15 @@ def spot(spec, events, fps, roles, edits):
             j += 1
         group = audible[i:j]
         if len(group) > 1:
-            winner = max(group, key=lambda e: (e.get('strength', e.get('gain_db', 0)),
+            winner = max(group, key=lambda e: (in_run(e), e.get('strength', e.get('gain_db', 0)),
                                               e.get('sound', 'required') == 'required', -events.index(e)))
             winner['spotting'].append('gesture: strongest event kept at its picture time (<60 ms cluster)')
             present = set(layer_roles(winner, roles))
             for ev in group:
                 if ev is winner:
+                    continue
+                if in_run(ev):
+                    ev['spotting'].append('declared run: kept inside a <60 ms cluster')
                     continue
                 ev.update(enabled=False, sound='optional', merged_into=winner['id'])
                 if ev['role'] not in present:
@@ -178,8 +216,12 @@ def spot(spec, events, fps, roles, edits):
                     ev['spotting'].append('dropped duplicate role from gesture ' + str(winner['id']))
         i = j
     # Runs are per role; unrelated interleaved roles do not break a typing run.
-    for role in sorted({e['role'] for e in events if active(e)}):
-        rows = sorted((e for e in events if active(e) and e['role'] == role), key=lambda e: time_of(e, fps))
+    for ev in events:
+        if in_run(ev) and active(ev):
+            ev['spotting'].append('declared run: every event kept (run: true)')
+    for role in sorted({e['role'] for e in events if active(e) and not in_run(e)}):
+        rows = sorted((e for e in events if active(e) and not in_run(e) and e['role'] == role),
+                      key=lambda e: time_of(e, fps))
         i = 0
         while i < len(rows):
             j = i + 1
@@ -193,9 +235,24 @@ def spot(spec, events, fps, roles, edits):
                     ev.update(sound='optional', enabled=False)
                     ev['spotting'].append('run: withheld after the first and one texture accent')
             i = j
-    accepted = []
+    accepted, looks = [], []
     for ev in sorted((e for e in events if active(e)), key=lambda e: time_of(e, fps)):
-        if density(accepted + [ev], fps, roles):
+        if in_run(ev):
+            accepted.append(ev)
+            continue
+        windows = density(accepted + [ev], fps, roles)
+        if windows and (ev.get('hero') is True or ev.get('sound', 'required') == 'required'):
+            # A required or hero event is the person's call: keep it and say what it crowds.
+            mine = [w for w in windows if str(ev['id']) in {str(i) for i in w['ids']}] or windows
+            neighbours = sorted({str(i) for w in mine for i in w['ids']} - {str(ev['id'])})
+            why = 'hero' if ev.get('hero') is True else 'required'
+            ev['spotting'].append(f'density: kept ({why}); its rolling second exceeds 2 of one role or 5 total layers '
+                                  f'with {", ".join(neighbours)}: a look, decide with --edits')
+            looks.append({'id': ev['id'], 't': time_of(ev, fps), 'role': ev.get('role'), 'why': why,
+                          'neighbours': neighbours,
+                          'windows': [{k: w[k] for k in ('from_s', 'to_s', 'layers', 'by_role')} for w in mine]})
+            accepted.append(ev)
+        elif windows:
             ev.update(sound='optional', enabled=False)
             ev['spotting'].append('density: withheld optional choice; rolling second exceeds 2 of one role or 5 total layers')
         else:
@@ -248,6 +305,8 @@ def spot(spec, events, fps, roles, edits):
         if silent(original[str(key)]):
             ev.update(sound='silent', enabled=True)
         ev['spotting'].append('edit applied last: ' + json.dumps(change, sort_keys=True))
+    decided = {str(key) for key in edits}   # an edit on a kept event is the person's decision: no longer a look
+    looks = [look for look in looks if str(look['id']) not in decided]
     for ev in events:
         if not ev['spotting']:
             ev['spotting'].append('kept unchanged' if active(ev) else 'kept withheld as supplied')
@@ -255,9 +314,29 @@ def spot(spec, events, fps, roles, edits):
     result['events'] = events
     result['spotting'] = {'merge_ms': 60, 'run_ms': 120, 'max_per_role_per_second': 2,
                           'max_layers_per_second': 5, 'edits_applied_last': True,
-                          'density_after_edits': density(events, fps, roles),
+                          'density_after_edits': density(events, fps, roles), 'looks': looks,
                           'palette_layers_counted': bool(roles), 'status': 'unheard'}
     return result
+
+
+def rebase(doc, source_dir, out_dir):
+    """Re-express a v2 list's picture path (and a picture list's frame schedule) from the folder the spotted list is
+    written to, so it still resolves its owner there: conform and the mixer read the spotted list."""
+    picture = doc.get('picture') if isinstance(doc, dict) else None
+    if not isinstance(picture, dict) or source_dir == out_dir:
+        return
+    def moved(rel, folder=False):
+        target = Path(rel) if os.path.isabs(rel) else source_dir / rel
+        try:
+            text = os.path.relpath(target, out_dir).replace(os.sep, '/')
+        except ValueError:   # another drive
+            text = target.as_posix()
+        return text.rstrip('/') + '/' if folder else text
+    if isinstance(picture.get('path'), str) and picture['path']:
+        picture['path'] = moved(picture['path'], picture['path'].endswith('/'))
+    timing = picture.get('timing')
+    if isinstance(timing, dict) and isinstance(timing.get('pts_file'), str):
+        timing['pts_file'] = moved(timing['pts_file'])
 
 
 def main():
@@ -282,6 +361,7 @@ def main():
         if isinstance(edits, dict) and 'edits' in edits:
             edits = edits['edits']
         result = spot(spec, events, fps, roles, edits)
+        rebase(result, Path(a.cues).resolve().parent, out.resolve())
         io.save_json(out / 'cues.spotted.json', result)
         with (out / 'spotting.csv').open('w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -291,9 +371,13 @@ def main():
                                  ev['enabled'], json.dumps(ev.get('layers', [])), '; '.join(ev['spotting'])))
         if a.json:
             io.save_json(a.json, result)
+        looks = result['spotting'].get('looks', [])
+        for look in looks:
+            print(f"look: {look['why']} event {look['id']} at {look['t']:.3f} s kept: its rolling second is crowded with "
+                  f"{', '.join(look['neighbours'])}; drop one with --edits if the person decides")
         print(f'Spotted {len(events)} events; {sum(active(e) for e in events)} audible gestures; '
               f'{len(result["spotting"]["density_after_edits"])} dense windows after edits. Unheard.')
-        return 0
+        return 1 if looks else 0
     except (OSError, ValueError, TypeError, KeyError, UnicodeError) as exc:
         print('spot_cues.py: ' + str(exc), file=sys.stderr)
         return 2

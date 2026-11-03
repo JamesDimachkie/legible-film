@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check what Legible Film can do on this machine.
 
-  python setup.py [--json] [--check-updates] [--install core|transcription|faces|spatial|kit] [--download] [--yes]
+  python setup.py [--json] [--check-updates] [--install core|transcription|faces|spatial|kit|ear] [--download] [--yes]
 
 Checks local tools and cached models; it does not prove a film is good or launch Chromium.
 Updates are checked only on request. Installation downloads public software. Spatial model weights download
@@ -34,7 +34,8 @@ MODEL_MB = 460
 REQUIRED = ('Edit and check video', 'Skill')
 FFMPEG_MINIMUM = (5, 1)
 INSTALLS = {'core': 'Edit and check video', 'transcription': 'Local transcription',
-            'faces': 'Scorecard (optional)', 'spatial': 'Spatial (optional)', 'kit': 'Film kit (optional)'}
+            'faces': 'Scorecard (optional)', 'spatial': 'Spatial (optional)', 'kit': 'Film kit (optional)',
+            'ear': 'Machine'}
 # What each optional group is for, so a person fixes only what their job needs.
 JOBS = {'Local transcription': 'transcripts made on this machine (an imported transcript needs none)',
         'Film kit (optional)': 'designed films, teasers and animated inserts made with the kit',
@@ -46,13 +47,15 @@ SPATIAL_SHA256 = '07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584d
 SPATIAL_URL = ('https://huggingface.co/Xenova/modnet/resolve/'
                'fa2fa546052fba4c08921230a26cc69a333fca12/onnx/model.onnx')
 SPATIAL_MB = 26
-SCRIPTS = ('assemble.py blank_scan.py captions.py check.py compare_versions.py cue_onsets.py dialogue_io.py '
+EAR_MODELS = ('laion/larger_clap_general', 'MIT/ast-finetuned-audioset-10-10-0.4593')
+SCRIPTS = ('assemble.py blank_scan.py captions.py check.py compare_versions.py cue_list.py cue_onsets.py '
+           'delivery_check.py dialogue_io.py '
            'exchange.py film_capture.mjs film_check.py film_render.py flash_scan.py frame_sheet.py '
-           'kit_selftest.py look.py make_film.py make_sound_kit.py map.py matte.py mix_cues.py motion_blur.py motion_scan.py '
+           'kit_selftest.py listen.py look.py make_film.py make_sound_kit.py map.py matte.py mix_cues.py motion_blur.py motion_scan.py '
            'new_film.py onion_frames.py project.py qc_file.py reframe.py region_check.py render_common.py '
            'screen.py selftest.py setup.py sound_check.py sound_io.py sound_library.py spatial.py spot_cues.py '
            'strip.py sync_check.py taste.py tempo_map.py tighten.py track.py transcribe.py transcript_cut.py '
-           'voice_clean.py').split()
+           'voice_clean.py with_lock.py').split()
 
 
 def command_fix(kind, system=None):
@@ -225,6 +228,36 @@ def cached_models():
                 found.append(folder.name.replace('models--Systran--faster-whisper-', '', 1))
                 break
     return sorted(set(found))
+
+
+def ear_cache():
+    """Keep listening models in the skill's per-user model cache."""
+    return data_home() / 'models' / 'ear'
+
+
+def ear_models_cached():
+    """Find a locally complete snapshot for each listening model without loading it."""
+    found = []
+    for model in EAR_MODELS:
+        snapshots = ear_cache() / ('models--' + model.replace('/', '--')) / 'snapshots'
+        complete = any((p / 'config.json').is_file() and (p / 'preprocessor_config.json').is_file()
+                       and ((p / 'model.safetensors').is_file() or (p / 'pytorch_model.bin').is_file())
+                       for p in snapshots.glob('*') if p.is_dir())
+        if complete:
+            found.append(model)
+    return found
+
+
+def ear_packages_available():
+    """Check package presence without importing or loading the models."""
+    try:
+        return all(importlib.util.find_spec(name) is not None for name in ('torch', 'transformers'))
+    except (ImportError, ValueError):
+        return False
+
+
+def ear_ready():
+    return ear_packages_available() and len(ear_models_cached()) == len(EAR_MODELS)
 
 
 def free_memory():
@@ -410,6 +443,14 @@ def inspect(check_updates=False):
     add('Spatial (optional)', 'ready' if model_ok else 'missing', 'MODNet model',
         'pinned model cached' if model_ok else 'missing or hash mismatch; key, luma and difference still work',
         model_fix)
+    ear_packages = ear_packages_available()
+    ear_models = ear_models_cached()
+    add('Machine', 'ready' if ear_packages else 'missing', 'Listening labels: CLAP and AST packages',
+        'installed' if ear_packages else 'torch or transformers missing; no model was loaded',
+        setup_command('ear'), required=False)
+    add('Machine', 'ready' if len(ear_models) == len(EAR_MODELS) else 'missing',
+        'Listening labels: local model weights', 'cached: ' + (', '.join(ear_models) or 'none'),
+        setup_command('ear'), required=False)
     memory = free_memory()
     add('Machine', 'ready' if memory is not None and memory >= 4 * 1024 ** 3 else 'limited', 'Free memory',
         f'{memory / 1024 ** 3:.1f} GB available' if memory is not None else 'could not determine available memory',
@@ -443,6 +484,8 @@ def summary(groups):
 
 def exit_code(states, installed=None):
     """0 when the required capabilities (and the one just installed) are ready, otherwise 1."""
+    if installed == 'ear':
+        return 0 if all(states.get(name) == 'ready' for name in REQUIRED) and ear_ready() else 1
     judged = list(REQUIRED) + ([INSTALLS[installed]] if installed else [])
     return 0 if all(states.get(name) == 'ready' for name in judged) else 1
 
@@ -552,15 +595,36 @@ def install_transcription(yes, python=None):
                    check=True, stdout=sys.stderr)
 
 
+def ear_size():
+    print('Listening labels: about 1.4 GB of CLAP and AST model weights, plus CPU PyTorch, transformers and '
+          'audio packages; download sizes vary. CLAP is Apache-2.0; AST is BSD-3-Clause.', file=sys.stderr)
+
+
+def install_ear(yes, python=None):
+    """Install CPU dependencies and cache the two public models after consent."""
+    ear_size()
+    consent('Install CPU listening packages and download the model weights?', yes)
+    python = str(python or sys.executable)
+    subprocess.run([python, '-I', '-m', 'pip', '--isolated', 'install', 'torch', '--index-url',
+                    'https://download.pytorch.org/whl/cpu'], check=True, stdout=sys.stderr)
+    subprocess.run([python, '-I', '-m', 'pip', '--isolated', 'install', 'transformers<5', 'huggingface-hub',
+                    'safetensors', 'librosa>=0.10', 'soundfile>=0.12', 'soxr>=0.3',
+                    '--index-url', 'https://pypi.org/simple'],
+                   check=True, stdout=sys.stderr)
+    code = ('import sys; from huggingface_hub import snapshot_download; '
+            '[snapshot_download(repo_id=m, cache_dir=sys.argv[1], token=False) for m in sys.argv[2:]]')
+    subprocess.run([python, '-I', '-c', code, str(ear_cache()), *EAR_MODELS], check=True, stdout=sys.stderr)
+
+
 def main():
     """Parse options and print a concise summary before the details."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--json', action='store_true', help='print the report as JSON, with the Python to use')
     parser.add_argument('--check-updates', action='store_true', help='ask GitHub whether a newer release exists')
-    parser.add_argument('--install', choices=['core', 'transcription', 'faces', 'spatial', 'kit'],
+    parser.add_argument('--install', choices=['core', 'transcription', 'faces', 'spatial', 'kit', 'ear'],
                         help="install one group, with the person's yes (core: numpy and Pillow)")
     parser.add_argument('--download', action='store_true', help='download the named spatial model')
-    parser.add_argument('--report-installed', choices=['core', 'transcription', 'faces', 'spatial', 'kit'],
+    parser.add_argument('--report-installed', choices=['core', 'transcription', 'faces', 'spatial', 'kit', 'ear'],
                         help=argparse.SUPPRESS)
     parser.add_argument('--yes', action='store_true', help='install without asking (the person has already said yes)')
     args = parser.parse_args()
@@ -578,6 +642,8 @@ def main():
             if args.install == 'core':
                 consent('Install numpy and Pillow?', args.yes)
             else:
+                if args.install == 'ear':
+                    ear_size()
                 if args.install == 'spatial' and args.download:
                     print(f'MODNet download: about {SPATIAL_MB} MB.', file=sys.stderr)
                 consent('Install ' + args.install + (' and download the small model (about 460 MB)?'
@@ -593,6 +659,8 @@ def main():
                 install_spatial(True, python)
                 if args.download:
                     download_spatial(True)
+            elif args.install == 'ear':
+                install_ear(True, python)
             else:
                 install_faces(True, python)
         else:

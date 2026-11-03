@@ -1,0 +1,1058 @@
+{
+  "routing": {
+    "claude": {
+      "old": {
+        "rule": "right in at least 2 of 3 runs",
+        "per_run": {
+          "r1": {
+            "right": 14,
+            "of": 15,
+            "unscored": 0,
+            "errors": 0
+          },
+          "r2": {
+            "right": 14,
+            "of": 15,
+            "unscored": 0,
+            "errors": 0
+          },
+          "r3": {
+            "right": 13,
+            "of": 15,
+            "unscored": 0,
+            "errors": 0
+          }
+        },
+        "per_prompt": {
+          "P01": {
+            "n": 1,
+            "set": "dev",
+            "expected": "create",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create",
+              "create"
+            ],
+            "words": [
+              4071,
+              4071,
+              4071
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 4071
+          },
+          "P02": {
+            "n": 2,
+            "set": "dev",
+            "expected": "create",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create",
+              "create"
+            ],
+            "words": [
+              2591,
+              5161,
+              3097
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [
+              "ran map.py add (denied)",
+              "ran map.py run (denied)",
+              "ran map.py add (denied)",
+              "ran map.py run (denied)"
+            ],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 3097
+          },
+          "P03": {
+            "n": 3,
+            "set": "dev",
+            "expected": "create",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create",
+              "create"
+            ],
+            "words": [
+              4519,
+              6809,
+              5504
+            ],
+            "frame_ok": [
+              true,
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 5504
+          },
+          "P04": {
+            "n": 4,
+            "set": "dev",
+            "expected": "insert",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "insert",
+              "insert",
+              "insert"
+            ],
+            "words": [
+              3550,
+              3449,
+              2783
+            ],
+            "frame_ok": [
+              true,
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 3449
+          },
+          "P05": {
+            "n": 5,
+            "set": "dev",
+            "expected": "cut",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "cut",
+              "cut",
+              "cut"
+            ],
+            "words": [
+              3251,
+              3251,
+              3251
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 3251
+          },
+          "P06": {
+            "n": 6,
+            "set": "dev",
+            "expected": "sound",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "sound",
+              "sound",
+              "sound"
+            ],
+            "words": [
+              2394,
+              5283,
+              5283
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 5283
+          },
+          "P07": {
+            "n": 7,
+            "set": "dev",
+            "expected": "quick",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "quick",
+              "quick",
+              "quick"
+            ],
+            "words": [
+              2394,
+              3960,
+              3164
+            ],
+            "frame_ok": [
+              true,
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 3164
+          },
+          "P08": {
+            "n": 8,
+            "set": "dev",
+            "expected": "cut",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "cut",
+              "cut",
+              "cut"
+            ],
+            "words": [
+              2851,
+              2851,
+              2921
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 2851
+          },
+          "P09": {
+            "n": 9,
+            "set": "dev",
+            "expected": "editor",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "editor",
+              "editor",
+              "editor"
+            ],
+            "words": [
+              2975,
+              3059,
+              3323
+            ],
+            "frame_ok": [
+              true,
+              true,
+              true
+            ],
+            "forbidden": [
+              "ran project.py init (denied)",
+              "ran project.py init (denied)",
+              "ran project.py init (denied)"
+            ],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 3059
+          },
+          "P10": {
+            "n": 10,
+            "set": "dev",
+            "expected": "quick",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "quick",
+              "quick",
+              "quick"
+            ],
+            "words": [
+              5125,
+              4313,
+              4313
+            ],
+            "frame_ok": [
+              true,
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 4313
+          },
+          "H1": {
+            "n": 11,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 3,
+            "right": 2,
+            "wrong": 1,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create",
+              "cut"
+            ],
+            "words": [
+              2394,
+              12032,
+              9593
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 9593
+          },
+          "H2": {
+            "n": 12,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create",
+              "create"
+            ],
+            "words": [
+              4268,
+              4329,
+              4071
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 4268
+          },
+          "H3": {
+            "n": 13,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 3,
+            "right": 0,
+            "wrong": 3,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "cut",
+              "cut",
+              "cut"
+            ],
+            "words": [
+              4000,
+              4000,
+              4458
+            ],
+            "frame_ok": [
+              true,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": false,
+            "words_median": 4000
+          },
+          "H4": {
+            "n": 14,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create",
+              "create"
+            ],
+            "words": [
+              4071,
+              4071,
+              4071
+            ],
+            "frame_ok": [
+              false,
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 4071
+          },
+          "H5": {
+            "n": 15,
+            "set": "heldout",
+            "expected": "no-skill",
+            "runs": 3,
+            "right": 3,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "no-skill",
+              "no-skill",
+              "no-skill"
+            ],
+            "words": [
+              0,
+              0,
+              0
+            ],
+            "frame_ok": [
+              true,
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 0
+          }
+        },
+        "per_path": {
+          "create": {
+            "prompts": [
+              "H1",
+              "H2",
+              "H3",
+              "H4",
+              "P01",
+              "P02",
+              "P03"
+            ],
+            "right_under_rule": [
+              "H1",
+              "H2",
+              "H4",
+              "P01",
+              "P02",
+              "P03"
+            ]
+          },
+          "cut": {
+            "prompts": [
+              "P05",
+              "P08"
+            ],
+            "right_under_rule": [
+              "P05",
+              "P08"
+            ]
+          },
+          "insert": {
+            "prompts": [
+              "P04"
+            ],
+            "right_under_rule": [
+              "P04"
+            ]
+          },
+          "sound": {
+            "prompts": [
+              "P06"
+            ],
+            "right_under_rule": [
+              "P06"
+            ]
+          },
+          "editor": {
+            "prompts": [
+              "P09"
+            ],
+            "right_under_rule": [
+              "P09"
+            ]
+          },
+          "quick": {
+            "prompts": [
+              "P07",
+              "P10"
+            ],
+            "right_under_rule": [
+              "P07",
+              "P10"
+            ]
+          }
+        },
+        "prompts_right_under_rule": 14,
+        "prompts": 15,
+        "complete": true,
+        "routing_bar": true,
+        "words_before_action": {
+          "median": 4000,
+          "min": 0,
+          "max": 12032,
+          "n": 45
+        },
+        "forbidden_hits": 7,
+        "build_attempts": 0,
+        "errors": [],
+        "unscored": [],
+        "models": [
+          "claude-opus-5-5"
+        ]
+      }
+    },
+    "codex": {
+      "old": {
+        "rule": "right in at least 2 of 2 runs",
+        "per_run": {
+          "r1": {
+            "right": 13,
+            "of": 15,
+            "unscored": 0,
+            "errors": 0
+          },
+          "r2": {
+            "right": 13,
+            "of": 15,
+            "unscored": 1,
+            "errors": 0
+          }
+        },
+        "per_prompt": {
+          "P01": {
+            "n": 1,
+            "set": "dev",
+            "expected": "create",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create"
+            ],
+            "words": [
+              2394,
+              11912
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 7153.0
+          },
+          "P02": {
+            "n": 2,
+            "set": "dev",
+            "expected": "create",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create"
+            ],
+            "words": [
+              2394,
+              8723
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [
+              "ran map.py add",
+              "ran map.py run"
+            ],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 5558.5
+          },
+          "P03": {
+            "n": 3,
+            "set": "dev",
+            "expected": "create",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create"
+            ],
+            "words": [
+              2394,
+              14778
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 8586.0
+          },
+          "P04": {
+            "n": 4,
+            "set": "dev",
+            "expected": "insert",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "insert",
+              "insert"
+            ],
+            "words": [
+              4238,
+              2394
+            ],
+            "frame_ok": [
+              true,
+              true
+            ],
+            "forbidden": [
+              "read references/story-and-score.md"
+            ],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 3316.0
+          },
+          "P05": {
+            "n": 5,
+            "set": "dev",
+            "expected": "cut",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "cut",
+              "cut"
+            ],
+            "words": [
+              9164,
+              3636
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 6400.0
+          },
+          "P06": {
+            "n": 6,
+            "set": "dev",
+            "expected": "sound",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "sound",
+              "sound"
+            ],
+            "words": [
+              8270,
+              5698
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 6984.0
+          },
+          "P07": {
+            "n": 7,
+            "set": "dev",
+            "expected": "quick",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "quick",
+              "quick"
+            ],
+            "words": [
+              3980,
+              5061
+            ],
+            "frame_ok": [
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 4520.5
+          },
+          "P08": {
+            "n": 8,
+            "set": "dev",
+            "expected": "cut",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "cut",
+              "cut"
+            ],
+            "words": [
+              8702,
+              2394
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 5548.0
+          },
+          "P09": {
+            "n": 9,
+            "set": "dev",
+            "expected": "editor",
+            "runs": 2,
+            "right": 1,
+            "wrong": 1,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "quick",
+              "editor"
+            ],
+            "words": [
+              5095,
+              7156
+            ],
+            "frame_ok": [
+              true,
+              true
+            ],
+            "forbidden": [
+              "ran project.py init",
+              "ran project.py init"
+            ],
+            "build_attempts": 0,
+            "right_under_rule": false,
+            "words_median": 6125.5
+          },
+          "P10": {
+            "n": 10,
+            "set": "dev",
+            "expected": "quick",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "quick",
+              "quick"
+            ],
+            "words": [
+              6903,
+              8328
+            ],
+            "frame_ok": [
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 7615.5
+          },
+          "H1": {
+            "n": 11,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 2,
+            "right": 1,
+            "wrong": 0,
+            "unscored": 1,
+            "errors": 0,
+            "routes": [
+              "create",
+              "unscored"
+            ],
+            "words": [
+              2394,
+              10083
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": false,
+            "words_median": 6238.5
+          },
+          "H2": {
+            "n": 12,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 2,
+            "right": 0,
+            "wrong": 2,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "sound",
+              "insert"
+            ],
+            "words": [
+              21344,
+              5106
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": false,
+            "words_median": 13225.0
+          },
+          "H3": {
+            "n": 13,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create"
+            ],
+            "words": [
+              13056,
+              12897
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 12976.5
+          },
+          "H4": {
+            "n": 14,
+            "set": "heldout",
+            "expected": "create",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "create",
+              "create"
+            ],
+            "words": [
+              2394,
+              2394
+            ],
+            "frame_ok": [
+              false,
+              false
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 2394.0
+          },
+          "H5": {
+            "n": 15,
+            "set": "heldout",
+            "expected": "no-skill",
+            "runs": 2,
+            "right": 2,
+            "wrong": 0,
+            "unscored": 0,
+            "errors": 0,
+            "routes": [
+              "no-skill",
+              "no-skill"
+            ],
+            "words": [
+              0,
+              0
+            ],
+            "frame_ok": [
+              true,
+              true
+            ],
+            "forbidden": [],
+            "build_attempts": 0,
+            "right_under_rule": true,
+            "words_median": 0.0
+          }
+        },
+        "per_path": {
+          "create": {
+            "prompts": [
+              "H1",
+              "H2",
+              "H3",
+              "H4",
+              "P01",
+              "P02",
+              "P03"
+            ],
+            "right_under_rule": [
+              "H3",
+              "H4",
+              "P01",
+              "P02",
+              "P03"
+            ]
+          },
+          "cut": {
+            "prompts": [
+              "P05",
+              "P08"
+            ],
+            "right_under_rule": [
+              "P05",
+              "P08"
+            ]
+          },
+          "insert": {
+            "prompts": [
+              "P04"
+            ],
+            "right_under_rule": [
+              "P04"
+            ]
+          },
+          "sound": {
+            "prompts": [
+              "P06"
+            ],
+            "right_under_rule": [
+              "P06"
+            ]
+          },
+          "editor": {
+            "prompts": [
+              "P09"
+            ],
+            "right_under_rule": []
+          },
+          "quick": {
+            "prompts": [
+              "P07",
+              "P10"
+            ],
+            "right_under_rule": [
+              "P07",
+              "P10"
+            ]
+          }
+        },
+        "prompts_right_under_rule": 12,
+        "prompts": 15,
+        "complete": true,
+        "routing_bar": false,
+        "words_before_action": {
+          "median": 5100.5,
+          "min": 0,
+          "max": 21344,
+          "n": 30
+        },
+        "forbidden_hits": 5,
+        "build_attempts": 0,
+        "errors": [],
+        "unscored": [
+          {
+            "key": "codex/old/H1/r2",
+            "why": "recipes.md read whole and the agent named no recipe or mapped script"
+          }
+        ],
+        "models": []
+      }
+    }
+  }
+}

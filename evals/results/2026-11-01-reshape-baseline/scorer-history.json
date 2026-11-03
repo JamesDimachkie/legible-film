@@ -1,0 +1,409 @@
+[
+ {
+  "commit": "e8ba5f2",
+  "subject": "Evals: score routing sessions from the stream, not the answer",
+  "moved": []
+ },
+ {
+  "commit": "a5c5156",
+  "subject": "Evals: routing fixes from the first smoke runs",
+  "moved": [
+   {
+    "key": "codex/old/P05/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "cut",
+     true
+    ],
+    "expected": "cut",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/P07/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "quick",
+     true
+    ],
+    "expected": "quick",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/P07/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "quick",
+     true
+    ],
+    "expected": "quick",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/P09/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "editor",
+     true
+    ],
+    "expected": "editor",
+    "direction": "toward expected"
+   }
+  ]
+ },
+ {
+  "commit": "709c0ad",
+  "subject": "Evals: read partial and filtered reads as agents make them; rescore",
+  "moved": [
+   {
+    "key": "claude/old/P02/r2",
+    "from": [
+     "cut",
+     false
+    ],
+    "to": [
+     "create",
+     true
+    ],
+    "expected": "create",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/P03/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "create",
+     true
+    ],
+    "expected": "create",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/P02/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "quick",
+     false
+    ],
+    "expected": "create",
+    "direction": "other"
+   },
+   {
+    "key": "codex/old/P08/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "cut",
+     true
+    ],
+    "expected": "cut",
+    "direction": "toward expected"
+   }
+  ]
+ },
+ {
+  "commit": "287fdb6",
+  "subject": "Evals: deny tighten runs, never deny --help, read Grep sections",
+  "moved": [
+   {
+    "key": "claude/old/P04/r2",
+    "from": [
+     "cut",
+     false
+    ],
+    "to": [
+     "insert",
+     true
+    ],
+    "expected": "insert",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/P05/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "cut",
+     true
+    ],
+    "expected": "cut",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/P05/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "cut",
+     true
+    ],
+    "expected": "cut",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/P05/r3",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "cut",
+     true
+    ],
+    "expected": "cut",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/P07/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "quick",
+     true
+    ],
+    "expected": "quick",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/P07/r3",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "quick",
+     true
+    ],
+    "expected": "quick",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/P09/r2",
+    "from": [
+     "cut",
+     false
+    ],
+    "to": [
+     "editor",
+     true
+    ],
+    "expected": "editor",
+    "direction": "toward expected"
+   }
+  ]
+ },
+ {
+  "commit": "9d2cb33",
+  "subject": "Evals: resolve recipes.md by the first recipe section an agent reads",
+  "moved": [
+   {
+    "key": "claude/old/P09/r1",
+    "from": [
+     "cut",
+     false
+    ],
+    "to": [
+     "editor",
+     true
+    ],
+    "expected": "editor",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/H2/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "insert",
+     false
+    ],
+    "expected": "create",
+    "direction": "other"
+   }
+  ]
+ },
+ {
+  "commit": "37b726a",
+  "subject": "Evals: read bare file names after cd into the skill folder",
+  "moved": [
+   {
+    "key": "claude/old/H1/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "create",
+     true
+    ],
+    "expected": "create",
+    "direction": "toward expected"
+   },
+   {
+    "key": "claude/old/H2/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "create",
+     true
+    ],
+    "expected": "create",
+    "direction": "toward expected"
+   }
+  ]
+ },
+ {
+  "commit": "3b023dd",
+  "subject": "Evals: only commands that run something count as attempts",
+  "moved": []
+ },
+ {
+  "commit": "b633fca",
+  "subject": "Evals: first question from any message; section reads by rg -A; if-looks",
+  "moved": [
+   {
+    "key": "codex/old/P04/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "insert",
+     true
+    ],
+    "expected": "insert",
+    "direction": "toward expected"
+   }
+  ]
+ },
+ {
+  "commit": "0ece867",
+  "subject": "Evals: nested shells, spliced quotes, top-of-file reads",
+  "moved": [
+   {
+    "key": "codex/old/H3/r2",
+    "from": [
+     "quick",
+     false
+    ],
+    "to": [
+     "create",
+     true
+    ],
+    "expected": "create",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/P02/r1",
+    "from": [
+     "quick",
+     false
+    ],
+    "to": [
+     "create",
+     true
+    ],
+    "expected": "create",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/P05/r1",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "cut",
+     true
+    ],
+    "expected": "cut",
+    "direction": "toward expected"
+   }
+  ]
+ },
+ {
+  "commit": "6168bea",
+  "subject": "Evals: decode Codex shell wrappers as the shell would; follow $vars",
+  "moved": [
+   {
+    "key": "codex/old/P04/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "insert",
+     true
+    ],
+    "expected": "insert",
+    "direction": "toward expected"
+   },
+   {
+    "key": "codex/old/P08/r2",
+    "from": [
+     "sound",
+     false
+    ],
+    "to": [
+     null,
+     null
+    ],
+    "expected": "cut",
+    "direction": "other"
+   }
+  ]
+ },
+ {
+  "commit": "2cc9e56",
+  "subject": "Evals: reads through a loaded PowerShell variable; synthetic tests",
+  "moved": [
+   {
+    "key": "codex/old/P08/r2",
+    "from": [
+     null,
+     null
+    ],
+    "to": [
+     "cut",
+     true
+    ],
+    "expected": "cut",
+    "direction": "toward expected"
+   }
+  ]
+ },
+ {
+  "commit": "98350ee",
+  "subject": "Evals: --doctor and loop headers are not attempts; record stopped Codex steps",
+  "moved": []
+ }
+]

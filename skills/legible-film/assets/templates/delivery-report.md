@@ -18,6 +18,21 @@
 - Claims and strings against `facts.json`; the independent claims check:
 - Asset rights (`assets.csv`):
 
+## Context
+(the context group as `check.py` wrote it, with each frame field and its state and "unconfirmed" kept as written;
+the cold read with the reader's model and the file's hash, or "not assessed (cold read not run)"; any waiver with its
+reason)
+
+## Sync
+- Cue list: provenance (exported, observed or plan-bound), fresh or stale against this version, binding (receipt,
+  screened, overridden, unverified or plan-bound, with the reason for any but receipt):
+- Frame change at cue (a screen that says a change happened within a frame of each turn and contact; whether it is
+  the intended one is the screener's call):
+- Sound follows the list (onsets against cue times, with chance):
+- Turn leads and follow coupling (screens against an uncalibrated null, never significance, with n, seed and spread,
+  or inconclusive):
+- Turns without a decision, and masking pairs still open:
+
 ## Not checked, and why
 
 ## Who has watched and listened

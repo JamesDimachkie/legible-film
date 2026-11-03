@@ -27,8 +27,9 @@ evidence and boundary ([story-and-score](story-and-score.md) §2).
 
 1. **Length and tempo.** Choose them together, since a beat lasts 60 / BPM seconds: 0.35 s at 172 BPM, 0.4 s at
    150, 0.5 s at 120. Shorter films carry faster tempos. As starting drafts, teasers of 15-25 s tend to sit around
-   150-175 BPM, launch films run 40-55 s, and calmer brand films of 30-45 s settle nearer 120-128 BPM. When the music will be generated or written to a tempo, choose one with a whole number of frames per
-   beat ([timing](timing.md) §5): at 60 fps, 150 BPM gives 24 frames and 120 gives 30, while 172 gives 20.93.
+   150-175 BPM, launch films run 40-55 s, and calmer brand films of 30-45 s settle nearer 120-128 BPM. A tempo
+   whose beat is not a whole number of frames is fine, since cues meant to land on a beat take the frame nearest it
+   ([timing](timing.md) §5).
 2. **Words first.** Write the film as a short spoken script, then cut it into one or two words per beat. A phrase of
    four to eight words fills four to nine beats.
 3. **Copy for this register:**
@@ -115,7 +116,9 @@ with a phone, measure only the screen (`--crop`): handheld movement counts as mo
 - **Extruded type** is a stack of copies along depth; cap the count, since every copy costs paint time and memory.
 - **The product's own visual language:** glyph scrambles and code backdrops say "code"; a game or a physical product
   needs its own ([story-and-score](story-and-score.md) §6).
-- **Glitches read as failure:** never on the product's name or a claim ([studio](studio.md) §7.5).
+- **Glitches read as failure** by default, and a glitch on the product's name or a claim can imply a fault it does
+  not have ([sound](sound.md) §14). Use one there only when the concept earns it, the name stays legible on every
+  frame, and the person's confirmed taste or their review of it agrees.
 
 ## 7. Joins in motion
 
@@ -181,8 +184,8 @@ In this register the sound does as much work as the picture, and every rule in [
 - **Hits against the bed:** `mix_cues.py` reports each hit's level against the music in its first 150 ms. A hit under
   the music is a candidate for a listening check, not an automatic gain change; duck the bed only where a moment
   needs it.
-- **Typing** at speed turns per-key clicks into a rattle; thin them to word-level accents unless the rattle is the
-  texture.
+- **Typing** at speed: decide each run. A run the picture means keeps a click per key (`run: true`), and the
+  rattle is then the texture; word-level accents are a choice for a passage that wants them.
 - **The ending:** stopping the music dead on the sting suits this register; keep the sting near the body's level
   ([sound](sound.md) §10).
 - **True peak after re-encode:** dense masters overshoot. In the same published film, a master at −0.2 dBTP measured

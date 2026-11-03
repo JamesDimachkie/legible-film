@@ -215,6 +215,31 @@ approved freezes: a detector flag or reviewer agreement alone is not a reason to
 **Show rates honestly.** A pulse that stands for a rate must be visible at viewing size; one film made its pulses
 three times longer, with fading tails and glowing heads.
 
+**Layers in depth for one camera.** Use it when flat art moves in depth. One perspective camera owns the shot. Put
+each piece of flat art on its own plane, facing the camera, at a depth chosen for its parallax. Then move the
+camera, not the layers, so every layer's parallax follows from its depth and no two moves can disagree.
+
+- **Size by depth.** A plane at distance d, seen through a vertical field of view f, spans a frame height of
+  2d·tan(f/2). Scale each plane by that span so it keeps its designed size at its key frame. A layer pushed back
+  and scaled up looks the same and moves less.
+- **Parallax by depth.** A sideways camera move of x shifts a layer by x / (2d·tan(f/2)) frame heights, so a layer
+  twice as far moves half as far. Choose the depths from the ratios the move needs, such as 1, 2 and 4 for
+  foreground, subject and ground, then check one near and one far layer's measured shift against that ratio.
+- **Overscan.** A plane meant to fill the frame must cover it for the whole move. Size it to the frame at its
+  farthest distance, plus the camera's travel, plus a margin. Prove it with a probe that projects the plane's
+  corners at every frame and fails when a frame edge shows past them. A revealed layer edge is the common fault.
+  Cut-out shapes may leave the frame by design.
+- **A breakdown view.** An editor-style view sits above the render. It shows the same scene from a second camera,
+  with the shot camera's frustum, each layer's outline, depth guides and a ground grid. Draw both views from one
+  scene and one clock. One function sets the scene for time t, renders the shot camera into one half of the frame
+  and the breakdown camera into the other, and shows the helpers only in the breakdown pass. In the one measured
+  breakdown, two 1920×1080 views stacked into 1920×2160 at 24 fps, the editor view cut a frame before the render
+  at both hard cuts. A single clock rules that out. Check it on a frame sheet at every cut, where both halves must
+  change on the same frame.
+
+In a HyperFrames page this is Three.js drawn from the seek time ([engines](engines.md) §1 and §4), with one
+renderer split by viewport and scissor so both halves come from the same draw.
+
 ## 9. Colour, light and finish
 
 - Give colour, light and texture each a job: selection, separation, material or atmosphere. Colour is never the only
@@ -256,7 +281,9 @@ primitives is not the fix. Defaults are where generated work looks generic, so q
 - one easing curve on every move, and interface screens tilted in the same stock perspective, the two tells a
   motion designer names first in generated launch films.
 
-Each is fine when it was chosen for this product and this moment.
+Each is fine when it was chosen for this product and this moment. Purposeful particles, a construction that
+builds letters from parts, or a legible glitch can be the idea. Weigh the person's confirmed preferences
+(`taste.py show PROJECT --confirmed`) as direction, and write the reason beside the choice.
 
 ## 11. Footage, recordings and generated shots
 
