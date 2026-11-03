@@ -459,8 +459,8 @@ particular film.
 
 These are not built, or stay outside the skill, in 2.1:
 
-- Writing an original score; earshot's own sound-making, sound finding and realness scores (an optional,
-  separate tool).
+- Writing an original score; [earshot](https://github.com/Leonxlnx/earshot)'s own sound-making, sound finding and
+  realness scores (an optional, separate tool).
 - Warping reading holds into an existing timeline, and refining word onsets against the audio.
 - Frame-exact 3D.
 - Cue export from engines other than the film kit, HyperFrames (its timelines with the `lf-cues` block) and pages that
