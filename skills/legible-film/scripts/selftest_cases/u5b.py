@@ -322,17 +322,30 @@ def run_u5b_cases(tool, record, j, scripts_dir, skip):
             elif not ffmpeg:
                 skip('check --stress CLI', 'FFmpeg is unavailable')
             else:
-                if not flat_fixture.exists():
-                    subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i',
-                                    'color=black:s=640x360:r=10:d=1', '-c:v', 'ffv1', str(flat_fixture)],
-                                   check=True, capture_output=True)
-                report_file = Path(j('u5b-stress-check.json'))
-                code, output = tool('check.py', '--file', flat_fixture, '--stress', '--no-speech',
-                                    '--json', report_file)
-                checks = json.loads(report_file.read_text(encoding='utf-8')) if report_file.exists() else {}
-                item = next((row for row in checks.get('items', []) if row['id'] == 'stress_delivery'), {})
-                record('check --stress CLI: the delivery result is attached to the check',
-                       code in (0, 1) and item.get('state') == ('look' if available else 'skip')
-                       and item.get('group') == 'stress'
-                       and 'delivery_check.py' in checks.get('tools', {}).get('scripts', {}),
-                       str(item) + output[-400:])
+                # With libvmaf, delivery_check.py takes the heavy-job lock and waits for its free-memory floor, then
+                # reports that it could not run. A machine short of memory is a reason not to run this case, not a
+                # failure of the check.
+                heavy = module(scripts_dir, 'with_lock').HeavyLock(say=lambda *_, **__: None)
+                free = heavy.probe() if available and not heavy.held_by_ancestor() else None
+                floor = f'the {heavy.min_bytes / 1024 ** 3:.2f} GiB heavy-job floor delivery_check.py waits for'
+                if free is not None and free < heavy.min_bytes:
+                    skip('check --stress CLI', f'free memory {free / 1024 ** 3:.2f} GiB is under {floor}')
+                else:
+                    if not flat_fixture.exists():
+                        subprocess.run([ffmpeg, '-v', 'error', '-y', '-f', 'lavfi', '-i',
+                                        'color=black:s=640x360:r=10:d=1', '-c:v', 'ffv1', str(flat_fixture)],
+                                       check=True, capture_output=True)
+                    report_file = Path(j('u5b-stress-check.json'))
+                    code, output = tool('check.py', '--file', flat_fixture, '--stress', '--no-speech',
+                                        '--json', report_file)
+                    checks = json.loads(report_file.read_text(encoding='utf-8')) if report_file.exists() else {}
+                    item = next((row for row in checks.get('items', []) if row['id'] == 'stress_delivery'), {})
+                    if available and item.get('state') == 'skip' and 'lock: waited' in item.get('detail', ''):
+                        skip('check --stress CLI', f'free memory or the lock did not come within the wait ({floor}): '
+                             + item['detail'][-160:])
+                    else:
+                        record('check --stress CLI: the delivery result is attached to the check',
+                               code in (0, 1) and item.get('state') == ('look' if available else 'skip')
+                               and item.get('group') == 'stress'
+                               and 'delivery_check.py' in checks.get('tools', {}).get('scripts', {}),
+                               str(item) + output[-400:])
