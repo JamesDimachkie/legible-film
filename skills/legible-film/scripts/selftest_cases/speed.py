@@ -74,7 +74,8 @@ def tone(seconds):
     return ['-f', 'lavfi', '-i', f"aevalsrc='0.2*sin(2*PI*(300+80*floor(2*t))*t)':s=48000:d={seconds}"]
 
 
-def counted_source(scripts_dir, path, seconds=6, rate=30, picture='', encode=(), audio=()):
+def counted_source(scripts_dir, path, seconds=6, rate=30, picture='', encode=(), audio=(),
+                   sound=('-c:a', 'aac', '-b:a', '128k')):
     """A counted source file: `picture` filters its frames, `encode` replaces its video encoder options."""
     count = int(seconds * rate)
     # Unless `encode` says otherwise the file is tagged BT.709 throughout, the picture the plain path keeps in YUV.
@@ -84,7 +85,7 @@ def counted_source(scripts_dir, path, seconds=6, rate=30, picture='', encode=(),
     ffmpeg('-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{WIDTH}x{HEIGHT}', '-r', rate, '-i', 'pipe:0',
            *(audio or tone(seconds)), '-map', '0:v', '-map', '1:a', '-vf', filters,
            *(encode or BT709_ENCODE),
-           '-c:a', 'aac', '-b:a', '128k', '-shortest', path, data=counted_frames(scripts_dir, count, rate))
+           *sound, '-shortest', path, data=counted_frames(scripts_dir, count, rate))
 
 
 def facts(path):
@@ -493,7 +494,7 @@ def check_colour(tool, record, j, scripts_dir, skip):
         # Sound in Matroska with encoder priming starts before the picture on older FFmpeg, and that origin is a
         # different question from colour, so this fixture's sound has no priming.
         counted_source(scripts_dir, source, seconds=2, picture=filters, encode=encode,
-                       audio=('-c:a', 'pcm_s16le') if suffix == 'mkv' else ())
+                       **({'sound': ('-c:a', 'pcm_s16le')} if suffix == 'mkv' else {}))
         compare_paths(tool, record, f'a {name} source', project(j(f'speed-colour-{slug}'), source, film),
                       list(range(15, 45)), sound=False)
     assemble = load(scripts_dir, 'assemble')
