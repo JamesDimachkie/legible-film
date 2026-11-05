@@ -43,6 +43,11 @@ passed):
 - title contrast, when the version has titles: each title's letters against the picture around them at its midpoint
   (a look below 3:1, naming for each low title the nearest colour and the black plate that would reach 3.3:1 against
   the ground measured there, with their ratios); full-frame cards are not measured;
+- with --against IN --edit KIND, what that kind of edit must keep: its duration and streams, and its content where
+  that is cheap to compare: sampled pictures against the source frames the edit says they show (trim, speed, convert,
+  compress) and the sound against the source's (trim, convert, compress, extract-audio, reframe), tolerant of
+  re-encoding and scaling. Confident disagreement fails; too little to compare (flat picture, a steady tone) is not
+  assessed. What is not compared says "Not assessed: content": a reframe's picture and a speed change's sound;
 - what only a person can judge: watched muted, heard with sound, names in captions; an item a person has recorded
   in status.json (`reviewed`) counts as passed only for the file it was recorded against (its SHA-256; an older
   record without one counts for the version's preview only), so watching the preview never passes a final file.
@@ -129,6 +134,18 @@ DROPOUT_DB = -80
 DROPOUT_S = 0.08
 # EBU R128's absolute gate: ebur128 reports this for digital silence and for sound too quiet to measure.
 SILENCE_LUFS = -70.0
+# A quick edit's frames are compared with its source's as grey thumbnails. Measured on the first-cut example's one
+# scene, as the best correlation with the source frames around each of eight samples: faithful re-encodes down to
+# 30 kb/s at 160 pixels wide, a GIF, VP9 and MPEG-4 at 0.995 or more; another passage of that scene at 0.53 or less; a
+# passage one second off, in a shot with little movement, at 0.83 or more, which is too close to tell. A thumbnail that
+# varies by less than PICTURE_FLAT grey levels has too little detail to correlate.
+THUMBNAIL = (64, 36)
+PICTURE_SAMPLES = 8
+PICTURE_SAME = 0.9
+PICTURE_OTHER = 0.6
+PICTURE_FLAT = 3.0
+# sync_check.py holds both sounds in memory, at about 0.4 MB a second each.
+AUDIO_COMPARE_S = 900
 # The first frame is read at this size; it is one colour when no channel spans more than FLAT_SPAN code values.
 FIRST_FRAME_SIZE = (96, 54)
 FLAT_SPAN = 12
@@ -2927,13 +2944,161 @@ def signatures_match(first, second, tolerance=.001):
         abs(a - b) <= tolerance for pair_a, pair_b in zip(times_a, times_b) for a, b in zip(pair_a, pair_b))
 
 
+def thumbnails(path, moment, count=1):
+    """Frames from a time on as grey thumbnails ([] when nothing decodes there). This small, re-encoding and scaling
+    change little, and a detail a low bitrate loses barely counts."""
+    ffmpeg = shutil.which('ffmpeg')
+    width, height = THUMBNAIL
+    result = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-ss', f'{max(0.0, moment):.4f}', '-i', str(path),
+                             '-map', '0:v:0', '-frames:v', str(count), '-vf',
+                             f'scale={width}:{height}:flags=area,format=gray', '-f', 'rawvideo', '-'],
+                            capture_output=True)
+    size = width * height
+    return [result.stdout[start:start + size] for start in range(0, len(result.stdout) - size + 1, size)]
+
+
+def level_and_spread(picture):
+    """A thumbnail's mean grey level and its standard deviation."""
+    mean = sum(picture) / len(picture)
+    return mean, math.sqrt(sum((value - mean) ** 2 for value in picture) / len(picture))
+
+
+def picture_verdict(frame, candidates):
+    """One sampled frame against the source frames it may show: 'same', 'other', 'between', or 'flat' when neither has
+    the detail to tell. A flat frame where the source has detail, or the reverse, is another picture."""
+    level, spread = level_and_spread(frame)
+    best = -1.0
+    for candidate in candidates:
+        other_level, other_spread = level_and_spread(candidate)
+        if spread < PICTURE_FLAT or other_spread < PICTURE_FLAT:
+            if max(spread, other_spread) > 3 * PICTURE_FLAT or abs(level - other_level) > 12 * PICTURE_FLAT:
+                continue
+            return 'flat'
+        best = max(best, sum((a - level) * (b - other_level) for a, b in zip(frame, candidate))
+                   / (len(frame) * spread * other_spread))
+    return 'same' if best >= PICTURE_SAME else 'other' if best < PICTURE_OTHER else 'between'
+
+
+def media_seconds(data):
+    """A probed file's length: its first video stream's, else the container's; None when neither says."""
+    video = next((row for row in data.get('streams', []) if row.get('codec_type') == 'video'), {})
+    for value in (video.get('duration'), (data.get('format') or {}).get('duration')):
+        try:
+            if math.isfinite(float(value)) and float(value) > 0:
+                return float(value)
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def frame_seconds(data):
+    """How long one frame of a probed file's first video stream lasts, or None."""
+    video = next((row for row in data.get('streams', []) if row.get('codec_type') == 'video'), {})
+    try:
+        rate = Fraction(str(video.get('avg_frame_rate')))
+        return float(1 / rate) if rate > 0 else None
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def picture_content_item(reference, output, source, destination, when, what):
+    """Sampled frames of the output against the source frames the edit says they show (`when` turns an output time
+    into a source time; `what` names them). Confident disagreement fails, a mixed result is a look, and too little
+    detail to tell is not assessed."""
+    label = 'Not assessed: content of the picture'
+    seconds = media_seconds(destination)
+    if not shutil.which('ffmpeg'):
+        return item('edit_picture', label, 'skip', 'FFmpeg is required')
+    if not seconds:
+        return item('edit_picture', label, 'skip', 'the output has no length to sample')
+    source_frame = frame_seconds(source) or .04
+    reach = max(source_frame, (frame_seconds(destination) or source_frame) * (when(1.0) - when(0.0)))
+    count = min(12, math.ceil(2 * reach / source_frame) + 1)
+    verdicts = []
+    for number in range(PICTURE_SAMPLES):
+        moment = (number + .5) / PICTURE_SAMPLES * seconds
+        frame, candidates = thumbnails(output, moment), thumbnails(reference, when(moment) - reach, count)
+        verdicts.append((moment, picture_verdict(frame[0], candidates) if frame and candidates else 'flat'))
+    other = [moment for moment, verdict in verdicts if verdict == 'other']
+    same = sum(verdict == 'same' for _, verdict in verdicts)
+    informative = PICTURE_SAMPLES - sum(verdict == 'flat' for _, verdict in verdicts)
+    counted = f'{PICTURE_SAMPLES} frames sampled against {what}'
+    if informative < 3:
+        return item('edit_picture', label, 'skip', f'too little to compare: {counted}, and {informative} had the '
+                    'detail to tell them apart; look at the picture')
+    if len(other) >= max(2, math.ceil(informative / 2)):
+        return item('edit_picture', 'Picture content', 'fail', f'{len(other)} of {informative} comparable frames do not '
+                    f'match: {counted}; first at {P.format_time(other[0])}', other[0])
+    if other or same * 4 < informative * 3:
+        return item('edit_picture', 'Picture content', 'look', f'{same} of {informative} comparable frames match and '
+                    f'{len(other)} do not: {counted}; look at them', other[0] if other else None)
+    return item('edit_picture', 'Picture content', 'pass', f'{same} of {informative} comparable frames match: {counted}')
+
+
+def sync_state(verdict):
+    """What a comparison of sound with its source says: the same, measurably not, or too little to tell."""
+    if verdict == 'consistent with the reference within tolerance':
+        return 'pass'
+    return 'fail' if verdict.startswith(('constant offset', 'lag changes', 'content differs')) else 'skip'
+
+
+def audio_content_item(reference, output, source, destination):
+    """The whole of the output's sound against the source's, tolerant of re-encoding; a source too long to hold both in
+    memory, or with several streams to choose from, is not compared."""
+    label = 'Not assessed: content of the sound'
+
+    def audio(data):
+        return [row for row in data.get('streams', []) if row.get('codec_type') == 'audio']
+
+    if not audio(destination):
+        return item('edit_audio', label, 'skip', 'the output has no sound stream to compare')
+    if not audio(source):
+        return item('edit_audio', label, 'skip', 'the source has no sound stream to compare with')
+    if len(audio(source)) > 1 or len(audio(destination)) > 1:
+        return item('edit_audio', label, 'skip', 'several sound streams: compare the one that matters with '
+                    'sync_check.py by hand')
+    longest = max(media_seconds(source) or 0, media_seconds(destination) or 0)
+    if longest > AUDIO_COMPARE_S:
+        return item('edit_audio', label, 'skip', f'{longest / 60:.0f} minutes is too long to compare here: compare a '
+                    'passage with sync_check.py by hand')
+    seconds = media_seconds(destination) or 0
+    if seconds < 1:
+        return item('edit_audio', label, 'skip', 'the sound is too short to compare')
+    tolerance_ms = 1000 * (frame_seconds(source) or .04)
+    with tempfile.TemporaryDirectory(prefix='lf-edit-sound-') as temp:
+        report_path = Path(temp) / 'sync.json'
+        report, why = run_report('sync_check.py', [output, reference, '--window', f'{min(3.0, seconds / 4):g}',
+                                                   '--max-lag-ms', f'{min(500.0, seconds * 100):g}', '--tolerance-ms',
+                                                   f'{tolerance_ms:g}', '--json', report_path], report_path)
+    if report is None:
+        return item('edit_audio', label, 'skip', why)
+    verdict = (report.get('summary') or {}).get('verdict', '')
+    state = sync_state(verdict)
+    row = item('edit_audio', label if state == 'skip' else 'Sound content', state,
+               (verdict or 'the comparison said nothing') + '; compared with the source')
+    row['measurement'] = report.get('summary')
+    return row
+
+
 def edit_content_items(reference, output, kind, source, destination):
-    """Check the streams that the declared edit promises to keep."""
+    """Compare what the declared edit promises to keep, where that is cheap, and say where it is not compared."""
     kind, values = edit_kind(kind)
     if kind == 'trim':
-        return trim_audio_content_items(reference, output, values, source, destination)
-    if kind not in ('reframe', 'captions'):
-        return []
+        start, end = values
+        return (trim_audio_content_items(reference, output, values, source, destination)
+                + [picture_content_item(reference, output, source, destination, lambda moment: start + moment,
+                                        f'the source from {P.format_time(start)} to {P.format_time(end)}')])
+    if kind == 'speed':
+        factor = values[0]
+        return [picture_content_item(reference, output, source, destination, lambda moment: moment / factor,
+                                     f'the source at {factor:g} times its length'),
+                item('edit_audio', 'Not assessed: content of the sound', 'skip',
+                     'a speed change rewrites the waveform, so it is not compared; listen to it')]
+    if kind == 'extract-audio':
+        return [audio_content_item(reference, output, source, destination)]
+    if kind in ('convert', 'compress'):
+        return [picture_content_item(reference, output, source, destination, lambda moment: moment, 'the source'),
+                audio_content_item(reference, output, source, destination)]
     old, new = source.get('streams', []), destination.get('streams', [])
     selected = ('audio',) if kind == 'reframe' else ('video', 'audio')
     items = []
@@ -2968,22 +3133,30 @@ def edit_content_items(reference, output, kind, source, destination):
             items.append(item('edit_audio', 'Not assessed: edit audio content', 'skip', why))
             continue
         verdict = report.get('outside', {}).get('verdict', '')
-        if verdict == 'unchanged within tolerance' and report.get('summary', {}).get('verdict') == \
-                'consistent with the reference within tolerance':
+        overall = report.get('summary', {}).get('verdict', '')
+        if verdict == 'unchanged within tolerance' and overall == 'consistent with the reference within tolerance':
             state = 'pass'
         elif verdict == 'changed outside the passage':
             state = 'fail'
+        elif overall.startswith('content differs'):
+            state, verdict = 'fail', overall
         else:
             state = 'skip'
         label = 'Not assessed: edit audio content' if state == 'skip' else 'Edit audio content'
         items.append(item('edit_audio', label, state, verdict or 'audio comparison inconclusive'))
+    if kind == 'reframe':
+        items.append(item('edit_picture', 'Not assessed: content of the picture', 'skip',
+                          'a reframe crops and moves the picture, so its frames cannot be matched with the whole '
+                          'source; look at the framing'))
     return items
 
 
 def trim_audio_content_items(reference, output, bounds, source, destination):
-    """Compare the trimmed source sound with the delivered sound's transport."""
+    """Compare the trimmed source sound with the delivered sound's transport and content."""
     def result(state, detail, measurement=None):
         label = ('Not assessed: ' if state == 'skip' else '') + 'Trim audio content offset'
+        if detail.startswith('content differs'):
+            label = 'Trim audio content'
         row = item('edit_trim_content_offset', label, state, detail)
         if measurement is not None:
             row['measurement'] = measurement
@@ -3020,8 +3193,10 @@ def trim_audio_content_items(reference, output, bounds, source, destination):
         return result('skip', 'FFmpeg is required')
     with tempfile.TemporaryDirectory(prefix='lf-trim-audio-') as temp:
         clipped, report_path = Path(temp) / 'reference.wav', Path(temp) / 'sync.json'
+        played = P.default_audio_stream(source.get('streams', []))
+        selector = f"0:{played['index']}" if played else '0:a:0'
         command = [ffmpeg, '-v', 'error', '-nostdin', '-i', str(reference), '-ss', str(bounds[0]),
-                   '-t', str(duration), '-map', '0:a:0', '-ac', '2', '-ar', '48000',
+                   '-t', str(duration), '-map', selector, '-ac', '2', '-ar', '48000',
                    '-c:a', 'pcm_s16le', str(clipped)]
         try:
             run = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
@@ -3035,12 +3210,7 @@ def trim_audio_content_items(reference, output, bounds, source, destination):
         return result('skip', why or 'audio comparison could not run')
     summary = report.get('summary') or {}
     verdict = summary.get('verdict', '')
-    if verdict == 'consistent with the reference within tolerance':
-        state = 'pass'
-    elif verdict.startswith('constant offset') or verdict.startswith('lag changes'):
-        state = 'fail'
-    else:
-        state = 'skip'
+    state = sync_state(verdict)
     return result(state, (verdict or 'audio comparison inconclusive') +
                   '; compared sampled audio with the declared source passage', summary)
 

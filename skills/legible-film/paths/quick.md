@@ -41,7 +41,9 @@ when `setup.py` exits 0 or names what is missing for this job.
    `speed:X`, `reframe`, `convert`, `extract-audio`, `captions` or `compress`. The kind sets what must hold. A trim
    lasts B minus A within one frame with the audio offset unchanged; a speed change scales the duration by X; a
    reframe keeps duration and sound; a convert keeps duration and stream count for its destination; an audio extract
-   has no video stream and the source's duration; captions change no stream. Done when the report has no fail.
+   has no video stream and the source's duration; captions change no stream. Where it is cheap the content is compared
+   with the source too, sampled pictures and the sound, and what is not compared says `Not assessed: content`. Done when
+   the report has no fail.
 3. **Show it.** One line of what changed, with the file. A standalone check runs `check.py --file F [--delivery JSON]`
    ([qc](../references/qc.md) §2 says what it runs), a scorecard `grade.py --file FILE --platform NAME`
    ([grading](../references/grading.md)), and a sound question `listen.py transcript F` ([sound](../references/sound.md)

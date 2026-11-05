@@ -55,7 +55,7 @@ report, 1 something to look at, 2 could not run).
 | `region_check.py` | Whether a text, logo or patch keeps its reference ink and structure in every frame of its interval (presence, not OCR). |
 | `cue_onsets.py` | Whether each sound starts on its cue, and whether a moved sound has left its old place; `--scale` chooses contacts, turns or all; `--chance` compares the hits with chance. |
 | `cue_list.py` | Whether a cue list is fresh against its picture (`cue_list.py cues.json`); the fingerprint of a page, a video or a paper version; `freeze` keeps the frozen copy every exporter reads, scanning from the entry page; `scan` reads files a page loaded at run time. |
-| `sync_check.py` | Offset or drift against the approved mix, and the resampling that repairs it; `--outside A,B` says whether the sound outside a declared change is unchanged. |
+| `sync_check.py` | Offset, drift or different content against the approved mix, and the resampling that repairs a drift; `--outside A,B` says whether the sound outside a declared change is unchanged. |
 | `delivery_check.py` | Where a delivered file degrades under a re-encode: a low-bitrate proxy (not a platform's actual encode), banding (CAMBI) and VMAF worst windows. |
 | `compare_versions.py` | Where the picture changed between two renders, in time and in the frame (the cell that changed most, and a box): candidates between lossy files, exact frames between lossless ones. |
 | `onion_frames.py` | The path and spacing of a move across frames. |

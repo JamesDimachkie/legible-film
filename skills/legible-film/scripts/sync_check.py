@@ -4,7 +4,13 @@
 Muxing, re-encoding, limiter look-ahead or an editor's handles can shift audio against the
 picture. This decodes both soundtracks and cross-correlates several separated windows of real
 content (not silence). A constant lag across windows is a transport offset; lags that change
-across the film are drift or an edit; weak or ambiguous correlation is inconclusive.
+across the film are drift or an edit; weak or ambiguous correlation is inconclusive, unless most
+windows with sound in the reference match nothing at all in the delivered audio, which says its
+content differs (or it was moved further than the search, or sped up beyond the 0.95-1.05 a fit
+covers): no correlation peak of 0.5 or more, or standing half as high again as the rest of the
+search. Measured over 3 s and 0.5 s windows on one film's sound and on noise: AAC re-encodes down
+to 16 kb/s peak at 0.71 or more, or for white noise at 0.29 or more standing ten times above the
+rest; another passage, a tone or another speed peak at 0.38 or less, within 1.5 times of the rest.
 For steadily changing lag, short low-pass probes propose an affine time map, then
 full-length rate-adjusted windows validate it. A supported fit reports rate_ratio
 (delivered playback rate / reference rate), time_scale = 1 / rate_ratio, and offset
@@ -61,6 +67,12 @@ except ImportError as missing:
 RATE = 48000
 CORRELATION_FLOOR_DBFS = -90.0
 CORRELATION_FLOOR_RMS = 10 ** (CORRELATION_FLOOR_DBFS / 20)
+# A reference window at least this loud matches nothing when its best correlation of either sign anywhere in the search
+# is weak and stands out from the rest of the search by no more than chance does. A low bitrate lowers a true match's
+# peak but leaves it standing alone; unrelated sound has no peak that stands alone.
+NO_MATCH_DBFS = -60.0
+NO_MATCH_PEAK = 0.5
+NO_MATCH_PROMINENCE = 1.5
 
 
 def find_tool(name, explicit=None):
@@ -376,6 +388,22 @@ def fit_rows(rows, tolerance_ms, min_corr):
             'max_residual_ms': residual, 'confident_windows': len(good)}
 
 
+def matches_nothing(reference, scores):
+    """Whether a reference window with sound matches nothing in the delivered audio: no peak of either sign anywhere in
+    the search that is strong or stands alone, or nothing there at all to correlate."""
+    if level_db(reference) < NO_MATCH_DBFS:
+        return False
+    if not np.any(np.isfinite(scores)):
+        return True
+    sizes = np.abs(scores)
+    best = int(np.nanargmax(sizes))
+    peak = float(sizes[best])
+    guard = round(.002 * RATE)
+    sizes[max(0, best - guard):best + guard + 1] = np.nan
+    second = float(np.nanmax(sizes)) if np.any(np.isfinite(sizes)) else 0.0
+    return peak < NO_MATCH_PEAK and peak < NO_MATCH_PROMINENCE * second
+
+
 def scaled_windows(ref, delivered, picks, win, maxlag, rate, scale):
     rows = []
     for start in picks:
@@ -579,6 +607,7 @@ def main():
             lag = best - maxlag
             row.update(state='measured', lag_samples=lag, lag_ms=round(lag / RATE * 1000, 3),
                        correlation=round(peak, 4), runner_up=round(second, 4), ambiguous=second > .95 * peak)
+        row['matches_nothing'] = matches_nothing(r, c)
         rows.append(row)
     good = [r for r in rows if r['correlation'] is not None and r['correlation'] >= a.min_corr and not r['ambiguous']]
     original_rows = rows
@@ -594,7 +623,13 @@ def main():
                'median_lag_ms': round(float(np.median(lags)), 3) if lags else None,
                'spread_ms': round(max(lags) - min(lags), 3) if lags else None,
                'delivered_length_s': round(len(deliv) / RATE, 3), 'reference_length_s': round(len(ref) / RATE, 3)}
-    if len(good) < max(2, len(rows) // 2):
+    disagreeing = [r for r in rows if r['matches_nothing']]
+    summary['windows_matching_nothing'] = len(disagreeing)
+    if len(good) < max(2, len(rows) // 2) and not fit and len(disagreeing) >= max(2, math.ceil(2 * len(rows) / 3)):
+        verdict, code = (f'content differs: {len(disagreeing)} of {len(rows)} windows with sound in the reference match '
+                         f'nothing in the delivered audio within {a.max_lag_ms:g} ms (other sound, or moved further, '
+                         'or at another speed)'), 1
+    elif len(good) < max(2, len(rows) // 2):
         verdict, code = 'inconclusive: too few confident windows (silence, noise or repetitive material)', 1
     elif summary['spread_ms'] > a.tolerance_ms:
         verdict, code = 'lag changes across the film: drift or an edit between the two', 1
