@@ -32,6 +32,18 @@ project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
 
 
+def other_streams_note(path, stream):
+    """What to try when a stream gave no words and the file has others: their levels and --stream, or ''."""
+    result = subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(path)], capture_output=True,
+                            text=True)
+    streams = json.loads(result.stdout or '{}').get('streams', []) if not result.returncode else []
+    levels = project.audio_stream_levels(path, streams)
+    others = [f"stream {index} (peak {level['peak_db']:.1f} dB)" if level['peak_db'] is not None else f'stream {index}'
+              for index, level in levels.items() if index != stream]
+    return (f"no words from audio stream {stream}; this file also has {', '.join(others)}: choose one with --stream "
+            'INDEX') if others else ''
+
+
 def audio_stream_info(facts, requested=None):
     """Choose one absolute audio stream index and its zero-based presentation metadata."""
     streams = [stream for stream in facts.get('streams', []) if stream.get('codec_type') == 'audio']
@@ -40,8 +52,7 @@ def audio_stream_info(facts, requested=None):
         if stream is None:
             raise ValueError(f'audio stream {requested} does not exist')
     else:
-        stream = next((item for item in streams if item.get('disposition', {}).get('default')), None)
-        stream = stream or (streams[0] if streams else None)
+        stream = project.default_audio_stream(streams)
     if stream is None:
         return None
     try:
@@ -662,6 +673,10 @@ def main():
         if engine != 'import':
             rows = constrain_audio_start(rows, audio_start(args.file, args.stream))
         words = normalize(rows, alias)
+        if not words:
+            note = other_streams_note(args.file, args.stream)
+            if note:
+                print('note: ' + note, file=sys.stderr)
         name = engine + (' ' + args.model if engine == 'faster-whisper' else '')
         if project.file_sha256(args.file) != media_hash or Path(args.file).stat().st_size != media_size:
             raise ValueError('media changed during transcription; no transcript was written')

@@ -28,6 +28,9 @@ when a transcript is stale (its warning names both remedies), 2 on error.
 --words auto (the default) transcribes speech roles only: music and sfx sources skip words, so mapping a music bed
 never waits on transcription. --words all transcribes every role, lyrics included.
 Uncached transcription weights download only with --download or with setup.py --install transcription and consent.
+With several sound streams, map.py run measures each and prints its level. When the stream it would use is digitally
+silent and another has sound, it uses the one with sound and says so with the --stream command to override; a stream
+named with --stream stays chosen, and a transcript already made keeps its stream, each with a warning instead.
 Transcripts retain their original media and sound-stream binding when a source changes; stale transcripts warn on
 every run, words, fix and the readable transcript. Retranscribe, or explicitly confirm a checked transcript with a
 note, to rebind it. Older unbound transcripts are bound to the previously registered media on run. A binding does
@@ -186,6 +189,8 @@ def _add(root, name, role, copy, target, stream=None):
                 row['video'] = {**render_common.display_geometry(video), 'fps': video['avg_frame_rate']}
             if audio:
                 row['audio'] = audio
+            if stream is not None:
+                row['audio_stream_chosen'] = True
             data['sources'].append(row)
             project.save_json(target, data)
             installed = None
@@ -291,6 +296,56 @@ def audio_map(path, has_audio, length, stream=None):
         result['silences'].append({'start': start, 'end': length})
     result['speech_activity'] = transcribe.speech_activity(path, info['index'], length)
     return result
+
+
+def sound_streams(source, facts, path, actual):
+    """Each sound stream's measured level when a source has several ([] with one): one decode per file, kept in the
+    map so running again does not decode a long source again."""
+    streams = [row for row in facts.get('streams', []) if row.get('codec_type') == 'audio']
+    if len(streams) < 2:
+        return []
+    cached = source.get('audio_streams') or {}
+    if cached.get('sha256') == actual and isinstance(cached.get('streams'), list):
+        return cached['streams']
+    levels = project.audio_stream_levels(path, streams)
+    played = project.default_audio_stream(streams)['index']
+    return [{'index': row['index'], 'language': (row.get('tags') or {}).get('language'),
+             'default': row['index'] == played, **levels[row['index']]} for row in streams]
+
+
+def stream_level(row):
+    """One sound stream's level, as map.py prints it."""
+    if row.get('peak_db') is None:
+        return 'level not measured'
+    if project.stream_is_silent(row):
+        return f"peak {row['peak_db']:.1f} dB, digitally silent"
+    return f"peak {row['peak_db']:.1f} dB, mean {row['mean_db']:.1f} dB"
+
+
+def audible_stream(root, alias, streams, selected, chosen, transcribed):
+    """Print each sound stream's level; the stream to use: the selected one, unless it is digitally silent, another has
+    sound, and neither a person's choice (`chosen`) nor a transcript (`transcribed`) holds it there."""
+    for row in streams:
+        language = f", {row['language']}" if row.get('language') else ''
+        print(f"{alias}: sound stream {row['index']} ({'default' if row['default'] else 'not default'}{language}): "
+              f'{stream_level(row)}')
+    current = next((row for row in streams if row['index'] == selected), {})
+    other = next((row['index'] for row in streams if row.get('peak_db') is not None
+                  and not project.stream_is_silent(row)), None)
+    if not project.stream_is_silent(current) or other is None:
+        return selected
+    command = f'map.py run "{root}" --alias {alias} --stream'
+    if chosen:
+        print(f'warning: {alias}: stream {selected}, the one chosen, is digitally silent; stream {other} has sound. To '
+              f'use it: {command} {other}', file=sys.stderr)
+        return selected
+    if transcribed:
+        print(f'warning: {alias}: stream {selected} is digitally silent, and its transcript was made from it; stream '
+              f'{other} has sound. To use it: {command} {other} --retranscribe {alias}', file=sys.stderr)
+        return selected
+    print(f'{alias}: stream {selected} is digitally silent, so this map uses stream {other}, which has sound. To use '
+          f'stream {selected} anyway: {command} {selected}')
+    return other
 
 
 def sheet_indices(count):
@@ -457,6 +512,8 @@ def confirm_words(root, alias, note, by='agent', stream_index=None):
                 source['video'] = ({**render_common.display_geometry(video), 'fps': video['avg_frame_rate']}
                                    if video else None)
                 source.setdefault('mapped', {}).update(shots=False, audio=False)
+            if stream_index is not None:
+                source['audio_stream_chosen'] = True
             project.save_json(words_path, words)
             try:
                 project.save_json(index, data)
@@ -1066,6 +1123,13 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 raise ValueError(f'{alias}: changing streams needs --retranscribe {alias} or a checked '
                                  f'map.py confirm-words "{root}" {alias} --stream {selected_audio["index"]} '
                                  '--note TEXT')
+            streams = sound_streams(source, facts, path, actual)
+            if streams and selected_audio:
+                use = audible_stream(root, alias, streams, selected_audio['index'],
+                                     stream is not None or source.get('audio_stream_chosen'),
+                                     (folder / 'words.json').exists() and retranscribe != alias)
+                if use != selected_audio['index']:
+                    selected_audio = transcribe.audio_stream_info(facts, use)
             bind_legacy_words(folder / 'words.json', source, actual)
             source['audio'] = selected_audio
             key = map_key(actual, selected_audio['index'] if selected_audio else None)
@@ -1187,6 +1251,10 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 target = next(s for s in latest['sources'] if s['alias'] == alias)
                 target['audio'] = selected_audio
                 target['video'] = source.get('video')
+                if streams:
+                    target['audio_streams'] = {'sha256': actual, 'streams': streams}
+                if stream is not None:
+                    target['audio_stream_chosen'] = True
                 project.save_json(index, latest)
             project.save_json(folder / 'cache.json', key)
             shot_data = project.load_json(folder / 'shots.json', {}).get('shots', [])

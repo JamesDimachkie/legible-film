@@ -701,6 +701,42 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
+# A stream whose peak stays at or below this holds no sound: 16-bit digital silence measures -91 dB in volumedetect.
+DIGITAL_SILENCE_DB = -80.0
+
+
+def default_audio_stream(streams):
+    """The audio stream a player plays, from ffprobe's stream rows: the first flagged default, else the first."""
+    rows = [row for row in streams if row.get('codec_type') == 'audio']
+    return next((row for row in rows if (row.get('disposition') or {}).get('default')), rows[0] if rows else None)
+
+
+def audio_stream_levels(path, streams, ffmpeg='ffmpeg'):
+    """Each audio stream's level from one decode of the file: {absolute index: {'peak_db', 'mean_db'}}, from FFmpeg's
+    volumedetect, with None where a stream could not be measured."""
+    rows = [row for row in streams if row.get('codec_type') == 'audio']
+    levels = {row['index']: {'peak_db': None, 'mean_db': None} for row in rows}
+    if not rows:
+        return levels
+    graph = ';'.join(f"[0:{row['index']}]volumedetect[a{number}]" for number, row in enumerate(rows))
+    maps = [part for number in range(len(rows)) for part in ('-map', f'[a{number}]')]
+    result = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-nostats', '-i', str(path), '-filter_complex', graph,
+                             *maps, '-f', 'null', '-'], capture_output=True, text=True, encoding='utf-8',
+                            errors='replace')
+    if result.returncode:
+        return levels
+    names = {'max': 'peak_db', 'mean': 'mean_db'}
+    for number, kind, value in re.findall(r'Parsed_volumedetect_(\d+)\b[^\n]*?(max|mean)_volume: (-?[\d.]+|-inf) dB',
+                                          result.stderr):
+        levels[rows[int(number)]['index']][names[kind]] = -200.0 if value == '-inf' else float(value)
+    return levels
+
+
+def stream_is_silent(level):
+    """Whether a measured stream holds only digital silence; an unmeasured one is not said to."""
+    return level.get('peak_db') is not None and level['peak_db'] <= DIGITAL_SILENCE_DB
+
+
 def program_version(name):
     """A media tool's version line, or None when it cannot be read."""
     program = shutil.which(name)

@@ -186,10 +186,51 @@ def check_empty_captions(tool, record, j, scripts_dir):
            code == 1 and '"complete": false' in output, output[-300:])
 
 
+def check_default_audio_stream(tool, record, j):
+    """check.py measures the stream a player plays by default and names the others; a silent default with sound in
+    another stream is a look."""
+    folder = Path(j('check-audio-streams'))
+    folder.mkdir(parents=True, exist_ok=True)
+
+    def source(name, default):
+        path = folder / name
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3', '-f', 'lavfi',
+                        '-i', 'anullsrc=r=48000:cl=stereo', '-f', 'lavfi',
+                        '-i', 'sine=frequency=440:sample_rate=48000:duration=3', '-map', '0:v', '-map', '1:a',
+                        '-map', '2:a', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+                        '-disposition:a:0', 'default' if default == 0 else '0',
+                        '-disposition:a:1', 'default' if default == 1 else '0', str(path)],
+                       check=True, capture_output=True)
+        return path
+
+    second = source('default-second.mkv', 1)
+    code, output = tool('check.py', '--file', second, '--no-speech', '--json', folder / 'second.json')
+    found = by_id(checks_at(folder / 'second.json'))
+    level = found.get('loudness', {})
+    streams = found.get('audio_streams', {})
+    record('check: the stream a player plays by default is the one measured when it is not the first',
+           'LUFS' in level.get('label', '') and '-70' not in level.get('label', '')
+           and streams.get('state') == 'pass' and 'stream 2' in streams.get('label', '')
+           and 'stream 1' in streams.get('detail', ''), str(level) + str(streams) + output[-200:])
+    first = source('default-first.mkv', 0)
+    code, output = tool('check.py', '--file', first, '--no-speech', '--json', folder / 'first.json')
+    found = by_id(checks_at(folder / 'first.json'))
+    streams = found.get('audio_streams', {})
+    record('check: a silent default stream with sound in another is a look that names both',
+           code == 1 and streams.get('state') == 'look' and 'stream 1' in streams.get('label', '')
+           and 'stream 2' in streams.get('detail', ''), str(streams) + output[-200:])
+    plain = folder / 'plain.mp4'
+    make_video(plain, 'testsrc2=s=320x180:r=30')
+    code, output = tool('check.py', '--file', plain, '--no-speech', '--json', folder / 'plain.json')
+    record('check: one sound stream gets no stream item', 'audio_streams' not in by_id(checks_at(folder / 'plain.json')),
+           output[-200:])
+
+
 def run_check_cases(tool, record, j, scripts_dir):
     """Clean and flashing files, a project version with captions, person reviews and exit codes."""
     check_reviews_bound_to_file(record, j, scripts_dir)
     check_missing_tool_claim(record, j, scripts_dir)
+    check_default_audio_stream(tool, record, j)
     check_empty_captions(tool, record, j, scripts_dir)
     check_craft2_units(record, scripts_dir)
     check_craft2_pattern_battery(tool, record, j)

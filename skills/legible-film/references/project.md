@@ -104,7 +104,10 @@ may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
   unless explicitly retranscribed.
 - A source's `audio` records the chosen stream: its absolute index, language, layout and start. Mapping,
   transcription, cutting and checks all use that stream; choosing another (`--stream`) for a source that already
-  has a transcript needs `--retranscribe`.
+  has a transcript needs `--retranscribe`. With several sound streams, `map.py run` measures each, prints its level
+  and keeps them in `audio_streams`. When the stream it would use is digitally silent and another has sound (a
+  recorder that flags an empty track as the default), it uses the one with sound and prints the `--stream` command
+  that overrides it; a stream named with `--stream` stays chosen (`audio_stream_chosen`), with a warning instead.
 
 `map/<alias>/shots.json`: `{"version": 1, "source": "…", "shots": [{"start": 0.0, "end": 4.2, "sheet": "sheet-01.jpg",
 "tile": 3}], "sampled": false}`. Sheets hold up to 60 tiles each and cover every shot up to 600; above that the
@@ -324,7 +327,9 @@ screen, not proof: a transcript can mishear. Report its differences for review, 
 caption against the audio. A caption file with no captions on a film with sound is a `look` in `captions_rules` (a
 `fail` when the delivery settings require captions; `captions: none` in `film.md` means no caption items at all), and
 a transcript with no words is `skip` unless the sound measures as silence, so "no speech was heard" is only ever
-said of silence. On a final file, `loudness` (against the destination's target only when one is named)
+said of silence. Every sound check reads the stream a player plays by default; a file with several gets
+`audio_streams`, which says which it read and names the others with their levels, and is a `look` when that stream is
+silent and another has sound. On a final file, `loudness` (against the destination's target only when one is named)
 and `true_peak` (after a lossy re-encode; `skip` with the diagnostic when it could not be measured, `fail` when the
 original already exceeds −1 dBTP) are separate items. Each run writes to a fresh folder and copies only what it
 produced into `qa/` (`qa/final-*` for a final file): a scanner that crashed, lacked a dependency or wrote no report is

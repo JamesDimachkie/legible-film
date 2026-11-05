@@ -337,9 +337,83 @@ def check_transcript_unavailable(tool, record, j):
            + str(status.get('line')))
 
 
+def silent_default_source(path, first_default=True):
+    """Picture with two sound streams, 1 digitally silent and 2 a tone; the default flag on 1, or on 2."""
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3',
+                    '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-f', 'lavfi',
+                    '-i', 'sine=frequency=440:sample_rate=48000:duration=3', '-map', '0:v', '-map', '1:a',
+                    '-map', '2:a', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+                    '-disposition:a:0', 'default' if first_default else '0',
+                    '-disposition:a:1', '0' if first_default else 'default', str(path)],
+                   check=True, capture_output=True)
+
+
+def check_silent_default_stream(tool, record, j):
+    """With several sound streams each is measured and printed; a silent chosen stream gives way to one with sound,
+    which is said with the command to override it; a stream someone chose stays chosen."""
+    folder = Path(j('map-silent-default'))
+    folder.mkdir(parents=True, exist_ok=True)
+    source = folder / 'obs.mkv'
+    silent_default_source(source)
+    root = folder / 'project'
+    tool('map.py', 'add', root, source, '--role', 'other')
+    code, output = tool('map.py', 'run', root, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((root / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    audio = json.loads((root / 'map' / 'src_01' / 'audio.json').read_text(encoding='utf-8'))
+    record('map: each of several sound streams is measured and printed with its level',
+           code == 0 and 'stream 1' in output and 'stream 2' in output and 'digitally silent' in output
+           and any('stream 2' in line and ' dB' in line for line in output.splitlines()), output[-500:])
+    record('map: a digitally silent default gives way to the stream with sound, says so and names the override',
+           row['audio']['index'] == 2 and audio.get('stream_index') == 2 and audio.get('integrated_lufs') is not None
+           and audio['integrated_lufs'] > -60 and '--stream 1' in output, output[-500:] + str(row.get('audio')))
+    code, again = tool('map.py', 'run', root, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((root / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: running again keeps the stream with sound, from the cached map',
+           code == 0 and 'cached' in again and row['audio']['index'] == 2, again[-300:])
+    (root / 'film.md').write_text('---\ntitle: Silent default\nsize: 160x90\nfps: 10\ncaptions: none\n---\n'
+                                  '- src_01 0:00.50-0:02.50 sound The tone\n', encoding='utf-8')
+    code, rendered = tool('cut.py', 'render', root)
+    preview = root / 'cuts' / 'v001' / 'preview.mp4'
+    measured = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-i', str(preview), '-af', 'volumedetect', '-vn',
+                               '-f', 'null', '-'], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    peak = next((float(line.split('max_volume:')[1].split()[0]) for line in measured.stderr.splitlines()
+                 if 'max_volume:' in line), -200.0)
+    record('map: the film cut from that source has its sound, not the silent default',
+           code in (0, 1) and peak > -30, f'peak {peak}; {rendered[-300:]}')
+    chosen = folder / 'chosen'
+    tool('map.py', 'add', chosen, source, '--role', 'other', '--stream', 1)
+    code, output = tool('map.py', 'run', chosen, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((chosen / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: a stream someone chose stays chosen, with a warning that it is silent and another has sound',
+           code == 0 and row['audio']['index'] == 1 and 'stream 1' in output and 'digitally silent' in output
+           and '--stream 2' in output, output[-500:])
+    picked = folder / 'picked'
+    tool('map.py', 'add', picked, source, '--role', 'other')
+    code, output = tool('map.py', 'run', picked, '--alias', 'src_01', '--words', 'skip', '--stream', 1)
+    code, output = tool('map.py', 'run', picked, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((picked / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: a stream chosen on an earlier run stays chosen on the next', row['audio']['index'] == 1, output[-300:])
+    empty = folder / 'no-words.json'
+    empty.write_text(json.dumps({'words': []}), encoding='utf-8')
+    code, output = tool('transcribe.py', source, '--engine', 'import', '--import-file', empty, '--out',
+                        folder / 'words.json')
+    record('transcribe: no words from one of several sound streams names the others and --stream',
+           code == 0 and 'stream 2' in output and '--stream' in output, output[-300:])
+    plain = folder / 'one-stream.mp4'
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=2', '-f', 'lavfi',
+                    '-i', 'sine=frequency=440:sample_rate=48000:duration=2', '-shortest', '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(plain)], check=True, capture_output=True)
+    single = folder / 'single'
+    tool('map.py', 'add', single, plain, '--role', 'other')
+    code, output = tool('map.py', 'run', single, '--alias', 'src_01', '--words', 'skip')
+    record('map: a source with one sound stream prints no stream levels', code == 0 and 'stream 1 ' not in output,
+           output[-300:])
+
+
 def run_map_cases(tool, record, j, scripts_dir):
     """Check transcripts, source privacy, caching, scene and silence timing, and strips."""
     check_transcript_unavailable(tool, record, j)
+    check_silent_default_stream(tool, record, j)
     check_transcript_media_identity(tool, record, j)
     check_confirm_changed_stream(tool, record, j)
     polish_map_cases(tool, record, j)

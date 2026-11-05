@@ -16,7 +16,8 @@ supply what it needs; its label begins "Not assessed", and the readiness line co
 passed):
 - spec: frame size or shape, frame rate, duration, codec, pixel format, colour tags (qc_file.py);
 - measured loudness, compared with a target only when supplied; final files with sound also get a lossy true-peak
-  check;
+  check. Every sound check reads the stream a player plays by default, and a file with several says which it read and
+  names the others with their levels (a look when that stream is silent and another has sound);
 - clicks at the start and a cut-off tail (qc_file.py's audio edges), and holes of digital silence inside the film
   (a look: the room tone drops out). A tail that ends away from silence is named as the last sound still playing
   when the picture ends; for a project version whose edit places its last sound past the picture's last frame (a
@@ -388,7 +389,33 @@ def edges_item(qc, has_audio, overrun=None):
     return item('edges', label, 'look', '; '.join(details))
 
 
-def dropout_item(video, has_audio):
+def audio_streams_item(qc):
+    """Which of several sound streams was measured, and the others by level; None for a file with one. A default stream
+    with no sound while another has it is what a viewer would get: silence."""
+    rows = qc.get('audio_streams') or []
+    played = next((row for row in rows if row.get('default')), None)
+    if len(rows) < 2 or played is None:
+        return None
+
+    def described(row):
+        level = 'not measured' if row.get('peak_db') is None else f"peak {row['peak_db']:.1f} dB"
+        if P.stream_is_silent(row):
+            level = 'digitally silent'
+        return f"stream {row['index']} ({level})"
+
+    others = [row for row in rows if row is not played]
+    named = ', '.join(described(row) for row in others)
+    sounding = [row for row in others if row.get('peak_db') is not None and not P.stream_is_silent(row)]
+    if P.stream_is_silent(played) and sounding:
+        return item('audio_streams', f"Players use sound stream {played['index']} by default, and it is silent", 'look',
+                    f'also in the file: {named}. The sound checks here read the default stream; a player plays it. '
+                    'Flag the stream with the sound as the default (ffmpeg -i IN -map 0 -c copy -disposition:a:0 0 '
+                    '-disposition:a:1 default OUT), or remove the silent one')
+    return item('audio_streams', f"Sound measured on stream {played['index']}, which players use by default", 'pass',
+                f'{described(played)}; also in the file, not measured by the sound checks here: {named}')
+
+
+def dropout_item(video, has_audio, selector='0:a:0'):
     """Holes of digital silence inside the film's sound, where a listener hears the room vanish. Produced sources
     carry them at their own edit points (a NASA programme had exact zeros for 0.56 s inside an answer), and each of
     four agent cuts tested kept at least one. Silence at the very start, and after the last sound, is left to the
@@ -400,7 +427,7 @@ def dropout_item(video, has_audio):
         return item('dropouts', 'Holes in the sound', 'skip', 'FFmpeg or ffprobe not found')
     probe = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', str(video)],
                            capture_output=True, text=True)
-    result = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-i', str(video), '-map', '0:a:0', '-af',
+    result = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-i', str(video), '-map', selector, '-af',
                              f'silencedetect=noise={DROPOUT_DB}dB:d={DROPOUT_S}', '-f', 'null', '-'],
                             capture_output=True, text=True, encoding='utf-8', errors='replace')
     try:
@@ -2151,12 +2178,15 @@ def run_checks(video, qa=None, spec=None, duration=None, final=False, target=DEF
             color and f'{color.upper()} tags', 'fast start' if final and faststart else '') if part)
         basis += ' (the web defaults unless --delivery or the flags name another)' if final and not spec and faststart else ''
         items = [spec_item(qc, basis)] + loudness_items(qc, target, final, has_audio)
+        streams = audio_streams_item(qc)
+        if streams:
+            items.append(streams)
         declaration = P.load_json(captions_folder / 'declared.json', {}) if captions_folder else {}
         items.append(first_frame_item(video, declaration))
         edges = edges_item(qc, has_audio, sound_past_picture(captions_folder, expected_frames))
         if edges:
             items.append(edges)
-        dropouts = dropout_item(video, has_audio)
+        dropouts = dropout_item(video, has_audio, qc.get('audio_selector', '0:a:0'))
         if dropouts:
             items.append(dropouts)
         P.save_json(fresh / 'technical.json', qc.get('technical') or {})
