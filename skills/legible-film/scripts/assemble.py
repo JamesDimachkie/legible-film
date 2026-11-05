@@ -479,9 +479,14 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
         end = reader.end()
         intervals = np.diff(times)
         # The header is not the picture: a file cut short still claims every second it once had.
-        if (decoded_short(requested_stop, end, float(np.median(intervals)) if len(intervals) else 0.0)
+        spacing = float(np.median(intervals)) if len(intervals) else 0.0
+        if (decoded_short(requested_stop, end, spacing)
                 and not picture_goes_on(ffprobe, filename, origin, requested_stop)):
             requested_stop = shorten_picture(item, requested_stop, end, range_notes)
+        elif spacing and requested_stop - end > 1.5 * spacing:
+            # Inside the slack a header and a file can differ for ordinary reasons, so it holds; it does not hide it.
+            range_notes.append(f"Picture {item['src']} holds its last frame for {requested_stop - end:.3f} s: the source's "
+                               f'picture ends at {end:.3f} s, just short of this line.')
         end = max(end, requested_stop)
         variable = bool(len(intervals) > 1 and np.max(intervals) - np.min(intervals) > .0001)
         rotation = float(stream.get('tags', {}).get('rotate', 0))

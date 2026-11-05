@@ -538,7 +538,9 @@ def sync_project(root, reference=None, aliases=None):
     if identity['sha256'] != row.get('sha256'):
         raise ValueError(f'{chosen}: the file changed since it was mapped; map it again (map.py run) first')
     reference_samples = decode(path, stream, float(row.get('duration_s') or 0))
-    same_reference = previous.get('reference') == chosen and previous.get('reference_sha256') == identity['sha256']
+    # A row was measured against the reference's sound stream, so another stream of the same file is another reference.
+    same_reference = (previous.get('reference') == chosen and previous.get('reference_sha256') == identity['sha256']
+                      and ((previous.get('sources') or {}).get(chosen) or {}).get('audio_stream') == stream)
     record = {'version': 1, 'made': project.now(), 'reference': chosen, 'reference_sha256': identity['sha256'],
               'draft': True, 'frame_s': round(frame_seconds(sources.values()), 6),
               'sources': {chosen: {'state': 'reference', 'audio_stream': stream, 'offset_s': 0.0, 'drift_per_s': 0.0,
@@ -739,12 +741,36 @@ def check_report(root):
     if lineup.record is None:
         return ['the project has no line-up yet; run map.py sync PROJECT'], 1
     lines, code = sync_report(lineup.record), 0
+    frame = float(lineup.record.get('frame_s') or 1 / 30)
     for alias, row in lineup.record['sources'].items():
         reason = lineup.problem(alias)
         if reason and row.get('state') != 'look':
             lines.append(f'{alias}: stale: {reason}; run map.py sync PROJECT again')
-        code = 1 if reason else code
-    return lines, code
+        code = 1 if reason or abs(float(row.get('drift_s') or 0.0)) > frame else code
+    stale = stale_labels(root, lineup)
+    return lines + stale, 1 if stale else code
+
+
+def stale_labels(root, lineup=None):
+    """A line for each transcript whose speaker labels were measured from mics at another line-up."""
+    root = Path(root).resolve()
+    lineup = lineup or Lineup(root)
+    lines = []
+    for path in sorted((root / 'map').glob('*/words.json')):
+        data = project.load_json(path, None)
+        labels = data.get('speaker_labels') if isinstance(data, dict) else None
+        if not isinstance(labels, dict) or labels.get('method') != 'mic-level' or 'offsets' not in labels:
+            continue
+        alias = path.parent.name
+        if labels['offsets'] != label_offsets(lineup, alias, labels.get('mics') or {}):
+            lines.append(f'{alias}: speaker labels are stale: they were measured at another line-up; run map.py '
+                         f'speakers PROJECT {alias} again')
+    return lines
+
+
+def label_offsets(lineup, alias, mics):
+    """The offsets a transcript's mic labels depend on: its own and each mic's."""
+    return {name: (lineup.row(name) or {}).get('offset_s') for name in [alias, *mics]}
 
 
 # ----------------------------------------------------------------------------------------------- speakers
@@ -895,6 +921,7 @@ def label_from_mics(root, alias, mics, margin=MARGIN_DB):
         counts = label_words(data['words'], alias, lineup, levels, mics, margin)
         data['speaker_labels'] = {
             'method': 'mic-level', 'draft': True, 'at': project.now(), 'margin_db': margin,
+            'offsets': label_offsets(lineup, alias, mics),
             'mics': {mic: {'name': name, 'sha256': (lineup.row(mic) or {}).get('sha256')}
                      for mic, name in mics.items()},
             'note': 'Drafts until a person reads them: the loudest mic over a word, not an identification.', **counts}

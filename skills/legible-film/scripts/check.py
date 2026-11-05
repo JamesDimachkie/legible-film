@@ -843,9 +843,9 @@ def rules_item(srt, fresh, profile=None, sound=False, required=None):
         return item('captions_rules', 'Caption reading rules', 'skip', why)
     findings, review, cues = report.get('findings') or [], report.get('review') or [], report.get('cues', 0)
     style = f' (house style {Path(profile).name})' if profile else ''
-    if not cues and not findings and sound:
-        detail = (f'{Path(srt).name} holds no captions and this film has sound, so a viewer who needs them gets '
-                  'nothing: ')
+    if not cues and not findings and (sound or required):
+        having = 'this film has sound' if sound else 'captions are required'
+        detail = f'{Path(srt).name} holds no captions and {having}, so a viewer who needs them gets nothing: '
         if required:
             entry = item('captions_rules', 'Captions required, but the caption file is empty', 'fail',
                          detail + 'give the sidecar that has the captions')
@@ -3073,6 +3073,8 @@ def sync_state(summary):
     if silent >= max(2, math.ceil(2 * windows / 3)):
         return 'fail', (f'content differs: the output is silent in {silent} of {windows} windows where the source has '
                         'sound')
+    if verdict.startswith('part of the sound differs'):
+        return 'look', verdict
     if verdict.startswith(('constant offset', 'lag changes', 'content differs')):
         return 'fail', verdict
     return 'skip', verdict or 'audio comparison inconclusive'
@@ -3239,7 +3241,8 @@ def trim_audio_content_items(reference, output, bounds, source, destination):
         if run.returncode:
             return result('skip', 'cannot decode the source passage: ' + run.stderr.strip()[-200:])
         report, why = run_report('sync_check.py', [output, clipped, '--window', str(min(.5, duration / 4)),
-            '--max-lag-ms', str(max_lag_ms), '--tolerance-ms', str(tolerance_ms), '--json', report_path], report_path)
+            '--max-lag-ms', str(max_lag_ms), '--tolerance-ms', str(tolerance_ms),
+            '--delivered-stream', str(audio_position(destination)), '--json', report_path], report_path)
     if report is None:
         return result('skip', why or 'audio comparison could not run')
     summary = report.get('summary') or {}

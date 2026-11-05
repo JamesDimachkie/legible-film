@@ -102,9 +102,17 @@ def has_pip(python):
 
 
 def selected_python(create=False):
-    """Reuse the dedicated interpreter, or create it unless this interpreter is a virtual environment that can accept
-    installs. A base interpreter is never installed into, however writable: other work may share it."""
+    """An active virtual environment that can take installs (or, to run scripts, already has the core packages), then
+    the dedicated interpreter, created when needed. A base interpreter is never installed into, however writable:
+    other work may share it."""
     dedicated = dedicated_python()
+    purelib = Path(sysconfig.get_path('purelib'))
+    existing = purelib
+    while not existing.exists() and existing.parent != existing:
+        existing = existing.parent
+    if sys.prefix != sys.base_prefix and (has_pip(sys.executable) and os.access(existing, os.W_OK) if create
+                                          else imports_core(sys.executable)):
+        return Path(sys.executable)
     if dedicated.is_file():
         if create and not has_pip(dedicated):
             fix = project.python_command(['-m', 'ensurepip', '--upgrade'], dedicated)
@@ -112,12 +120,6 @@ def selected_python(create=False):
                              '(sudo apt install python3-venv), then run: ' + fix)
         return dedicated
     if not create:
-        return Path(sys.executable)
-    purelib = Path(sysconfig.get_path('purelib'))
-    existing = purelib
-    while not existing.exists() and existing.parent != existing:
-        existing = existing.parent
-    if sys.prefix != sys.base_prefix and has_pip(sys.executable) and os.access(existing, os.W_OK):
         return Path(sys.executable)
     try:
         subprocess.run([sys.executable, '-I', '-m', 'venv', str(dedicated.parent.parent)],
@@ -528,7 +530,9 @@ def pip_install(python, packages, *options):
         subprocess.run(command, check=True, stdout=sys.stderr)
     except subprocess.CalledProcessError as error:
         raise ValueError(f"pip could not install {', '.join(packages)} at the versions in {CONSTRAINTS.name}; its "
-                         'reason is above. No matching version means no tested build for this Python or system.'
+                         'reason is above. No matching version means no tested build for this Python or system: '
+                         'tested on Python 3.9 to 3.14. Run setup.py with one of those, from a virtual environment '
+                         f'or after removing {dedicated_python().parent.parent}.'
                          ) from error
 
 

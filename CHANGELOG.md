@@ -26,15 +26,15 @@ add `--download` (about 460 MB). `setup.py` no longer installs into a shared Pyt
 **Checks that no longer pass the wrong file**
 
 - Sources are checked to where they really decode: `map.py` records it and warns, `cut.py check` gives a line-numbered
-  error for a range past it, and nothing is freeze-filled without being declared. Before this, a file cut short could
-  render and check clean with a frozen, silent ending.
-- An empty caption file on a film with sound is a look or a fail, and a wordless transcript of measurable sound is not
-  assessed; before, both read as ok.
-- Quick edits compare pictures and sound with the source, so a wrong recording or a wrong trim now fails. What is not
-  compared says "Not assessed: content".
+  error for a range past it, and a tail held without being declared is at most a fraction of a second, with a note. Before
+  this, a file cut short could render and check clean with a frozen, silent ending.
+- An empty caption file is a look on a film with sound and a fail when captions are required, and a wordless transcript
+  of measurable sound is not assessed; before, both read as ok.
+- Quick edits compare pictures and sound with the source, on the track a player plays, so a wrong recording or a wrong
+  trim now fails and a partly wrong one is a look. What is not compared says "Not assessed: content".
 - A blocked render exits 2, so it can no longer be read as a render with notes.
-- `map.py` and `check.py` measure every sound stream. A silent default track gives way to one with sound and says so, with
-  the `--stream` command to override, and `check.py` reads the stream a player plays.
+- `map.py` and `check.py` measure every sound stream. A default track that is digitally silent gives way to one with sound and says
+  so, with the `--stream` command to override, and `check.py` reads the stream a player plays.
 - "moov atom not found" no longer claims FFmpeg is missing, and captions end with the film.
 
 **Phone footage**

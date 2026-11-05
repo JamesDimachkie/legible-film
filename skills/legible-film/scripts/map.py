@@ -1491,11 +1491,14 @@ def run_sync(args):
             raise ValueError(f'--set takes ALIAS=SECONDS, found {args.set_offset!r}') from error
         lineup.set_by_hand(args.project, alias, offset, args.note, args.by)
         print(f'{alias}: {offset:+.3f} s, set by hand and recorded in decisions.jsonl')
-        return 0
+        stale = lineup.stale_labels(args.project)
+        if stale:
+            print('\n'.join(stale))
+        return 1 if stale else 0
     if args.note:
         raise ValueError('--note goes with --set')
     record = lineup.sync_project(args.project, args.reference, args.alias)
-    print('\n'.join(lineup.sync_report(record)))
+    print('\n'.join(lineup.sync_report(record) + lineup.stale_labels(args.project)))
     if args.json:
         lineup.write_json_report(args.json, record)
     frame = float(record.get('frame_s') or 1 / 30)

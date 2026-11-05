@@ -536,6 +536,8 @@ def main():
     p.add_argument('delivered')
     p.add_argument('reference', help='the approved master mix (WAV or any file with audio)')
     p.add_argument('--windows', type=int, default=6)
+    p.add_argument('--delivered-stream', type=int, default=0,
+                   help="which of the delivered file's audio streams to read, counted among them (default the first)")
     p.add_argument('--window', type=float, default=3.0, help='window length in seconds')
     p.add_argument('--max-lag-ms', type=float, default=500.0)
     p.add_argument('--tolerance-ms', type=float, default=2.0, help='allowed lag and allowed spread between windows')
@@ -567,7 +569,7 @@ def main():
         return 2
     ffprobe = find_tool('ffprobe', a.ffprobe)
     deliv_skip, ref_skip = leading_priming(ffprobe, a.delivered), leading_priming(ffprobe, a.reference)
-    deliv = decode(ffmpeg, a.delivered, '0:a:0', deliv_skip)
+    deliv = decode(ffmpeg, a.delivered, f'0:a:{a.delivered_stream}', deliv_skip)
     ref = decode(ffmpeg, a.reference, '0:a:0', ref_skip)
     if a.outside and a.outside[1] > len(ref) / RATE:
         print('the allowed passage extends beyond the reference audio', file=sys.stderr)
@@ -636,6 +638,9 @@ def main():
         verdict, code = 'lag changes across the film: drift or an edit between the two', 1
     elif abs(summary['median_lag_ms']) > a.tolerance_ms:
         verdict, code = f"constant offset of {summary['median_lag_ms']} ms (positive: delivered audio is late)", 1
+    elif disagreeing and not fit:
+        verdict, code = (f'part of the sound differs: {len(disagreeing)} of {len(rows)} windows with sound in the '
+                         f'reference match nothing in the delivered audio within {a.max_lag_ms:g} ms'), 1
     elif summary['not_assessed_windows']:
         verdict, code = 'inconclusive: some transport windows are below the energy floor', 1
     else:

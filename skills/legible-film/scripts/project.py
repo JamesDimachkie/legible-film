@@ -701,8 +701,9 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
-# A stream whose peak stays at or below this holds no sound: 16-bit digital silence measures -91 dB in volumedetect.
-DIGITAL_SILENCE_DB = -80.0
+# A stream whose peak stays at or below this holds no sound: 16-bit digital silence measures -91 dB in volumedetect,
+# and one least-significant bit -90.3 dB. Three bits, about -81 dB, is a quiet recording and stays selected.
+DIGITAL_SILENCE_DB = -90.0
 
 
 def default_audio_stream(streams):

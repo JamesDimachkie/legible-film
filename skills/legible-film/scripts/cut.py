@@ -2402,6 +2402,7 @@ class Compiler:
             for row, piece in zip(run_rows, pieces):
                 row.update(sound_src=sound_alias, sound_in=round(piece['in'], 6), sound_out=round(piece['out'], 6))
             self.say_drift(sound_alias, entry['line'])
+            self.say_drift(alias, entry['line'])
         record = self.record(entry, 'spoken', start, self.cursor, words=kept_words,
                              cut_words=[{'id': word.get('id'), 'text': word['text']} for word in removed],
                              runs=run_rows,
@@ -2507,6 +2508,7 @@ class Compiler:
             sound_in, sound_out = round(entry['start'] + shift, 6), round(entry['end'] + shift, 6)
             extra['sound_source'] = sound_alias
             self.say_drift(sound_alias, entry['line'])
+            self.say_drift(alias, entry['line'])
         if 'sound' in entry['mods']:
             late = max(0.0, -sound_in)
             item = {'track': 'nat', 'src': sound_alias or alias, 'in': sound_in + late, 'out': sound_out,
