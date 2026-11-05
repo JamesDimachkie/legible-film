@@ -63,7 +63,7 @@ from pathlib import Path
 STAGES = ('map', 'plan', 'cut', 'check', 'screen', 'revise', 'deliver')
 STATES = ('todo', 'now', 'done', 'skipped', 'waiting')
 ROLE_PREFIX = {'interview': 'int', 'broll': 'broll', 'screen': 'screen', 'music': 'music', 'sfx': 'sfx', 'vo': 'vo',
-               'still': 'still', 'other': 'src'}
+               'still': 'still', 'other': 'src', 'camera': 'cam', 'mic': 'mic'}
 MARKERS = ('film.md', 'status.json', 'map', 'cuts')
 VERSION_NAME = re.compile(r'v(\d{3,})$')
 

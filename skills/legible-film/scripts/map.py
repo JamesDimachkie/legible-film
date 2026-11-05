@@ -8,6 +8,8 @@
   python map.py fix PROJECT WORD_ID [TEXT] [--start S] [--end E] [--by person|agent]
   python map.py confirm-words PROJECT ALIAS --note TEXT [--stream INDEX] [--by person|agent]
   python map.py words PROJECT ALIAS [--from TIME] [--to TIME]
+  python map.py sync PROJECT [--reference ALIAS] [--alias ALIAS ...] [--json FILE] | --check | --set ALIAS=SECONDS --note TEXT
+  python map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben [--margin DB] | --rename OLD=NEW
   python map.py run PROJECT [--alias ALIAS] --check
   python map.py run PROJECT [--alias ALIAS] --rebuild
 
@@ -21,6 +23,10 @@ Words prints each word's ID and source-second edges and, between words, the paus
 spoken (the map's voice-activity segments) and how far the gap's quarter-second level falls below the words either
 side. FFmpeg's fixed -40 dB silence threshold is shown only where it found quiet, and the header says when a source's
 room tone sits above it. Maps made before voice activity was recorded, or without faster-whisper, show levels only.
+Words also names each word's speaker when its transcript has labels. sync lines recordings of one conversation up from
+their sound and saves the result bound to each file's SHA-256; speakers names each word's speaker from the mics, and
+fix --speaker corrects one or a run of them. lineup.py --help says how and what neither can establish. Labels are
+drafts until a person reads them, like transcripts.
 Maps are drafts and detected cuts and silences need inspection. Shot-change candidates within 1 s of each other
 that return to the same picture (a flash or effect inside one shot) are recorded in shots.json as effects, not shot
 changes; maps made before this keep their shots until --rebuild. Mapping decodes the picture and the sound once each
@@ -432,9 +438,11 @@ def transcript_markdown(alias, words, review=None, identity_state=None):
     """Write timed, readable phrases with each underlying word ID visible."""
     phrases = []
     group = []
+    labelled = any(word.get('speaker') is not None for word in words)
     for word in words:
         if group and (len(group) >= 12 or word['start'] - group[-1]['end'] >= .6
-                      or group[-1]['text'].rstrip().endswith(('.', '?', '!'))):
+                      or group[-1]['text'].rstrip().endswith(('.', '?', '!'))
+                      or (labelled and word.get('speaker') != group[-1].get('speaker'))):
             phrases.append(group)
             group = []
         group.append(word)
@@ -442,6 +450,9 @@ def transcript_markdown(alias, words, review=None, identity_state=None):
         phrases.append(group)
     lines = [f'# Transcript: {alias}', '',
              'Draft: check the words against the sound. Correct a word by its ID with map.py fix.', '']
+    if labelled:
+        lines[-1:] = ['Speaker labels are drafts until a person reads them; [?] has no label. Correct them with '
+                      'map.py fix WORD_ID --speaker NAME.', '']
     if identity_state == 'stale':
         lines.extend([f'STALE: this transcript is not bound to the current media and sound stream. '
                       f'Retranscribe with --retranscribe {alias}, or check it and use '
@@ -458,7 +469,8 @@ def transcript_markdown(alias, words, review=None, identity_state=None):
         end = project.format_time(phrase[-1]['end'])
         text = ' '.join(str(word.get('text', '')).strip() for word in phrase)
         ids = ' '.join('`' + str(word.get('id', '?')) + '`' for word in phrase)
-        lines += [f'**{start}-{end}**  {text}', '', ids, '']
+        speaker = f"[{phrase[0].get('speaker') or '?'}] " if labelled else ''
+        lines += [f'**{start}-{end}**  {speaker}{text}', '', ids, '']
     return '\n'.join(lines)
 
 
@@ -604,6 +616,42 @@ def confirm_words(root, alias, note, by='agent', stream_index=None):
                 print(f'warning: confirmation saved, but transcript.md was not refreshed: {error}; '
                       f'run map.py run with --alias {alias}', file=sys.stderr)
     print(f'{alias}: transcript confirmed against current media; decision recorded')
+
+
+def fix_speaker(root, word_id, speaker, through=None, by='agent'):
+    """Correct the speaker of a word, or of the run of words through another, and record it: a label set this way is
+    kept when map.py speakers runs again."""
+    root = Path(root).resolve()
+    speaker = speaker.strip()
+    if not speaker or any(char in speaker for char in '\r\n'):
+        raise ValueError('--speaker must be a nonempty, single-line name')
+    sources = project.load_json(root / 'map' / 'sources.json', {}).get('sources', [])
+    source = next((row for row in sources if word_id.startswith(row['alias'] + '-w')), None)
+    if source is None:
+        raise ValueError(f'{word_id}: no registered source has that word ID')
+    folder = root / 'map' / source['alias']
+    path = folder / 'words.json'
+    with project.file_lock(path):
+        data = project.load_json(path, None)
+        if not isinstance(data, dict) or not isinstance(data.get('words'), list):
+            raise ValueError(f"{source['alias']} has no words.json; map the source first")
+        words = data['words']
+        places = {row.get('id'): index for index, row in enumerate(words)}
+        if word_id not in places:
+            raise ValueError(f"{word_id}: no such word in {source['alias']}; {nearest_word(words, word_id)}")
+        last = through or word_id
+        if last not in places or places[last] < places[word_id]:
+            raise ValueError(f'--through {last} must be a word of the same transcript at or after {word_id}')
+        for word in words[places[word_id]:places[last] + 1]:
+            word['speaker'] = speaker
+            word['speaker_by'] = 'person'
+        project.save_json(path, data)
+        project.append_jsonl(root / 'decisions.jsonl', {
+            'at': project.now(), 'by': by, 'category': 'captions', 'subject': word_id,
+            'decision': f'Speaker of {word_id} through {last} is {speaker}', 'rejected': [],
+            'version': project.current_version(root)})
+        write_transcript(folder, source['alias'], words, warn_stale(root, source_at_file(root, source), data))
+    print(f'{word_id} through {last}: speaker {speaker}; kept when map.py speakers runs again')
 
 
 def fix_word(root, word_id, text=None, by='agent', start=None, end=None):
@@ -1012,13 +1060,19 @@ def show_words(root, alias, from_time=None, to_time=None):
     coverage = threshold_coverage(words, segments, unspoken, track, silences, duration)
     selected = [word for word in words if float(word['end']) >= start and float(word['start']) <= end]
     print('\n'.join(words_header(unspoken, track, silences, coverage)))
+    labelled = any(word.get('speaker') is not None for word in words)
+    if labelled:
+        print('Speaker: in brackets; drafts until a person reads them. [?] has no label. map.py fix WORD_ID --speaker '
+              'NAME corrects one.')
     previous = None
     for word in selected:
         if previous is not None:
             line = gap_line(previous, word, unspoken, track, silences)
             if line:
                 print(line)
-        print(f"{word.get('id', '?')} {float(word['start']):.3f}-{float(word['end']):.3f}s {word.get('text', '')}")
+        speaker = f" [{word.get('speaker') or '?'}]" if labelled else ''
+        print(f"{word.get('id', '?')} {float(word['start']):.3f}-{float(word['end']):.3f}s {word.get('text', '')}"
+              f'{speaker}')
         previous = word
     if not selected:
         print('No words in this range.')
@@ -1410,6 +1464,69 @@ def relink(root, alias, path):
     print(f'relinked {alias}')
 
 
+def load_lineup():
+    """lineup.py, loaded only by the commands that use it."""
+    lineup_spec = importlib.util.spec_from_file_location('lf_map_lineup', SCRIPTS / 'lineup.py')
+    module = importlib.util.module_from_spec(lineup_spec)
+    lineup_spec.loader.exec_module(module)
+    return module
+
+
+def run_sync(args):
+    """map.py sync: measure, set by hand, or report the saved line-up. 0 all lined up, 1 a look, stale row or drift."""
+    lineup = load_lineup()
+    for name in ('ffmpeg', 'ffprobe'):
+        require_tool(name)
+    if args.check:
+        rows, code = lineup.check_report(args.project)
+        print('\n'.join(rows))
+        return code
+    if args.set_offset:
+        alias, _, seconds = args.set_offset.partition('=')
+        try:
+            offset = float(seconds)
+        except ValueError as error:
+            raise ValueError(f'--set takes ALIAS=SECONDS, found {args.set_offset!r}') from error
+        lineup.set_by_hand(args.project, alias, offset, args.note, args.by)
+        print(f'{alias}: {offset:+.3f} s, set by hand and recorded in decisions.jsonl')
+        return 0
+    if args.note:
+        raise ValueError('--note goes with --set')
+    record = lineup.sync_project(args.project, args.reference, args.alias)
+    print('\n'.join(lineup.sync_report(record)))
+    if args.json:
+        lineup.write_json_report(args.json, record)
+    frame = float(record.get('frame_s') or 1 / 30)
+    rows = record['sources'].values()
+    return 1 if any(row.get('state') == 'look' or abs(row.get('drift_s') or 0.0) > frame for row in rows) else 0
+
+
+def run_speakers(args):
+    """map.py speakers: label a transcript from lined-up mics, or rename its speakers."""
+    lineup = load_lineup()
+    root = Path(args.project).resolve()
+    if bool(args.mic) == bool(args.rename):
+        raise ValueError('give --mic ALIAS=NAME for each mic, or --rename OLD=NEW')
+    if args.rename:
+        changed = lineup.rename_speaker(root, args.alias, lineup.parse_pairs(args.rename, '--rename'))
+        print(f'{args.alias}: renamed {changed} words')
+    else:
+        mics = lineup.parse_pairs(args.mic, '--mic')
+        margin = lineup.MARGIN_DB if args.margin is None else args.margin
+        counts = lineup.label_from_mics(root, args.alias, mics, margin)
+        shown = ', '.join(f'{name} {count}' for name, count in counts['labelled'].items())
+        print(f"{args.alias}: {shown}; no clear winner, left unlabelled: {counts['unlabelled']}"
+              + (f"; kept from a person: {counts['kept_from_a_person']}" if counts['kept_from_a_person'] else ''))
+        print('Drafts until a person reads them: read transcript.md, listen where it matters, correct with map.py fix '
+              'WORD_ID --speaker NAME.')
+    data = project.load_json(root / 'map' / args.alias / 'words.json', {})
+    sources = project.load_json(root / 'map' / 'sources.json', {}).get('sources', [])
+    source = next(row for row in sources if row['alias'] == args.alias)
+    write_transcript(root / 'map' / args.alias, args.alias, data.get('words', []),
+                     warn_stale(root, source_at_file(root, source), data))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -1444,6 +1561,8 @@ def main():
     fix.add_argument('--start', type=float, help='corrected start in source seconds')
     fix.add_argument('--end', type=float, help='corrected end in source seconds')
     fix.add_argument('--by', choices=('agent', 'person'), default='agent', help='who made the correction')
+    fix.add_argument('--speaker', help='set the speaker label instead of the text or times')
+    fix.add_argument('--through', metavar='WORD_ID', help='with --speaker: label every word through this one')
     confirm = sub.add_parser('confirm-words', help='confirm checked words against the current media and sound stream')
     confirm.add_argument('project', help='project folder')
     confirm.add_argument('alias', help='registered source alias')
@@ -1456,6 +1575,26 @@ def main():
     show.add_argument('alias')
     show.add_argument('--from', dest='from_time', help='start in source time (seconds or m:ss)')
     show.add_argument('--to', dest='to_time', help='end in source time (seconds or m:ss)')
+    line = sub.add_parser('sync', help='line recordings of one conversation up from their sound (lineup.py --help)')
+    line.add_argument('project')
+    line.add_argument('--reference', help='the alias every other source is measured against (default: the saved one, '
+                      'else the longest with picture and sound)')
+    line.add_argument('--alias', action='append', help='measure only this source; repeat to select more (default: '
+                      'camera, mic, interview, vo and other roles)')
+    line.add_argument('--check', action='store_true', help='report the saved line-up as readers see it; measure nothing')
+    line.add_argument('--set', dest='set_offset', metavar='ALIAS=SECONDS', help="after listening: where this source's "
+                      "0:00 falls on the reference's clock; needs --note")
+    line.add_argument('--note', help='what was checked before --set')
+    line.add_argument('--by', choices=('agent', 'person'), default='agent', help='who set the offset with --set')
+    line.add_argument('--json', help='also write the saved record to this file')
+    speak = sub.add_parser('speakers', help="label a transcript's words from per-person mics (lineup.py --help)")
+    speak.add_argument('project')
+    speak.add_argument('alias', help='the source whose transcript to label')
+    speak.add_argument('--mic', action='append', metavar='ALIAS=NAME', help='a lined-up mic and whose it is; repeat')
+    speak.add_argument('--margin', type=float, help='dB the loudest mic must stand above the next (higher labels fewer '
+                       'words)')
+    speak.add_argument('--rename', action='append', metavar='OLD=NEW', help='rename a speaker across the transcript; '
+                       'repeat')
     args = parser.parse_args()
     project.safe_output()
     try:
@@ -1464,7 +1603,18 @@ def main():
         elif args.command == 'relink':
             relink(args.project, args.alias, args.path)
         elif args.command == 'fix':
-            fix_word(args.project, args.word_id, args.text, args.by, args.start, args.end)
+            if args.speaker is not None:
+                if args.text is not None or args.start is not None or args.end is not None:
+                    raise ValueError('--speaker changes the label only; correct the text or times in a separate fix')
+                fix_speaker(args.project, args.word_id, args.speaker, args.through, args.by)
+            elif args.through:
+                raise ValueError('--through goes with --speaker')
+            else:
+                fix_word(args.project, args.word_id, args.text, args.by, args.start, args.end)
+        elif args.command == 'sync':
+            return run_sync(args)
+        elif args.command == 'speakers':
+            return run_speakers(args)
         elif args.command == 'confirm-words':
             confirm_words(args.project, args.alias, args.note, args.by, args.stream)
         elif args.command == 'words':

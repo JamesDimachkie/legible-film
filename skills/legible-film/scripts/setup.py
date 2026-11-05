@@ -57,7 +57,7 @@ EAR_MODELS = ('laion/larger_clap_general', 'MIT/ast-finetuned-audioset-10-10-0.4
 SCRIPTS = ('assemble.py blank_scan.py captions.py check.py compare_versions.py cue_list.py cue_onsets.py '
            'delivery_check.py dialogue_io.py '
            'exchange.py film_capture.mjs film_check.py film_render.py flash_scan.py frame_sheet.py '
-           'kit_selftest.py listen.py look.py make_film.py make_sound_kit.py map.py matte.py mix_cues.py motion_blur.py motion_scan.py '
+           'kit_selftest.py lineup.py listen.py look.py make_film.py make_sound_kit.py map.py matte.py mix_cues.py motion_blur.py motion_scan.py '
            'new_film.py onion_frames.py project.py qc_file.py reframe.py region_check.py render_common.py '
            'screen.py selftest.py setup.py sound_check.py sound_io.py sound_library.py spatial.py spot_cues.py '
            'strip.py sync_check.py taste.py tempo_map.py tighten.py track.py transcribe.py transcript_cut.py '
