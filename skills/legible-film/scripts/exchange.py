@@ -49,7 +49,8 @@ tracks it did not read might still hold is unknown, never called cut. The result
 The duration change converts each sequence at its own frame rate.
 
 write: original mapped media, editable picture and dialogue, available rendered graphic images, markers and a separate
-SRT. The printed and saved notes list what was not carried. Paths are absolute file URLs unless --relative is given.
+SRT, with a lined-up camera or mic at the in-point its offset gave. The printed and saved notes list what was not
+carried. Paths are absolute file URLs unless --relative is given.
 When the manifest records source identities, size is checked; --verify also checks the recorded SHA-256. Older
 versions without that record are identified as unverified.
 This exporter has been checked by its round trip and OpenTimelineIO's Final Cut Pro 7 XML (xmeml) adapter on
@@ -1389,15 +1390,19 @@ def dialogue_tracks(edit, lines, sources, notes):
         for run in line.get('runs', []):
             start = float(run['at'])
             end = start + float(run['out']) - float(run['in'])
-            matches = [item for item in items if item['src'] == line.get('source')
-                       and abs((float(item['in']) - float(item['at'])) - (float(run['in']) - start)) < 0.01
+            # A line that takes its sound from a lined-up mic plays that mic, at that mic's own times.
+            sound = run.get('sound_src') or line.get('source')
+            sound_in = float(run.get('sound_in', run['in']))
+            sound_out = float(run.get('sound_out', run['out']))
+            matches = [item for item in items if item['src'] == sound
+                       and abs((float(item['in']) - float(item['at'])) - (sound_in - start)) < 0.01
                        and float(item['at']) < end
                        and float(item['at']) + float(item['out']) - float(item['in']) > start]
             if not matches:
-                notes.append(f"{line.get('source')} at {start:.3f} s: dialogue run has no matching audio item.")
+                notes.append(f"{sound} at {start:.3f} s: dialogue run has no matching audio item.")
                 continue
             item = matches[0]
-            primary.append(export_clip(item['src'], start, end, run['in'], run['out'],
+            primary.append(export_clip(item['src'], start, end, sound_in, sound_out,
                                        clip_name(line, item['src']), line=line, item=item))
     primary.sort(key=lambda clip: clip['start'])
     for before, after in zip(primary, primary[1:]):
@@ -1781,6 +1786,10 @@ def run_write(args):
                             f"{note.get('origin', 'unknown')}: \"{note.get('text', '')}\""))
     if not captions.is_file():
         notes.append('The version has no captions.srt; no SRT was written.')
+    if manifest.get('lineup'):
+        notes.append('The line-up itself is not carried: each camera and mic clip sits at the in-point its offset '
+                     'gave, with no sync group or multicam clip, and a drift correction is the in-point of each clip. '
+                     'Slip a clip and it leaves the others; link them in the editor first if you mean to.')
     if edit.get('holds'):
         notes.append('Hold effects are not carried as editable source holds.')
     if edit.get('film_fades'):

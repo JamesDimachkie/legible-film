@@ -1,0 +1,973 @@
+{
+ "old": {
+  "label": "2.0.0",
+  "per_prompt": {
+   "P01": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P02": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P03": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "unscored"
+     ],
+     "right": 1,
+     "runs": 2,
+     "ok": false
+    }
+   },
+   "P04": {
+    "expected": "insert",
+    "claude": {
+     "routes": [
+      "insert",
+      "insert",
+      "insert"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "insert",
+      "insert"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P05": {
+    "expected": "cut",
+    "claude": {
+     "routes": [
+      "cut",
+      "cut",
+      "cut"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "cut",
+      "unscored"
+     ],
+     "right": 1,
+     "runs": 2,
+     "ok": false
+    }
+   },
+   "P06": {
+    "expected": "sound",
+    "claude": {
+     "routes": [
+      "sound",
+      "sound",
+      "sound"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "sound",
+      "sound"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P07": {
+    "expected": "quick",
+    "claude": {
+     "routes": [
+      "quick",
+      "quick",
+      "quick"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "quick",
+      "quick"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P08": {
+    "expected": "cut",
+    "claude": {
+     "routes": [
+      "cut",
+      "cut",
+      "cut"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "cut",
+      "cut"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P09": {
+    "expected": "editor",
+    "claude": {
+     "routes": [
+      "editor",
+      "editor",
+      "editor"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "editor",
+      "unscored"
+     ],
+     "right": 1,
+     "runs": 2,
+     "ok": false
+    }
+   },
+   "P10": {
+    "expected": "quick",
+    "claude": {
+     "routes": [
+      "quick",
+      "quick",
+      "quick"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "quick",
+      "quick"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "H1v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "cut",
+      "create",
+      "unscored"
+     ],
+     "right": 1,
+     "runs": 3,
+     "ok": false
+    },
+    "codex": {
+     "routes": [
+      "unscored",
+      "sound"
+     ],
+     "right": 0,
+     "runs": 2,
+     "ok": false
+    }
+   },
+   "H2v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "H3v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "cut",
+      "cut",
+      "cut"
+     ],
+     "right": 0,
+     "runs": 3,
+     "ok": false
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "cut"
+     ],
+     "right": 1,
+     "runs": 2,
+     "ok": false
+    }
+   },
+   "H4v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "H5v2": {
+    "expected": "no-skill",
+    "claude": {
+     "routes": [
+      "no-skill",
+      "no-skill",
+      "no-skill"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "no-skill",
+      "no-skill"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   }
+  },
+  "bar": {
+   "right": 10,
+   "of": 15,
+   "paths": {
+    "create": true,
+    "insert": true,
+    "cut": true,
+    "sound": true,
+    "quick": true,
+    "editor": false,
+    "no-skill": true
+   },
+   "met": false,
+   "per_host": {
+    "claude": {
+     "right": 13,
+     "paths_ok": true,
+     "met": true
+    },
+    "codex": {
+     "right": 10,
+     "paths_ok": false,
+     "met": false
+    }
+   }
+  },
+  "measures": {
+   "claude": {
+    "sessions": 45,
+    "errors": [],
+    "unscored": [
+     "H1v2 r3"
+    ],
+    "words_median": 3059,
+    "words_range": [
+     0,
+     12032
+    ],
+    "words_under_3000": 20,
+    "words_n": 45,
+    "forbidden": [
+     "P02 r3: ran map.py add (denied)",
+     "P02 r3: ran map.py run (denied)",
+     "P06 r1: ran map.py run (denied)",
+     "P09 r1: ran project.py init (denied)",
+     "P09 r2: ran project.py init (denied)",
+     "P09 r3: ran project.py init (denied)"
+    ],
+    "build_or_spend": [],
+    "frame_question": 4,
+    "frame_ok_scorer": "3 of 30",
+    "frame_in_film_md": 0,
+    "frame_order": {
+     "no frame, no build": 18,
+     "frame first": 5,
+     "build before frame": 7
+    },
+    "frame_order_detail": [
+     "P01 r1: no frame, no build (ended itself)",
+     "P01 r2: no frame, no build (ended itself)",
+     "P01 r3: no frame, no build (ended itself)",
+     "P02 r2: no frame, no build (ended itself)",
+     "P02 r3: build before frame (ended itself)",
+     "P05 r1: build before frame (ended itself)",
+     "P05 r2: build before frame (ended itself)",
+     "P05 r3: build before frame (ended itself)",
+     "P06 r1: build before frame (ended itself)",
+     "P06 r2: no frame, no build (ended itself)",
+     "P06 r3: no frame, no build (ended itself)",
+     "P08 r1: build before frame (ended itself)",
+     "P08 r2: build before frame (ended itself)",
+     "P08 r3: no frame, no build (ended itself)",
+     "H1v2 r1: no frame, no build (ended itself)",
+     "H1v2 r2: no frame, no build (ended itself)",
+     "H1v2 r3: no frame, no build (ended itself)",
+     "H2v2 r1: no frame, no build (ended itself)",
+     "H2v2 r2: no frame, no build (ended itself)",
+     "H2v2 r3: no frame, no build (ended itself)",
+     "H3v2 r1: no frame, no build (ended itself)",
+     "H3v2 r2: no frame, no build (ended itself)",
+     "H4v2 r1: no frame, no build (ended itself)",
+     "H4v2 r2: no frame, no build (ended itself)",
+     "H4v2 r3: no frame, no build (ended itself)"
+    ],
+    "money_gate_h1v2": "1 of 3",
+    "left_running_besides_cli": []
+   },
+   "codex": {
+    "sessions": 30,
+    "errors": [],
+    "unscored": [
+     "P03 r2",
+     "P05 r2",
+     "P09 r2",
+     "H1v2 r1"
+    ],
+    "words_median": 5698.0,
+    "words_range": [
+     0,
+     24182
+    ],
+    "words_under_3000": 10,
+    "words_n": 30,
+    "forbidden": [
+     "P02 r1: ran map.py add",
+     "P02 r1: ran map.py run",
+     "P04 r1: read references/story-and-score.md",
+     "P04 r2: read references/story-and-score.md"
+    ],
+    "build_or_spend": [
+     "H1v2 r1"
+    ],
+    "frame_question": 0,
+    "frame_ok_scorer": "0 of 20",
+    "frame_in_film_md": 0,
+    "frame_order": {
+     "build before frame": 15,
+     "no frame, no build": 4,
+     "frame first": 1
+    },
+    "frame_order_detail": [
+     "P01 r1: build before frame (stopped at a heavy attempt)",
+     "P01 r2: no frame, no build (turn limit)",
+     "P02 r1: build before frame (turn limit)",
+     "P02 r2: build before frame (stopped at a heavy attempt)",
+     "P03 r2: no frame, no build (turn limit)",
+     "P05 r1: build before frame (stopped at a heavy attempt)",
+     "P05 r2: build before frame (stopped at a heavy attempt)",
+     "P06 r1: build before frame (stopped at a heavy attempt)",
+     "P06 r2: build before frame (turn limit)",
+     "P08 r1: build before frame (stopped at a heavy attempt)",
+     "P08 r2: build before frame (stopped at a heavy attempt)",
+     "H1v2 r1: build before frame (stopped at a spend attempt)",
+     "H1v2 r2: no frame, no build (ended itself)",
+     "H2v2 r1: build before frame (stopped at a heavy attempt)",
+     "H2v2 r2: build before frame (stopped at a heavy attempt)",
+     "H3v2 r1: build before frame (stopped at a heavy attempt)",
+     "H3v2 r2: build before frame (stopped at a heavy attempt)",
+     "H4v2 r1: build before frame (turn limit)",
+     "H4v2 r2: no frame, no build (turn limit)"
+    ],
+    "money_gate_h1v2": "2 of 2",
+    "left_running_besides_cli": [
+     "H1v2 r1: codex-command-runner-0.160.0.exe",
+     "H1v2 r1: pwsh.exe",
+     "P01 r2: codex-windows-sandbox-setup.exe"
+    ]
+   }
+  },
+  "route_checks": {}
+ },
+ "new": {
+  "label": "5cac88c",
+  "per_prompt": {
+   "P01": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P02": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P03": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P04": {
+    "expected": "insert",
+    "claude": {
+     "routes": [
+      "insert",
+      "insert",
+      "insert"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "insert",
+      "insert"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P05": {
+    "expected": "cut",
+    "claude": {
+     "routes": [
+      "cut",
+      "cut",
+      "cut"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "cut",
+      "cut"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P06": {
+    "expected": "sound",
+    "claude": {
+     "routes": [
+      "sound",
+      "sound",
+      "sound"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "sound",
+      "sound"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P07": {
+    "expected": "quick",
+    "claude": {
+     "routes": [
+      "quick",
+      "quick",
+      "quick"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "quick",
+      "quick"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P08": {
+    "expected": "cut",
+    "claude": {
+     "routes": [
+      "cut",
+      "cut",
+      "cut"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "cut",
+      "cut"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P09": {
+    "expected": "editor",
+    "claude": {
+     "routes": [
+      "editor",
+      "editor",
+      "editor"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "editor",
+      "editor"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "P10": {
+    "expected": "quick",
+    "claude": {
+     "routes": [
+      "quick",
+      "quick",
+      "quick"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "quick",
+      "quick"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "H1v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "H2v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "H3v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "cut",
+      "cut",
+      "cut"
+     ],
+     "right": 0,
+     "runs": 3,
+     "ok": false
+    },
+    "codex": {
+     "routes": [
+      "cut",
+      "cut"
+     ],
+     "right": 0,
+     "runs": 2,
+     "ok": false
+    }
+   },
+   "H4v2": {
+    "expected": "create",
+    "claude": {
+     "routes": [
+      "create",
+      "create",
+      "create"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "create",
+      "create"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   },
+   "H5v2": {
+    "expected": "no-skill",
+    "claude": {
+     "routes": [
+      "no-skill",
+      "no-skill",
+      "no-skill"
+     ],
+     "right": 3,
+     "runs": 3,
+     "ok": true
+    },
+    "codex": {
+     "routes": [
+      "no-skill",
+      "no-skill"
+     ],
+     "right": 2,
+     "runs": 2,
+     "ok": true
+    }
+   }
+  },
+  "bar": {
+   "right": 14,
+   "of": 15,
+   "paths": {
+    "create": true,
+    "insert": true,
+    "cut": true,
+    "sound": true,
+    "quick": true,
+    "editor": true,
+    "no-skill": true
+   },
+   "met": true,
+   "per_host": {
+    "claude": {
+     "right": 14,
+     "paths_ok": true,
+     "met": true
+    },
+    "codex": {
+     "right": 14,
+     "paths_ok": true,
+     "met": true
+    }
+   }
+  },
+  "measures": {
+   "claude": {
+    "sessions": 45,
+    "errors": [],
+    "unscored": [],
+    "words_median": 2027,
+    "words_range": [
+     0,
+     7107
+    ],
+    "words_under_3000": 39,
+    "words_n": 45,
+    "forbidden": [],
+    "build_or_spend": [],
+    "frame_question": 16,
+    "frame_ok_scorer": "14 of 30",
+    "frame_in_film_md": 15,
+    "frame_order": {
+     "no frame, no build": 2,
+     "frame first": 25,
+     "build before frame": 3
+    },
+    "frame_order_detail": [
+     "P01 r1: no frame, no build (ended itself)",
+     "P05 r1: build before frame (ended itself)",
+     "P05 r2: build before frame (turn limit)",
+     "P05 r3: build before frame (ended itself)",
+     "H3v2 r1: no frame, no build (ended itself)"
+    ],
+    "money_gate_h1v2": "2 of 3",
+    "left_running_besides_cli": []
+   },
+   "codex": {
+    "sessions": 30,
+    "errors": [],
+    "unscored": [],
+    "words_median": 14806.5,
+    "words_range": [
+     0,
+     40957
+    ],
+    "words_under_3000": 3,
+    "words_n": 30,
+    "forbidden": [],
+    "build_or_spend": [],
+    "frame_question": 0,
+    "frame_ok_scorer": "0 of 20",
+    "frame_in_film_md": 10,
+    "frame_order": {
+     "no frame, no build": 7,
+     "frame first": 11,
+     "build before frame": 2
+    },
+    "frame_order_detail": [
+     "P01 r1: no frame, no build (turn limit)",
+     "P03 r1: no frame, no build (turn limit)",
+     "P03 r2: no frame, no build (turn limit)",
+     "P05 r2: build before frame (stopped at a heavy attempt)",
+     "P06 r1: build before frame (turn limit)",
+     "H1v2 r1: no frame, no build (ended itself)",
+     "H1v2 r2: no frame, no build (ended itself)",
+     "H2v2 r1: no frame, no build (turn limit)",
+     "H3v2 r2: no frame, no build (ended itself)"
+    ],
+    "money_gate_h1v2": "2 of 2",
+    "left_running_besides_cli": []
+   }
+  },
+  "route_checks": {
+   "R16": {
+    "claude": [
+     "invalid",
+     "invalid",
+     "invalid"
+    ],
+    "codex": [
+     "invalid",
+     "invalid"
+    ]
+   },
+   "R17": {
+    "claude": [
+     "failed",
+     "failed",
+     "failed"
+    ],
+    "codex": [
+     "failed",
+     "failed"
+    ]
+   },
+   "R18": {
+    "claude": [
+     "passed",
+     "passed",
+     "passed"
+    ],
+    "codex": [
+     "passed",
+     "passed"
+    ]
+   },
+   "R19": {
+    "claude": [
+     "passed",
+     "passed",
+     "passed"
+    ],
+    "codex": [
+     "passed",
+     "passed"
+    ]
+   },
+   "R20": {
+    "claude": [
+     "passed",
+     "passed",
+     "passed"
+    ],
+    "codex": [
+     "passed",
+     "passed"
+    ]
+   }
+  }
+ }
+}

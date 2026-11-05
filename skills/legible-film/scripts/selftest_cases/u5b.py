@@ -194,10 +194,10 @@ def run_u5b_cases(tool, record, j, scripts_dir, skip):
         finally:
             setup.subprocess.run, setup.consent = old_run, old_consent
         record('setup ear: public CPU installs and model downloads are explicit and unauthenticated',
-               len(calls) == 3 and '--isolated' in calls[0] and '--isolated' in calls[1]
-               and 'https://download.pytorch.org/whl/cpu' in calls[0]
-               and 'https://pypi.org/simple' in calls[1]
-               and any('token=False' in value for value in calls[2]), str(calls))
+               len(calls) == 4 and all('--isolated' in call for call in calls[:3])
+               and 'https://download.pytorch.org/whl/cpu' in calls[1]
+               and 'https://pypi.org/simple' in calls[2]
+               and any('token=False' in value for value in calls[3]), str(calls))
         old_ready = setup.ear_ready
         try:
             states = {name: 'ready' for name in setup.REQUIRED}

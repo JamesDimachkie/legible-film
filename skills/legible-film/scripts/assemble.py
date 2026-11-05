@@ -10,8 +10,11 @@ Retimed audio
 reports its unpadded duration and warns that transient timing may move. Source and motion frames
 are streamed; --spool-gib is retained for compatibility and does not limit encoded or audio files.
 Planning decodes each range once to obtain its timestamps, then decodes it again while rendering.
-Each picture decoder uses one input thread to reduce concurrent decoder memory; decoding may take longer.
-Output measurements do not prove a film
+On the every-frame path each picture decoder uses one input thread to reduce concurrent decoder memory; decoding may
+take longer.
+A plain cut (plain_cut_reason decides) has FFmpeg draw its picture, in YUV where the source allows: Python only says
+which frame comes next, by the same rule and from the same timestamps; --every-frame turns that off. Output
+measurements do not prove a film
 has been watched, heard, approved, or cleared for use. Needs numpy, Pillow, FFmpeg
 and ffprobe. declared.json contains an ignore string of designed holds and dips
 for blank_scan.py and motion_scan.py --ignore, never flash_scan.py.
@@ -21,11 +24,15 @@ or follow}) or drawn behind a matte's foreground ("behind": {"layer"}), and a "b
 region ("region": {"layer"}). Layer frames follow the renderer's own frame choice and framing, and are drawn only
 over a single shot of the source they were made from; where they are not drawn, the notes say why, and the report's
 "layers" counts frames drawn and not drawn. A blur that cannot cover a frame where its source is on screen stops the
-render before encoding. A drawn blur is not anonymisation: a person checks every frame. Exit 0 on
-completion, 1 when review notes remain, 2 on error.
+render before encoding. A drawn blur is not anonymisation: a person checks every frame. A picture item past where
+its source's frames really end is shortened to that end and reported, whatever the file's header claims, and is never
+filled with a frozen frame; an item carrying the film.md line it came from ("line", as cut.py render adds) is refused
+naming that line instead, since shortening one line slides every later line against its sound. Exit 0 on completion,
+1 when review notes remain, 2 on error.
 """
 import argparse
 import bisect
+from concurrent.futures import ThreadPoolExecutor
 from fractions import Fraction
 import importlib.util
 import json
@@ -49,7 +56,7 @@ except ImportError as missing:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from motion_scan import Frames
 from render_common import Encoder, decoded_count, display_geometry, exact_rate, find_tool, h264_args, overlay_probe
-from render_common import presentation_frame_before
+from render_common import COLOUR, TAG_BT709, decoded_short, picture_goes_on, presentation_frame_before
 from reframe import (analyse, bounds, consistent_zooms, face_review, face_targets, method_spans, position, probe,
                      propose, validate_path)
 
@@ -63,6 +70,15 @@ cue_list = importlib.util.module_from_spec(_cue_spec)
 _cue_spec.loader.exec_module(cue_list)
 # Audio fade shapes an edit.json audio item may ask for (FFmpeg afade curves): tri is linear, qsin equal power.
 FADE_CURVES = ('tri', 'qsin')
+HDR_TRANSFERS = ('smpte2084', 'arib-std-b67')
+# cut.py check lets a range run this far past its source; the render shortens it without refusing the line.
+RANGE_SLACK_S = 0.05
+# On FFmpeg 9.0.2 and a 1080p30 film on a 16-core laptop, x264 at the delivery settings ran at 12 frames a second on
+# one thread, 40 on eight, 54 on twelve and 62 on sixteen, for about 29 MB more per thread; the files were the same
+# size within 0.1%. A fixed count keeps a render's bytes the same from run to run on one machine.
+ENCODER_THREADS = min(12, os.cpu_count() or 1)
+# One decoder runs at a time on the plain-cut path and for a timestamp pass, so it can use more than one thread.
+DECODER_THREADS = min(6, os.cpu_count() or 1)
 
 def run(command, seconds=1800):
     """Run a process with a time limit and raise a useful error on failure or timeout."""
@@ -151,7 +167,7 @@ def colour_filter(stream, width, height):
     assumed = []
     missing_transfer = transfer in ('unknown', 'unspecified', 'reserved', None)
     missing_primaries = primaries in ('unknown', 'unspecified', 'reserved', None)
-    hdr = transfer in ('smpte2084', 'arib-std-b67')
+    hdr = transfer in HDR_TRANSFERS
     if stream.get('color_range') in (None, 'unknown', 'unspecified', 'reserved'):
         assumed.append('range tag missing; FFmpeg decoder and filter defaults used')
     fallback = 'smpte170m' if width <= 1024 and height <= 576 else 'bt709'
@@ -232,8 +248,9 @@ class PlaybackSeekError(ValueError):
 class FrameSource:
     """The independent decoder configuration for one clip occurrence."""
 
-    def __init__(self, ffmpeg, filename, vf, size, options, times, properties=None):
-        """Retain the exact decoder settings and the timestamps found during planning."""
+    def __init__(self, ffmpeg, filename, vf, size, options, times, properties=None, clock=''):
+        """Retain the exact decoder settings and the timestamps found during planning; `clock` is the part of
+        `vf` that trims and times the range, before any picture work."""
         self.ffmpeg = ffmpeg
         self.filename = filename
         self.vf = vf
@@ -241,6 +258,7 @@ class FrameSource:
         self.options = options
         self.times = times
         self.properties = properties
+        self.clock = clock
 
     def open(self):
         """Start a forward-only reader when its clip becomes active."""
@@ -332,27 +350,56 @@ class FrameWindow:
         self.frames.clear()
 
 
+def picture_line(item):
+    """Where an error about a picture item points a person: its film.md line, when cut.py rendered it."""
+    return f"film.md line {item['line']}: " if item.get('line') is not None else ''
+
+
+def shorten_picture(item, requested, available, notes):
+    """An out-point past the picture's end: shortened and reported, or for a line of a paper edit, refused."""
+    if item.get('line') is not None and requested - available > RANGE_SLACK_S:
+        raise ValueError(f"{picture_line(item)}{item['src']}'s picture ends at {available:.3f} s and this line needs "
+                         f'it to {requested:.3f} s, so nothing was rendered. End the line by then, or hold its last '
+                         f"frame with a pause hold line; map.py run PROJECT --alias {item['src']} --rebuild lets "
+                         'cut.py check report this before a render.')
+    item['out'] = available
+    notes.append(f"Picture {item['src']} out clamped from {requested:.6f} to {available:.6f} s; "
+                 'review the shortened edit.')
+    return available
+
+
+def hdr_transfer(ffprobe, root, sources, name, stream):
+    """The HDR transfer a picture source was recorded with, or None. A preview proxy stands in for the source under
+    audio_file, and the original's own tags decide."""
+    entry = sources.get(name)
+    if isinstance(entry, dict) and entry.get('audio_file'):
+        original = audio_source_path(root, sources, name)
+        stream = json.loads(run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+                                 'stream=color_transfer', '-of', 'json', original]).stdout)['streams'][0]
+    transfer = stream.get('color_transfer')
+    return transfer if transfer in HDR_TRANSFERS else None
+
+
 def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
-    """Plan each range with a null-output decode, retaining timestamps rather than picture bytes."""
-    cache = {}
-    properties = {}
-    required = 0
-    for number, item in enumerate(edit['picture']):
+    """Plan each range with a null-output decode, retaining timestamps rather than picture bytes. Each source is asked
+    about once, and ranges are planned side by side, since each pass only decodes and reads timestamps."""
+    probed = {}
+    transcribe = None
+    for item in edit['picture']:
         filename = source_path(root, edit['sources'], item['src'])
+        if filename in probed:
+            continue
         stream, _, width, height = probe_source(ffprobe, filename)
-        if stream.get('color_transfer') in ('smpte2084', 'arib-std-b67') and not has_filter(ffmpeg, 'zscale'):
+        if stream.get('color_transfer') in HDR_TRANSFERS and not has_filter(ffmpeg, 'zscale'):
             raise RuntimeError('this FFmpeg build lacks zscale; HDR conversion needs a build with libzimg')
         vf, assumptions, conversion = colour_filter(stream, int(stream['width']), int(stream['height']))
         vf += f',scale={width}:{height}:flags=lanczos,setsar=1'
         origin = source_origin(ffprobe, filename)
-        requested_start = float(item['in'])
-        requested_stop = float(item['out'])
-        if not math.isfinite(requested_start) or not math.isfinite(requested_stop) or requested_start < 0:
-            raise ValueError('invalid picture range')
-        transcribe_spec = importlib.util.spec_from_file_location('lf_picture_duration',
-                                                               Path(__file__).with_name('transcribe.py'))
-        transcribe = importlib.util.module_from_spec(transcribe_spec)
-        transcribe_spec.loader.exec_module(transcribe)
+        if transcribe is None:
+            transcribe_spec = importlib.util.spec_from_file_location('lf_picture_duration',
+                                                                     Path(__file__).with_name('transcribe.py'))
+            transcribe = importlib.util.module_from_spec(transcribe_spec)
+            transcribe_spec.loader.exec_module(transcribe)
         facts = json.loads(run([ffprobe, '-v', 'error', '-show_streams', '-show_format', '-of', 'json',
                                 filename]).stdout)
         try:
@@ -370,29 +417,49 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
         if not video_bounds and audio_present:
             raise ValueError('cannot establish the picture stream end independently of audio; '
                              'remux the source with a known video duration before editing')
-        source_duration = transcribe.presentation_duration({'format': facts.get('format', {}), 'streams': [stream]})
+        transfer = hdr_transfer(ffprobe, root, edit['sources'], item['src'], stream)
+        probed[filename] = (stream, width, height, vf, assumptions, conversion, origin,
+                            transcribe.presentation_duration({'format': facts.get('format', {}),
+                                                              'streams': [stream]}), transfer)
+        if transfer:
+            notes.append(f"Picture {item['src']}: this source is HDR ({transfer}) and was converted to SDR with a "
+                         'Hable tone map; compare its highlights with the original.')
+
+    def plan_range(item):
+        """One picture range's timestamps and decoder, with the notes it raised."""
+        filename = source_path(root, edit['sources'], item['src'])
+        stream, width, height, vf, assumptions, conversion, origin, source_duration, transfer = probed[filename]
+        range_notes = []
+        requested_start = float(item['in'])
+        requested_stop = float(item['out'])
+        if not math.isfinite(requested_start) or not math.isfinite(requested_stop) or requested_start < 0:
+            raise ValueError('invalid picture range')
         original_stop = requested_stop
         if requested_stop > source_duration + .001:
             if requested_start >= source_duration:
-                raise ValueError('picture in-point is at or beyond the source end: ' + filename)
-            requested_stop = source_duration
-            item['out'] = requested_stop
-            notes.append(f'Picture {item["src"]} out clamped from {original_stop:.6f} to {requested_stop:.6f} s; '
-                         'review the shortened edit.')
-        start, seek = presentation_frame_before(ffprobe, filename, origin, requested_start, requested_stop,
-                                                return_seek=True)
+                raise ValueError(picture_line(item) + 'picture in-point is at or beyond the source end: ' + filename)
+            requested_stop = shorten_picture(item, requested_stop, source_duration, range_notes)
+        try:
+            start, seek = presentation_frame_before(ffprobe, filename, origin, requested_start, requested_stop,
+                                                    return_seek=True)
+        except ValueError as error:
+            raise ValueError(picture_line(item) + str(error)) from error
         stop = float(item['out']) + 1.0
         if stop <= start:
             raise ValueError('invalid picture range')
         clock = f'trim=start={origin + start:.9f}:end={origin + stop:.9f},setpts=PTS-({origin:.9f})/TB,'
         numerator, denominator = stream.get('time_base', '0/1').split('/')
         tick = float(numerator) / float(denominator)
+        # Timestamps need the decoder and the clock, no picture work; a deinterlacer is the one filter that could
+        # change them.
+        scan_filter = clock + ('null' if stream.get('field_order') in ('unknown', 'progressive', None) else vf)
         while True:
             options = ['-copyts']
             if seek:
                 options.extend(['-ss', f'{seek:.9f}'])
             options.extend(['-t', f'{stop - seek + 1:.9f}', '-threads', '1'])
-            reader = Frames(ffmpeg, filename, clock + vf, width * height * 3, options, timestamps_only=True)
+            reader = Frames(ffmpeg, filename, scan_filter, width * height * 3,
+                            [*options[:-1], str(DECODER_THREADS)], timestamps_only=True)
             try:
                 times = reader.scan()
             except RuntimeError as error:
@@ -410,25 +477,46 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
             raise ValueError('picture presentation timestamps are not strictly increasing; '
                              'normalize the source before editing')
         end = reader.end()
-        end = max(end, requested_stop)
         intervals = np.diff(times)
+        # The header is not the picture: a file cut short still claims every second it once had.
+        spacing = float(np.median(intervals)) if len(intervals) else 0.0
+        if (decoded_short(requested_stop, end, spacing)
+                and not picture_goes_on(ffprobe, filename, origin, requested_stop)):
+            requested_stop = shorten_picture(item, requested_stop, end, range_notes)
+        elif spacing and requested_stop - end > 1.5 * spacing:
+            # Inside the slack a header and a file can differ for ordinary reasons, so it holds; it does not hide it.
+            range_notes.append(f"Picture {item['src']} holds its last frame for {requested_stop - end:.3f} s: the source's "
+                               f'picture ends at {end:.3f} s, just short of this line.')
+        end = max(end, requested_stop)
         variable = bool(len(intervals) > 1 and np.max(intervals) - np.min(intervals) > .0001)
         rotation = float(stream.get('tags', {}).get('rotate', 0))
         for side_data in stream.get('side_data_list', []):
             rotation = float(side_data.get('rotation', rotation))
-        properties[filename] = {**display_geometry(stream), 'source_matrix': stream.get('color_space'),
-                                'source_transfer': stream.get('color_transfer'),
-                                'source_primaries': stream.get('color_primaries'),
-                                'field_order': stream.get('field_order'), 'variable_timing': variable,
-                                'reported_rotation_degrees': rotation, 'rotation_conversion': 'FFmpeg autorotation',
-                                'presentation_origin_s': origin,
-                                'decode_seek_s': seek,
-                                'conversion': conversion, 'assumptions': assumptions, 'filter': vf,
-                                'time_base': stream.get('time_base', '0/1')}
-        source = FrameSource(ffmpeg, filename, clock + vf, width * height * 3, options, times,
-                             properties[filename])
-        cache[number] = (source, width, height, times, end, tick, original_stop)
-    return cache, properties, required
+        row = {**display_geometry(stream), 'source_matrix': stream.get('color_space'),
+               'source_transfer': stream.get('color_transfer'),
+               'source_primaries': stream.get('color_primaries'),
+               'source_pixel_format': stream.get('pix_fmt'), 'source_range': stream.get('color_range'),
+               'hdr_transfer': transfer,
+               'field_order': stream.get('field_order'), 'variable_timing': variable,
+               'reported_rotation_degrees': rotation, 'rotation_conversion': 'FFmpeg autorotation',
+               'presentation_origin_s': origin,
+               'decode_seek_s': seek,
+               'conversion': conversion, 'assumptions': assumptions, 'filter': vf,
+               'time_base': stream.get('time_base', '0/1')}
+        source = FrameSource(ffmpeg, filename, clock + vf, width * height * 3, options, times, row, clock)
+        return filename, row, (source, width, height, times, end, tick, original_stop), range_notes
+
+    if len(edit['picture']) > 1:
+        with ThreadPoolExecutor(DECODER_THREADS) as pool:
+            planned = list(pool.map(plan_range, edit['picture']))
+    else:
+        planned = [plan_range(edit['picture'][0])]
+    cache, properties = {}, {}
+    for number, (filename, row, entry, range_notes) in enumerate(planned):
+        properties[filename] = row
+        cache[number] = entry
+        notes.extend(range_notes)
+    return cache, properties, 0
 
 
 def analyse_auto_crops(edit, root, cache, ffmpeg):
@@ -729,6 +817,13 @@ def render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, output_dir, no
             run(command)
             use_rubberband = False
             notes.append(f'Audio {name}: rubberband could not run; used atempo. Inspect retimed sync and sound.')
+        if speed == 1.0:
+            # The stem is padded to the film: only the part says that the sound stopped before the item did.
+            measured = run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', part])
+            part_end = float(json.loads(measured.stdout)['format'].get('duration') or 0) - max(0.0, at)
+            if duration + min(0.0, at) - part_end > RANGE_SLACK_S:
+                notes.append(f'Audio {name} decodes only to {start + part_end - min(0.0, at):.3f} s of the '
+                             f'{end:.3f} s this item asks for; the rest of it is silent.')
         if speed != 1.0:
             # The padded track length hides time-stretcher shortfalls; measure the part before mixing.
             measured = run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', part])
@@ -1571,7 +1666,7 @@ def render_picture(ffmpeg, clips, images, width, height, fps, total, output, lay
     """Composite picture and image overlays into the shared capped encoder; `layers` (a LayerPlan) blurs regions
     before overlays are drawn and draws pinned and behind overlays."""
     handles = {}
-    encoder = Encoder(ffmpeg, output, width, height, fps)
+    encoder = Encoder(ffmpeg, output, width, height, fps, 14, None, False, False, ENCODER_THREADS)
     count = output_frame_count(total, fps, clips)
     intervals = clip_frame_intervals(clips, fps)
     for clip in clips:
@@ -1669,6 +1764,155 @@ def render_picture_with_retry(ffmpeg, clips, images, width, height, fps, total, 
             error.source.retry_without_seek()
 
 
+# ----------------------------------------------------------------------------------------------- plain cuts
+
+# What a plain cut may contain. A key or kind not listed here (a line type added later, say) keeps its edit on the
+# every-frame path until someone has shown both paths agree on it, so the plain path learns a thing by an entry here.
+PLAIN_EDIT_KEYS = frozenset({'version', 'size', 'fps', 'sources', 'picture', 'audio', 'overlays', 'holds', 'declared',
+                             'cues', 'film_fades', 'paper'})
+PLAIN_PICTURE_KEYS = frozenset({'src', 'in', 'out', 'speed', 'retime', 'join', 'fit', 'background', 'crop', 'line',
+                                'hold_previous'})
+PLAIN_SOURCE_KEYS = frozenset({'file', 'audio_file', 'audio_stream', 'sha256', 'bytes'})
+PLAIN_OVERLAY_KINDS = frozenset({'captions'})
+
+
+def plain_cut_reason(edit, clips, properties, fps):
+    """Why this plan needs every frame in Python, or '' when FFmpeg can draw its picture and Python need only say which
+    frame comes next. This is the one place that decides, and it allows only what has been compared with the
+    every-frame path: anything it does not recognise stays there."""
+    extra = sorted(set(edit) - PLAIN_EDIT_KEYS)
+    if extra:
+        return f'the edit has {extra[0]}'
+    for name, entry in edit['sources'].items():
+        extra = sorted(set(entry) - PLAIN_SOURCE_KEYS) if isinstance(entry, dict) else []
+        if extra:
+            return f'source {name} has {extra[0]}'
+    for overlay in edit.get('overlays', []):
+        if overlay.get('kind') not in PLAIN_OVERLAY_KINDS:
+            return f"it draws a {overlay.get('kind', 'graphic')} overlay"
+    for item in edit['picture']:
+        extra = sorted(set(item) - PLAIN_PICTURE_KEYS)
+        if extra:
+            return f"{picture_line(item)}a picture line has {extra[0]}"
+    tiled = 0
+    for clip, first, end in clip_frame_intervals(clips, fps):
+        where = clip.get('src', 'a source')
+        if clip['kind'] != 'cut' or clip['overlap']:
+            return f"{where} joins with a {clip['kind']}"
+        if clip['hold_previous']:
+            return f'{where} is a held frame'
+        if clip['mode'] != 'nearest':
+            return f"{where} has a {clip['mode']} retime"
+        if clip['crop_info'].get('method_spans') is not None:
+            return f'{where} has an automatic crop'
+        if len({(key[1], key[2]) for key in clip['crop']}) > 1:
+            return f'{where} has a moving crop'
+        if clip['fit'] == 'contain' and str(clip['background']).lower() not in ('black', '#000', '#000000'):
+            return f'{where} is letterboxed on a colour'
+        if properties[clip['file']].get('field_order') not in ('unknown', 'progressive', None):
+            return f'{where} is interlaced'
+        if first != tiled:
+            return f'{where} does not follow the line before it'
+        tiled = end
+    return ''
+
+
+def native_709(source):
+    """Whether a source's samples (its row in the report's sources) are already this film's: 8-bit 4:2:0, limited range,
+    BT.709 as colour_filter reads them. Such a picture stays in YUV, without the trip through RGB that softens colour
+    edges on the every-frame path."""
+    unknown = ('unknown', 'unspecified', 'reserved', None)
+    fallback = 'smpte170m' if source['coded_width'] <= 1024 and source['coded_height'] <= 576 else 'bt709'
+    matrix = fallback if source.get('source_matrix') in unknown else source['source_matrix']
+    return (source.get('source_pixel_format') == 'yuv420p' and source.get('source_range') in (*unknown, 'tv', 'mpeg')
+            and matrix == 'bt709' and source.get('source_transfer') in (*unknown, 'bt709')
+            and source.get('source_primaries') in (*unknown, 'bt709'))
+
+
+def plain_framing(clip, width, height):
+    """The FFmpeg filters that place a clip's frames as clip_framing places them, from its own whole-pixel box or size
+    and offset, and whether every position falls on a chroma sample."""
+    framing = clip_framing(clip, 0, width, height)
+    resize = f'scale={width}:{height}:flags=lanczos'
+    if framing['fit'] == 'contain':
+        (w, h), (x, y) = framing['size'], framing['offset']
+        steps = [f'scale={w}:{h}:flags=lanczos', f'pad={width}:{height}:{x}:{y}:black']
+        return steps, not (w % 2 or h % 2 or x % 2 or y % 2)
+    x0, y0, x1, y1 = framing['box']
+    if (x0, y0, x1, y1) == (0, 0, clip['sw'], clip['sh']):
+        return [resize], True
+    w, h = x1 - x0, y1 - y0
+    return [f'crop={w}:{h}:{x0}:{y0}:exact=1', resize], not (w % 2 or h % 2 or x0 % 2 or y0 % 2)
+
+
+def plain_source(clip, width, height, fps, end):
+    """The decoder for one plain clip: FFmpeg crops, scales and converts, and hands over 4:2:0 frames ready to encode.
+    It stops at the last frame the film shows, and its playback is checked against the timestamps planned for them."""
+    raw = clip['raw']
+    needed = clip_sample(clip, (end - 1) / float(fps))['index'] + 1
+    clock = raw.clock + f'trim=end_frame={needed},'
+    framing, on_chroma = plain_framing(clip, width, height)
+    if native_709(raw.properties) and on_chroma:
+        steps = [f"scale={clip['sw']}:{clip['sh']}:flags=lanczos", 'setsar=1', *framing, 'format=yuv420p']
+    else:
+        # The every-frame path's own conversion to RGB, and the encoder's own conversion from it.
+        steps = [raw.vf[len(raw.clock):], *framing, COLOUR]
+    options = list(raw.options)
+    options[options.index('-threads') + 1] = str(DECODER_THREADS)
+    return FrameSource(raw.ffmpeg, raw.filename, clock + ','.join(steps), width * height * 3 // 2, options,
+                       raw.times[:needed], raw.properties, clock)
+
+
+def render_plain_picture(ffmpeg, clips, sources, width, height, fps, total, output, lossless=False):
+    """Encode a plain cut: FFmpeg decodes, frames and converts one clip at a time, clip_sample chooses each output frame
+    exactly as the every-frame path does, and Python forwards those frames' bytes without touching a pixel. `lossless`
+    makes an intermediate for a caption burn, which encodes for delivery after it."""
+    if lossless:
+        options = ['-vf', TAG_BT709, '-c:v', 'libx264', '-preset', 'ultrafast', '-qp', '0', '-threads',
+                   str(ENCODER_THREADS), '-movflags', '+faststart', '-f', 'mp4']
+    else:
+        options = h264_args(width, height, fps, threads=ENCODER_THREADS)
+        options[1] = 'format=yuv420p,' + TAG_BT709
+    encoder = Encoder(ffmpeg, output, width, height, fps, pixels='yuv420p', options=options)
+    window = None
+    try:
+        for clip, first, end in clip_frame_intervals(clips, fps):
+            if first >= end:
+                continue
+            window = sources[id(clip)].open()
+            for number in range(first, end):
+                encoder.write_raw(window.frame(clip_sample(clip, number / float(fps))['index']))
+            window.close()
+            window = None
+        encoder.close()
+    except BaseException:
+        encoder.abort()
+        if window is not None:
+            window.abort()
+        raise
+    return output_frame_count(total, fps, clips)
+
+
+def render_plain_with_retry(ffmpeg, clips, width, height, fps, total, output, lossless=False):
+    """Plan the plain decoders once, and restart a failed seeked clip with a validated linear clock."""
+    for clip in clips:
+        clip['_matching_grid'] = source_grid_matches(clip, fps)
+    sources = {id(clip): plain_source(clip, width, height, fps, end)
+               for clip, first, end in clip_frame_intervals(clips, fps) if first < end}
+    while True:
+        try:
+            return render_plain_picture(ffmpeg, clips, sources, width, height, fps, total, output, lossless)
+        except PlaybackSeekError as error:
+            error.source.retry_without_seek()
+
+
+def picture_path_text(path):
+    """The picture path a render took, in a sentence."""
+    if path['path'] == 'ffmpeg':
+        return 'FFmpeg drew the picture (a plain cut)'
+    return f"every frame through Python ({path['reason']})"
+
+
 def caption_options(overlay):
     """Pass a captions overlay's placement and style fields to captions.py burn."""
     options = []
@@ -1692,8 +1936,9 @@ def burn_captions(captions, root, picture, temp):
     for index, overlay in enumerate(captions):
         output = Path(temp) / f'caption-{index}.mp4'
         report = Path(temp) / f'caption-{index}.json'
+        # Lossless whatever the preset, and this file exists only to be encoded for delivery after the burn.
         command = [sys.executable, '-I', str(CAPTIONS), 'burn', str(current), str(root / overlay['file']),
-                   '--out', str(output), '--json', str(report), '--crf', '0']
+                   '--out', str(output), '--json', str(report), '--crf', '0', '--preset', 'ultrafast']
         command += caption_options(overlay)
         run(command, 6 * 3600)
         reports.append(json.loads(report.read_text(encoding='utf-8')))
@@ -1706,9 +1951,8 @@ def burn_captions(captions, root, picture, temp):
 def cap_caption_encode(ffmpeg, source, destination, width, height, fps, expected_frames):
     """Apply the shared level cap without a lossy YUV-to-RGB-to-YUV round trip."""
     rate = exact_rate(fps)
-    options = h264_args(width, height, fps)
-    options[1] = (f'setpts=N*{rate.denominator}/({rate.numerator}*TB),format=yuv420p,'
-                  'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv')
+    options = h264_args(width, height, fps, threads=ENCODER_THREADS)
+    options[1] = f'setpts=N*{rate.denominator}/({rate.numerator}*TB),format=yuv420p,{TAG_BT709}'
     command = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-i', str(source), '-map', '0:v:0', '-an',
                '-frames:v', str(expected_frames), '-fps_mode', 'passthrough', *options, str(destination)]
     run(command, 6 * 3600)
@@ -1789,6 +2033,8 @@ def main():
     parser.add_argument('edit')
     parser.add_argument('--out', required=True)
     parser.add_argument('--json')
+    parser.add_argument('--every-frame', action='store_true',
+                        help='draw every frame in Python even when the edit is a plain cut')
     parser.add_argument('--spool-gib', type=float, default=8,
                         help='legacy compatibility option; picture frames are streamed instead of spooled')
     args = parser.parse_args()
@@ -1838,8 +2084,19 @@ def main():
                     """Schedule every layer before creating an encoder, including on a playback retry."""
                     return LayerPlan(edit, root, clips, images, width, height, rate,
                                      output_frame_count(total, rate, clips))
-            count, layers = render_picture_with_retry(ffmpeg, clips, images, width, height, rate, total, picture,
-                                                      layer_factory)
+            why = 'asked for' if args.every_frame else plain_cut_reason(edit, clips, properties, rate)
+            layers = None
+            if not why:
+                try:
+                    count = render_plain_with_retry(ffmpeg, clips, width, height, rate, total, picture,
+                                                    bool(captions))
+                except (OSError, RuntimeError, ValueError) as error:
+                    # The every-frame path stays the authority: it reports a real source fault in its own words.
+                    why = f'the FFmpeg picture path failed: {str(error)[:300]}'
+            if why:
+                count, layers = render_picture_with_retry(ffmpeg, clips, images, width, height, rate, total,
+                                                          picture, layer_factory)
+            path = {'path': 'every-frame', 'reason': why} if why else {'path': 'ffmpeg', 'reason': 'plain cut'}
             if captions:
                 captioned, caption_reports = burn_captions(captions, root, picture, temp)
                 write_json(stage / 'caption-burn.json', {'version': 1, 'overlays': caption_reports})
@@ -1848,12 +2105,17 @@ def main():
                         if finding.get('rule') == 'caption reduced to fit':
                             notes.append(f"Caption {finding['cue']} reduced from {finding['requested_size_px']} to "
                                          f"{finding['used_size_px']} px; choose a wider area or shorter caption.")
+                picture.unlink(missing_ok=True)
                 picture = Path(temp) / 'caption-capped.mp4'
                 cap_caption_encode(ffmpeg, captioned, picture, width, height, rate, count)
                 notes.append('Caption burn used lossless YUV intermediates before the shared level-capped encoder; '
                              'review legibility.')
             snaps.extend(render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, stage, notes))
-            report = {'duration_s': total, 'frames': count, 'snaps': snaps, 'sources': properties,
+            hdr = {item['src'] for item in edit['picture']
+                   if properties[source_path(root, edit['sources'], item['src'])].get('hdr_transfer')}
+            report = {'duration_s': total, 'frames': count, 'picture_path': path, 'snaps': snaps,
+                      'hdr_sources': sorted(hdr),
+                      'sources': properties,
                       'spool_budget_bytes': limit, 'spool_limit_enforced': False, 'source_spool_bytes': used,
                       'motion_spool_bytes': 0, '_clips': clips,
                       'retimes': [{'src': clip['src'], 'in': clip['start'], 'out': clip['stop'],
@@ -1865,6 +2127,7 @@ def main():
                 report['layers'] = layers.report(notes)
             export(edit, out, args.json, temp, stage, picture, cues, cuts, dissolves, report)
         print(f'Rendered {count} frames; {len(snaps)} snap points; {len(notes)} review notes.')
+        print('Picture: ' + picture_path_text(path))
         for note in notes:
             print('NOTE: ' + note)
         return 1 if notes else 0

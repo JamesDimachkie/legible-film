@@ -24,9 +24,9 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
 ## 2. Set up
 
 - Python 3.9+ with numpy and Pillow, FFmpeg, Node 18+, and Playwright with a Chromium (`setup.py --install kit`
-  installs both where the tools look, with the person's yes; or `npm install playwright-core` in the project, or point
-  `--playwright` or `LF_PLAYWRIGHT_MODULE` at an installed package; the tools reuse any Chromium Playwright has
-  already installed and never download one themselves).
+  installs the tested version of both where the tools look, with the person's yes; a Playwright already in the project
+  comes first, or point `--playwright` or `LF_PLAYWRIGHT_MODULE` at an installed package; the tools reuse any Chromium
+  Playwright has already installed and never download one themselves).
 - `make_film.py --doctor` checks all of it and prints the one command that fixes each missing piece.
   `kit_selftest.py --require` runs synthetic capture and render contract checks on this machine (without
   `--require`, a missing dependency is a skip, not a failure). A pass does not establish a particular film's

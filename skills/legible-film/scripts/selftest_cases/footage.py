@@ -736,6 +736,7 @@ def run_footage_cases(tool, record, j, scripts_dir):
     width, height, fps = fixture(j)
     source = j('footage-source.mkv')
     check_picture_out_clamp(tool, record, j, source)
+    check_decoded_end_clamp(tool, record, j)
     base = {'version': 1, 'size': [width, height], 'fps': fps, 'sources': {'a': {'file': source}}}
     edit = dict(base, picture=[{'src': 'a', 'in': .5, 'out': 1.5},
                                {'src': 'a', 'in': 2, 'out': 3}],
@@ -1403,6 +1404,73 @@ def check_ordinary_starts(tool, record, j, scripts_dir):
         record('footage: ' + name + ' at zero matches the linear first frame',
                error < 12 and (name != 'late video' or has_note),
                f'mean RGB error={error}; hold note={has_note}; {output[-180:]}')
+
+
+def check_decoded_end_clamp(tool, record, j):
+    """An edit past where a damaged source decodes is shortened and reported, the same as one past its header, and
+    its tail is never a frozen last frame; a line from cut.py is refused instead, and a declared in-point past the end
+    is refused either way."""
+    root = Path(j('decoded-end-clamp'))
+    root.mkdir(parents=True, exist_ok=True)
+    whole, short = root / 'whole.mp4', root / 'short.mp4'
+    ffmpeg('-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=8', '-f', 'lavfi', '-i',
+           'sine=frequency=440:sample_rate=48000:duration=8', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '10',
+           '-c:a', 'aac', '-movflags', '+faststart', whole)
+    data = whole.read_bytes()
+    short.write_bytes(data[:int(len(data) * .6)])
+    times = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', 'v:0', '-show_entries',
+                            'frame=best_effort_timestamp_time', '-of', 'csv=p=0', str(short)],
+                           capture_output=True, text=True).stdout.split()
+    end = float(times[-1].strip(',')) + .1
+    # The same frames with a truthful header, as a preview proxy of the damaged source has: the two must agree.
+    honest = root / 'honest.mp4'
+    ffmpeg('-i', short, '-map', '0:v:0', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', honest)
+    start, stop = end - 1, end + 1
+    results = {}
+    for name, source in (('damaged', short), ('honest', honest)):
+        edit = {'version': 1, 'fps': 10, 'size': [160, 90], 'sources': {'v': str(source)},
+                'picture': [{'src': 'v', 'in': start, 'out': stop}]}
+        code, output, directory = assemble(tool, j, 'decoded-end-' + name, edit)
+        path = directory / 'report.json'
+        report = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+        frames = video_frames(directory / 'picture.mp4', 160, 90) if code in (0, 1) else []
+        # A frozen fill shows as a long run of one frame at the end; a dropped frame in the source repeats one or two.
+        frozen = 0
+        while frozen + 2 <= len(frames) and not np.any(frames[-1 - frozen] != frames[-2 - frozen]):
+            frozen += 1
+        results[name] = (code, report.get('duration_s', 0),
+                         any('Picture v out clamped' in note for note in report.get('notes', [])), frozen)
+    record('footage: past the decoded end the edit is shortened, reported and unfrozen, the same with a true header',
+           all(row[0] == 1 and abs(row[1] - 1) < .15 and row[2] and row[3] <= 2 for row in results.values()),
+           str(results))
+    edit = {'version': 1, 'fps': 10, 'size': [160, 90], 'sources': {'v': str(short)},
+            'picture': [{'src': 'v', 'in': start, 'out': stop, 'line': 9}]}
+    code, output, directory = assemble(tool, j, 'decoded-end-line', edit)
+    record('footage: an item from a paper edit is refused with its film.md line instead of shortened',
+           code == 2 and 'film.md line 9' in output and not (directory / 'picture.mp4').exists(), output[-300:])
+    edit = {'version': 1, 'fps': 10, 'size': [160, 90], 'sources': {'v': str(short)},
+            'picture': [{'src': 'v', 'in': end + 1, 'out': end + 2}]}
+    code, output, directory = assemble(tool, j, 'decoded-end-in', edit)
+    record('footage: an in-point past the decoded end is refused, not a frozen last frame',
+           code == 2 and 'no picture frame covers' in output, output[-300:])
+    edit = {'version': 1, 'fps': 10, 'size': [160, 90], 'sources': {'v': str(short)},
+            'picture': [{'src': 'v', 'in': start, 'out': end}],
+            'audio': [{'src': 'v', 'track': 'main', 'in': start, 'out': stop, 'at': 0}]}
+    code, output, directory = assemble(tool, j, 'decoded-end-audio', edit)
+    path = directory / 'report.json'
+    report = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    record('footage: sound past where it decodes is reported, not silently padded',
+           code == 1 and any('decodes only to' in note for note in report.get('notes', [])), str(report.get('notes')))
+    held = root / 'held-gap.mkv'
+    ffmpeg('-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=4', '-vf', "select='lt(n,10)+gte(n,30)',setpts='N*0.1/TB+"
+           "if(gte(N,10),2/TB,0)'", '-fps_mode', 'vfr', '-c:v', 'ffv1', held)
+    edit = {'version': 1, 'fps': 10, 'size': [160, 90], 'sources': {'v': str(held)},
+            'picture': [{'src': 'v', 'in': .5, 'out': 2.5}]}
+    code, output, directory = assemble(tool, j, 'decoded-end-gap', edit)
+    path = directory / 'report.json'
+    report = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
+    record('footage: a gap in a variable-rate source that goes on afterwards is not the end of its picture',
+           code in (0, 1) and abs(report.get('duration_s', 0) - 2) < .11, output[-300:] + str(report.get('notes')))
 
 
 def check_picture_out_clamp(tool, record, j, source):

@@ -4,8 +4,11 @@
   python setup.py [--json] [--check-updates] [--install core|transcription|faces|spatial|kit|ear] [--download] [--yes]
 
 Checks local tools and cached models; it does not prove a film is good or launch Chromium.
-Updates are checked only on request. Installation downloads public software. Spatial model weights download
-only with --download. Spatial is limited without its subject model.
+Updates are checked only on request. Installation downloads public software, at the versions constraints.txt names,
+into the virtual environment this Python is in, otherwise into a per-user environment; it never changes a shared
+Python. Model weights download only with --download: the small transcription model (about 460 MB) with --install
+transcription, the subject model (about 26 MB) with --install spatial. --install ear names its weights' size and asks
+before it fetches them. Spatial and local transcription are limited without their model.
 Exit 0 when editing and checking video is ready (with --install, when the installed capability is ready too),
 1 when either is limited or missing, 2 if setup cannot run. Optional capabilities are reported; they do not change
 the exit code.
@@ -30,6 +33,9 @@ HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('lf_project', HERE / 'project.py')
 project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
+CONSTRAINTS = HERE / 'constraints.txt'
+# The exact film kit package, which also fixes the Chromium build; CI's kit job reads this line.
+PLAYWRIGHT_CORE = '1.64.1'
 MODEL_MB = 460
 REQUIRED = ('Edit and check video', 'Skill')
 FFMPEG_MINIMUM = (5, 1)
@@ -51,11 +57,11 @@ EAR_MODELS = ('laion/larger_clap_general', 'MIT/ast-finetuned-audioset-10-10-0.4
 SCRIPTS = ('assemble.py blank_scan.py captions.py check.py compare_versions.py cue_list.py cue_onsets.py '
            'delivery_check.py dialogue_io.py '
            'exchange.py film_capture.mjs film_check.py film_render.py flash_scan.py frame_sheet.py '
-           'kit_selftest.py listen.py look.py make_film.py make_sound_kit.py map.py matte.py mix_cues.py motion_blur.py motion_scan.py '
+           'kit_selftest.py lineup.py listen.py look.py make_film.py make_sound_kit.py map.py matte.py mix_cues.py motion_blur.py motion_scan.py '
            'new_film.py onion_frames.py project.py qc_file.py reframe.py region_check.py render_common.py '
            'screen.py selftest.py setup.py sound_check.py sound_io.py sound_library.py spatial.py spot_cues.py '
            'strip.py sync_check.py taste.py tempo_map.py tighten.py track.py transcribe.py transcript_cut.py '
-           'voice_clean.py with_lock.py').split()
+           'voice_clean.py with_lock.py constraints.txt').split()
 
 
 def command_fix(kind, system=None):
@@ -86,14 +92,6 @@ def dedicated_python():
     return data_home() / 'venv' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
 
 
-def externally_managed(stdlib=None, prefix=None, base_prefix=None):
-    """A PEP 668 marker applies to a base interpreter, not to a virtual environment."""
-    stdlib = Path(stdlib or sysconfig.get_path('stdlib'))
-    prefix = sys.prefix if prefix is None else prefix
-    base_prefix = sys.base_prefix if base_prefix is None else base_prefix
-    return prefix == base_prefix and (stdlib / 'EXTERNALLY-MANAGED').is_file()
-
-
 def has_pip(python):
     """Check pip in the actual target interpreter, including venvs created without pip."""
     try:
@@ -104,8 +102,17 @@ def has_pip(python):
 
 
 def selected_python(create=False):
-    """Reuse the dedicated interpreter, or create it when this interpreter cannot accept installs."""
+    """An active virtual environment that can take installs (or, to run scripts, already has the core packages), then
+    the dedicated interpreter, created when needed. A base interpreter is never installed into, however writable:
+    other work may share it."""
     dedicated = dedicated_python()
+    purelib = Path(sysconfig.get_path('purelib'))
+    existing = purelib
+    while not existing.exists() and existing.parent != existing:
+        existing = existing.parent
+    if sys.prefix != sys.base_prefix and (has_pip(sys.executable) and os.access(existing, os.W_OK) if create
+                                          else imports_core(sys.executable)):
+        return Path(sys.executable)
     if dedicated.is_file():
         if create and not has_pip(dedicated):
             fix = project.python_command(['-m', 'ensurepip', '--upgrade'], dedicated)
@@ -113,12 +120,6 @@ def selected_python(create=False):
                              '(sudo apt install python3-venv), then run: ' + fix)
         return dedicated
     if not create:
-        return Path(sys.executable)
-    purelib = Path(sysconfig.get_path('purelib'))
-    existing = purelib
-    while not existing.exists() and existing.parent != existing:
-        existing = existing.parent
-    if not externally_managed() and has_pip(sys.executable) and os.access(existing, os.W_OK):
         return Path(sys.executable)
     try:
         subprocess.run([sys.executable, '-I', '-m', 'venv', str(dedicated.parent.parent)],
@@ -367,6 +368,9 @@ def inspect(check_updates=False):
     faster = package and detector
     fallback = filters['whisper']
     trans_state = 'ready' if faster and 'small' in models else 'limited' if fallback or package else 'missing'
+    model_note = '' if 'small' in models else f'; the small model (about {MODEL_MB} MB) downloads only with --download'
+    trans_fix = setup_command('transcription') if 'small' in models else project.python_command(
+        [HERE / 'setup.py', '--install', 'transcription', '--download'])
     if faster:
         state = 'importable'
     elif package:
@@ -375,8 +379,7 @@ def inspect(check_updates=False):
     else:
         state = 'not importable' + unseen('faster_whisper')
     add('Local transcription', trans_state, 'faster-whisper',
-        state + '; cached models: ' + (', '.join(models) or 'none') + '; default: small',
-        setup_command('transcription'))
+        state + '; cached models: ' + (', '.join(models) or 'none') + '; default: small' + model_note, trans_fix)
     if fallback and trans_state == 'ready':
         add('Local transcription', 'ready', 'FFmpeg whisper',
             'filter present; a less accurate fallback, used only with a GGML model file (--ggml-model PATH)',
@@ -384,7 +387,7 @@ def inspect(check_updates=False):
     elif fallback:
         add('Local transcription', 'limited', 'FFmpeg whisper',
             'filter present, but it transcribes only with a GGML model file you supply (map.py run --engine ffmpeg '
-            '--ggml-model PATH); faster-whisper needs no model file of yours', setup_command('transcription'))
+            '--ggml-model PATH); faster-whisper needs no model file of yours', trans_fix)
     elif trans_state == 'ready':
         add('Local transcription', 'ready', 'FFmpeg whisper',
             'filter missing; not needed while faster-whisper is ready', command_fix('ffmpeg'))
@@ -417,7 +420,8 @@ def inspect(check_updates=False):
         ok, detail = rows.get(name, (False, 'doctor did not return this check'))
         node_fix = ('Open a new terminal or restart the agent to refresh PATH.'
                     if not node_path and winget_link('node') else command_fix('node'))
-        playwright = project.python_command(['install', '--prefix', package_dir, 'playwright-core'], 'npm')
+        playwright = project.python_command(['install', '--save-exact', '--prefix', package_dir,
+                                             'playwright-core@' + PLAYWRIGHT_CORE], 'npm')
         chromium = project.python_command(['--prefix', package_dir, 'playwright-core', 'install', 'chromium'], 'npx')
         fix = {'Node': node_fix,
                'Playwright': f"{setup_command('kit')} (or by hand: {playwright})",
@@ -512,11 +516,29 @@ def core_present():
     return module_available('numpy') and module_available('PIL')
 
 
+def imports_core(python):
+    """Whether this interpreter imports numpy and Pillow the way the scripts run."""
+    return subprocess.run([str(python), '-I', '-c', 'import numpy, PIL'], capture_output=True).returncode == 0
+
+
+def pip_install(python, packages, *options):
+    """Install at the tested versions, from wheels: a version with no wheel here fails at once, not after a long
+    source build that was never tested."""
+    command = [str(python), '-I', '-m', 'pip', 'install', '-c', str(CONSTRAINTS), '--only-binary', ':all:', *packages,
+               *options]
+    try:
+        subprocess.run(command, check=True, stdout=sys.stderr)
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f"pip could not install {', '.join(packages)} at the versions in {CONSTRAINTS.name}; its "
+                         'reason is above. No matching version means no tested build for this Python or system: '
+                         'tested on Python 3.9 to 3.14. Run setup.py with one of those, from a virtual environment '
+                         f'or after removing {dedicated_python().parent.parent}.'
+                         ) from error
+
+
 def install_core(python):
     """Install the two core packages in the selected interpreter."""
-    # Floors the scripts need (Pillow 9.1 for Image.Resampling); CI runs the newest releases above them.
-    subprocess.run([str(python), '-I', '-m', 'pip', 'install', 'numpy>=1.22', 'Pillow>=9.1'], check=True,
-                   stdout=sys.stderr)
+    pip_install(python, ['numpy', 'Pillow'])
 
 
 def install_faces(yes, python=None):
@@ -524,16 +546,14 @@ def install_faces(yes, python=None):
     print('Face detection for auto crop and scorecard: opencv-python is about 40 MB; '
           'no model weights are downloaded.', file=sys.stderr)
     consent('Install opencv-python?', yes)
-    subprocess.run([str(python or sys.executable), '-I', '-m', 'pip', 'install', 'opencv-python>=4.8,<5'], check=True,
-                   stdout=sys.stderr)
+    pip_install(python or sys.executable, ['opencv-python'])
 
 
 def install_spatial(yes, python=None):
     """Install the same OpenCV distribution as faces plus ONNX Runtime."""
     print('Spatial packages: opencv-python and onnxruntime; model weights are a separate download.', file=sys.stderr)
     consent('Install spatial packages?', yes)
-    subprocess.run([str(python or sys.executable), '-I', '-m', 'pip', 'install', 'opencv-python>=4.8,<5',
-                    'onnxruntime'], check=True, stdout=sys.stderr)
+    pip_install(python or sys.executable, ['opencv-python', 'onnxruntime'])
 
 
 def download_spatial(yes):
@@ -566,7 +586,8 @@ def install_kit(yes):
     print(f'Film kit: playwright-core (about 10 MB) and Chromium (about 150 MB) into {package_dir}.', file=sys.stderr)
     consent('Install the film kit?', yes)
     package_dir.mkdir(parents=True, exist_ok=True)
-    subprocess.run([npm, 'install', '--prefix', str(package_dir), 'playwright-core'], check=True, stdout=sys.stderr)
+    subprocess.run([npm, 'install', '--save-exact', '--prefix', str(package_dir), 'playwright-core@' + PLAYWRIGHT_CORE],
+                   check=True, stdout=sys.stderr)
     subprocess.run([npx, '--prefix', str(package_dir), 'playwright-core', 'install', 'chromium'], check=True,
                    stdout=sys.stderr)
     # Installed is not the same as working: Chromium on Linux also needs system libraries the person installs.
@@ -584,14 +605,19 @@ def install_kit(yes):
 
 
 def install_transcription(yes, python=None):
-    """Ask before installing the optional package and downloading its default model."""
-    print(f'Transcription install: small model download is about {MODEL_MB} MB; package dependencies add more.',
-          file=sys.stderr)
-    consent('Install faster-whisper and download small?', yes)
-    python = str(python or sys.executable)
-    subprocess.run([python, '-I', '-m', 'pip', 'install', 'faster-whisper', 'onnxruntime'], check=True,
-                   stdout=sys.stderr)
-    subprocess.run([python, '-I', '-c', "from faster_whisper.utils import download_model; download_model('small')"],
+    """Ask before installing the optional package; its model is a separate download."""
+    print(f'Transcription packages: faster-whisper and onnxruntime. The small model is a separate download of about '
+          f'{MODEL_MB} MB, only with --download.', file=sys.stderr)
+    consent('Install faster-whisper?', yes)
+    pip_install(python or sys.executable, ['faster-whisper', 'onnxruntime'])
+
+
+def download_transcription(yes, python=None):
+    """Download the default model into the Hugging Face cache after consent."""
+    print(f'Small model download: about {MODEL_MB} MB.', file=sys.stderr)
+    consent('Download the small model?', yes)
+    subprocess.run([str(python or sys.executable), '-I', '-c',
+                    "from faster_whisper.utils import download_model; download_model('small')"],
                    check=True, stdout=sys.stderr)
 
 
@@ -600,17 +626,21 @@ def ear_size():
           'audio packages; download sizes vary. CLAP is Apache-2.0; AST is BSD-3-Clause.', file=sys.stderr)
 
 
+def install_ear_packages(python):
+    """The CPU listening packages: PyTorch from its CPU index, the others from PyPI. pip 23.0, which older Pythons
+    bring, rejects that index's metadata, so the constraints move it first."""
+    pypi = ('--isolated', '--index-url', 'https://pypi.org/simple')
+    pip_install(python, ['pip'], *pypi)
+    pip_install(python, ['torch'], '--isolated', '--index-url', 'https://download.pytorch.org/whl/cpu')
+    pip_install(python, ['transformers', 'huggingface-hub', 'safetensors', 'librosa', 'soundfile', 'soxr'], *pypi)
+
+
 def install_ear(yes, python=None):
     """Install CPU dependencies and cache the two public models after consent."""
     ear_size()
     consent('Install CPU listening packages and download the model weights?', yes)
     python = str(python or sys.executable)
-    subprocess.run([python, '-I', '-m', 'pip', '--isolated', 'install', 'torch', '--index-url',
-                    'https://download.pytorch.org/whl/cpu'], check=True, stdout=sys.stderr)
-    subprocess.run([python, '-I', '-m', 'pip', '--isolated', 'install', 'transformers<5', 'huggingface-hub',
-                    'safetensors', 'librosa>=0.10', 'soundfile>=0.12', 'soxr>=0.3',
-                    '--index-url', 'https://pypi.org/simple'],
-                   check=True, stdout=sys.stderr)
+    install_ear_packages(python)
     code = ('import sys; from huggingface_hub import snapshot_download; '
             '[snapshot_download(repo_id=m, cache_dir=sys.argv[1], token=False) for m in sys.argv[2:]]')
     subprocess.run([python, '-I', '-c', code, str(ear_cache()), *EAR_MODELS], check=True, stdout=sys.stderr)
@@ -623,14 +653,16 @@ def main():
     parser.add_argument('--check-updates', action='store_true', help='ask GitHub whether a newer release exists')
     parser.add_argument('--install', choices=['core', 'transcription', 'faces', 'spatial', 'kit', 'ear'],
                         help="install one group, with the person's yes (core: numpy and Pillow)")
-    parser.add_argument('--download', action='store_true', help='download the named spatial model')
+    parser.add_argument('--download', action='store_true',
+                        help=f'with --install transcription, also download the small model (about {MODEL_MB} MB); '
+                             f'with --install spatial, the subject model (about {SPATIAL_MB} MB)')
     parser.add_argument('--report-installed', choices=['core', 'transcription', 'faces', 'spatial', 'kit', 'ear'],
                         help=argparse.SUPPRESS)
     parser.add_argument('--yes', action='store_true', help='install without asking (the person has already said yes)')
     args = parser.parse_args()
     try:
-        if args.download and args.install != 'spatial':
-            raise ValueError('--download requires --install spatial')
+        if args.download and args.install not in ('transcription', 'spatial'):
+            raise ValueError('--download requires --install transcription or --install spatial')
         if args.install == 'core' and core_present():
             # Nothing to install: a Python that refuses installs (Debian, Homebrew) may still have both.
             print('numpy and Pillow already import in this Python; nothing to install.', file=sys.stderr)
@@ -646,15 +678,22 @@ def main():
                     ear_size()
                 if args.install == 'spatial' and args.download:
                     print(f'MODNet download: about {SPATIAL_MB} MB.', file=sys.stderr)
-                consent('Install ' + args.install + (' and download the small model (about 460 MB)?'
-                        if args.install == 'transcription' else
+                consent('Install ' + args.install + (f' and download the small model (about {MODEL_MB} MB)?'
+                        if args.install == 'transcription' and args.download else
                         f' and download MODNet (about {SPATIAL_MB} MB)?'
                         if args.install == 'spatial' and args.download else '?'), args.yes)
             python = selected_python(create=True)
+            if args.install != 'core' and not imports_core(python):
+                # A new environment has neither, and setup then names it as the Python to run every script with.
+                print('numpy and Pillow, which every script needs, go in too: this environment lacks them.',
+                      file=sys.stderr)
+                install_core(python)
             if args.install == 'core':
                 install_core(python)
             elif args.install == 'transcription':
                 install_transcription(True, python)
+                if args.download:
+                    download_transcription(True, python)
             elif args.install == 'spatial':
                 install_spatial(True, python)
                 if args.download:

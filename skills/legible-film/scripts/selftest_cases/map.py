@@ -337,9 +337,152 @@ def check_transcript_unavailable(tool, record, j):
            + str(status.get('line')))
 
 
+def cut_short_source(path, seconds=8, keep=.6):
+    """A complete MP4 with its index at the front, cut short by bytes: its header still claims every second."""
+    whole = Path(path).with_name(Path(path).stem + '-whole.mp4')
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', f'testsrc2=s=320x180:r=10:d={seconds}',
+                    '-f', 'lavfi', '-i', f'sine=frequency=440:sample_rate=48000:duration={seconds}', '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p', '-g', '10', '-c:a', 'aac', '-movflags', '+faststart', str(whole)],
+                   check=True, capture_output=True)
+    data = whole.read_bytes()
+    Path(path).write_bytes(data[:int(len(data) * keep)])
+    return whole
+
+
+def last_frame_end(path, selector, frame):
+    """Where a stream's decoded frames really end, read frame by frame, for the known answer."""
+    result = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', selector, '-show_entries',
+                             'frame=best_effort_timestamp_time', '-of', 'csv=p=0', str(path)],
+                            capture_output=True, text=True)
+    return float(result.stdout.split()[-1].strip(',')) + frame
+
+
+def check_decoded_end(tool, record, j):
+    """map.py records where picture and sound really end and says plainly when that differs from the header; a whole
+    file is unchanged, and a map made before this keeps working."""
+    folder = Path(j('map-decoded-end'))
+    folder.mkdir(parents=True, exist_ok=True)
+    short = folder / 'short.mp4'
+    whole = cut_short_source(short)
+    picture, sound = last_frame_end(short, 'v:0', .1), last_frame_end(short, 'a:0', 1024 / 48000)
+    damaged = folder / 'damaged'
+    tool('map.py', 'add', damaged, short, '--role', 'other')
+    code, output = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip')
+    index = damaged / 'map' / 'sources.json'
+    row = json.loads(index.read_text(encoding='utf-8'))['sources'][0]
+    ends = row.get('ends') or {}
+    measured = (ends.get('picture') or {}).get('decoded') or 0, (ends.get('sound') or {}).get('decoded') or 0
+    record('map: the real decoded end of picture and sound is recorded from the map\'s own decode',
+           2 < picture < 7 and abs(measured[0] - picture) < .11 and abs(measured[1] - sound) < .05
+           and (ends.get('picture') or {}).get('header', 0) > 7.9, f'known {picture}, {sound}; recorded {ends}')
+    record('map: a source that decodes short of its header says so plainly, exits 1 and maps what is there',
+           code == 1 and 'header' in output and f'{measured[0]:.2f}' in output and 'decodes' in output
+           and abs(row.get('duration_s', 0) - max(measured)) < .05, output[-400:])
+    shots = json.loads((damaged / 'map' / 'src_01' / 'shots.json').read_text(encoding='utf-8'))['shots']
+    record('map: the last shot ends where the picture does', abs(shots[-1]['end'] - measured[0]) < .11, str(shots[-1]))
+    code, again = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip')
+    record('map: running again from the cache still says the source decodes short',
+           code == 1 and 'cached' in again and 'decodes' in again, again[-300:])
+
+    healthy = folder / 'healthy'
+    tool('map.py', 'add', healthy, whole, '--role', 'other')
+    code, output = tool('map.py', 'run', healthy, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((healthy / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: a whole file keeps its header length, with both ends recorded and nothing to report',
+           code == 0 and 'decodes' not in output and abs(row['duration_s'] - 8) < .05
+           and abs(row['ends']['picture']['decoded'] - 8) < .11 and abs(row['ends']['sound']['decoded'] - 8) < .05
+           and row['ends']['picture']['usable'] == row['ends']['picture']['header'],
+           str(row.get('ends')) + output[-200:])
+
+    data = json.loads(index.read_text(encoding='utf-8'))
+    data['sources'][0].pop('ends', None)
+    index.write_text(json.dumps(data), encoding='utf-8')
+    code, output = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip')
+    record('map: a map made before the decoded end was recorded still runs, and says how to measure it',
+           code == 0 and 'cached' in output and '--rebuild' in output, output[-300:])
+    code, output = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip', '--rebuild')
+    row = json.loads(index.read_text(encoding='utf-8'))['sources'][0]
+    record('map: --rebuild measures the decoded end of an older map', code == 1 and 'ends' in row, output[-300:])
+
+
+def silent_default_source(path, first_default=True):
+    """Picture with two sound streams, 1 digitally silent and 2 a tone; the default flag on 1, or on 2."""
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3',
+                    '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-f', 'lavfi',
+                    '-i', 'sine=frequency=440:sample_rate=48000:duration=3', '-map', '0:v', '-map', '1:a',
+                    '-map', '2:a', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+                    '-disposition:a:0', 'default' if first_default else '0',
+                    '-disposition:a:1', '0' if first_default else 'default', str(path)],
+                   check=True, capture_output=True)
+
+
+def check_silent_default_stream(tool, record, j):
+    """With several sound streams each is measured and printed; a silent chosen stream gives way to one with sound,
+    which is said with the command to override it; a stream someone chose stays chosen."""
+    folder = Path(j('map-silent-default'))
+    folder.mkdir(parents=True, exist_ok=True)
+    source = folder / 'obs.mkv'
+    silent_default_source(source)
+    root = folder / 'project'
+    tool('map.py', 'add', root, source, '--role', 'other')
+    code, output = tool('map.py', 'run', root, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((root / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    audio = json.loads((root / 'map' / 'src_01' / 'audio.json').read_text(encoding='utf-8'))
+    record('map: each of several sound streams is measured and printed with its level',
+           code == 0 and 'stream 1' in output and 'stream 2' in output and 'digitally silent' in output
+           and any('stream 2' in line and ' dB' in line for line in output.splitlines()), output[-500:])
+    record('map: a digitally silent default gives way to the stream with sound, says so and names the override',
+           row['audio']['index'] == 2 and audio.get('stream_index') == 2 and audio.get('integrated_lufs') is not None
+           and audio['integrated_lufs'] > -60 and '--stream 1' in output, output[-500:] + str(row.get('audio')))
+    code, again = tool('map.py', 'run', root, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((root / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: running again keeps the stream with sound, from the cached map',
+           code == 0 and 'cached' in again and row['audio']['index'] == 2, again[-300:])
+    (root / 'film.md').write_text('---\ntitle: Silent default\nsize: 160x90\nfps: 10\ncaptions: none\n---\n'
+                                  '- src_01 0:00.50-0:02.50 sound The tone\n', encoding='utf-8')
+    code, rendered = tool('cut.py', 'render', root)
+    preview = root / 'cuts' / 'v001' / 'preview.mp4'
+    measured = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-i', str(preview), '-af', 'volumedetect', '-vn',
+                               '-f', 'null', '-'], capture_output=True, text=True, encoding='utf-8', errors='replace')
+    peak = next((float(line.split('max_volume:')[1].split()[0]) for line in measured.stderr.splitlines()
+                 if 'max_volume:' in line), -200.0)
+    record('map: the film cut from that source has its sound, not the silent default',
+           code in (0, 1) and peak > -30, f'peak {peak}; {rendered[-300:]}')
+    chosen = folder / 'chosen'
+    tool('map.py', 'add', chosen, source, '--role', 'other', '--stream', 1)
+    code, output = tool('map.py', 'run', chosen, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((chosen / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: a stream someone chose stays chosen, with a warning that it is silent and another has sound',
+           code == 0 and row['audio']['index'] == 1 and 'stream 1' in output and 'digitally silent' in output
+           and '--stream 2' in output, output[-500:])
+    picked = folder / 'picked'
+    tool('map.py', 'add', picked, source, '--role', 'other')
+    code, output = tool('map.py', 'run', picked, '--alias', 'src_01', '--words', 'skip', '--stream', 1)
+    code, output = tool('map.py', 'run', picked, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((picked / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: a stream chosen on an earlier run stays chosen on the next', row['audio']['index'] == 1, output[-300:])
+    empty = folder / 'no-words.json'
+    empty.write_text(json.dumps({'words': []}), encoding='utf-8')
+    code, output = tool('transcribe.py', source, '--engine', 'import', '--import-file', empty, '--out',
+                        folder / 'words.json')
+    record('transcribe: no words from one of several sound streams names the others and --stream',
+           code == 0 and 'stream 2' in output and '--stream' in output, output[-300:])
+    plain = folder / 'one-stream.mp4'
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=2', '-f', 'lavfi',
+                    '-i', 'sine=frequency=440:sample_rate=48000:duration=2', '-shortest', '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(plain)], check=True, capture_output=True)
+    single = folder / 'single'
+    tool('map.py', 'add', single, plain, '--role', 'other')
+    code, output = tool('map.py', 'run', single, '--alias', 'src_01', '--words', 'skip')
+    record('map: a source with one sound stream prints no stream levels', code == 0 and 'stream 1 ' not in output,
+           output[-300:])
+
+
 def run_map_cases(tool, record, j, scripts_dir):
     """Check transcripts, source privacy, caching, scene and silence timing, and strips."""
     check_transcript_unavailable(tool, record, j)
+    check_silent_default_stream(tool, record, j)
+    check_decoded_end(tool, record, j)
     check_transcript_media_identity(tool, record, j)
     check_confirm_changed_stream(tool, record, j)
     polish_map_cases(tool, record, j)

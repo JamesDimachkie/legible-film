@@ -161,20 +161,90 @@ def build_fixture(kind, project, skill_dir):
     return BUILDERS[kind](Path(project), skill_dir)
 
 
+def tesseract_installed():
+    """Where Tesseract's CLI is installed, on PATH or in its default install folders (the Windows installer puts it
+    in %LOCALAPPDATA%\\Tesseract without adding it to PATH), or None."""
+    on_path = shutil.which('tsrct')
+    if on_path:
+        return on_path
+    import os
+    homes = [Path(os.environ[v]) / 'Tesseract' for v in ('LOCALAPPDATA', 'XDG_DATA_HOME') if os.environ.get(v)]
+    homes += [Path.home() / 'Library' / 'Application Support' / 'Tesseract', Path.home() / '.local' / 'share' / 'Tesseract']
+    for home in homes:
+        for found in [home / 'bin' / name for name in ('tsrct', 'tsrct.cmd', 'tsrct.exe')] + \
+                sorted(home.glob('public-cli/*/bin/tsrct*')):
+            if found.is_file():
+                return str(found)
+    return None
+
+
 def environment(case):
     """An infrastructure problem with the session's environment for this check, or None."""
-    if case['id'] == 'R16' and shutil.which('tsrct'):
-        return 'tsrct is on PATH; route check 16 needs an environment without Tesseract installed'
+    if case['id'] == 'R16':
+        found = tesseract_installed()
+        if found:
+            return f'Tesseract is installed ({found}); route check 16 needs an environment without it'
     return None
 
 
 # ---------------------------------------------------------------- scoring
+
+def shell_reads(command, rel):
+    """Reads of one skill file in a shell command, split on ; && | only outside quotes (an awk or sed program can hold
+    a ;): [(heading a filter looks for, or None)]. A read verb's segment that names the file is a read."""
+    found = []
+    name = rel.rsplit('/', 1)[-1]
+    for segment in routing_score.segments(command):
+        if routing_score.first_word(segment) not in routing_score.READ_VERBS and \
+                routing_score.first_word(segment) not in ('select-string', 'rg', 'grep'):
+            continue
+        if not re.search(r'(?:^|[\s"\'/\\])' + re.escape(name) + r'(?:$|[\s"\'|;])', segment):
+            continue
+        wanted = re.search(r'\^?#{2,3}\s+([A-Za-z][^/|\'"$\\{};]*[A-Za-z0-9])', segment)
+        if wanted:
+            found.append(wanted.group(1).strip())
+        elif routing_score.first_word(segment) in ('cat', 'type', 'get-content', 'gc', 'more', 'less', 'nl') and \
+                not re.search(r'\|\s*(?:head|tail|select-object|sed|awk)\b|-TotalCount|-Head\b|-Tail\b', command, re.I):
+            found.append(None)
+    return found
+
+
+def tsrct_runs(events):
+    """Commands that run Tesseract's CLI: a segment whose verb is tsrct; looking it up (which, where, Get-Command,
+    --version) is not a run."""
+    runs = []
+    for event in events:
+        if event['kind'] != 'command':
+            continue
+        for segment in routing_score.segments(event['command']):
+            verb = routing_score.first_word(segment)
+            if re.match(r'^tsrct(?:-[a-z]+)?$', verb) and not routing_score.help_only(segment):
+                runs.append(segment[:120])
+    return runs
+
+
+def forbidden_hits(case, score, events):
+    """The frozen scorer's forbidden hits, except a hit on a bare command name (tsrct) when the command only looked it
+    up: the frozen rule matches the word anywhere in a command."""
+    hits = [f['hit'] for f in score['forbidden']]
+    bare = {rule['run'] for rule in case.get('forbidden', []) if 'run' in rule and '.' not in rule['run']}
+    if 'tsrct' in bare and not tsrct_runs(events):
+        hits = [h for h in hits if not h.startswith('ran tsrct')]
+    return hits
+
 
 def covers_section(events, skill_dir, rel, heading):
     """Evidence that a read of a skill file showed a section: a whole read, a range over the heading, or a filter."""
     lines = routing_score.file_lines(skill_dir, rel)
     line = next((i + 1 for i, text in enumerate(lines) if routing_score.is_heading(text) and
                  text.lstrip('#').strip().lower().startswith(heading.lower())), None)
+    for event in events:
+        if event['kind'] == 'command':
+            for wanted in shell_reads(event['command'], rel):
+                if wanted is None:
+                    return f'{rel} read whole in a shell command'
+                if wanted.lower().startswith(heading.lower()):
+                    return f'filtered read of {rel} for {heading}'
     for event in events:
         parts = []
         if event['kind'] == 'read' and routing_score.skill_relative(event.get('path')) == rel:
@@ -239,7 +309,8 @@ def check(case, events, score, project, fixture, skill_dir):
 
     if rid in ('R16', 'R17', 'R18'):
         need(f"route {case['expected']}", score['route'] == case['expected'], score['route_evidence'])
-    need('no forbidden read or run', not score['forbidden'], [f['hit'] for f in score['forbidden']])
+    hits = forbidden_hits(case, score, events)
+    need('no forbidden read or run', not hits, hits)
     need('no build or spend attempt', score['build_attempts'] == 0, score['attempts'])
     runs = [(s, sub) for e in events if e['kind'] == 'command' and not e.get('denied')
             for s, sub, _ in e.get('runs', [])]
@@ -250,8 +321,7 @@ def check(case, events, score, project, fixture, skill_dir):
              covers_section(events, skill_dir, 'references/engines.md', 'Tesseract'))
         need('a frame written', score['frame']['frame_writes'], score['frame']['frame_writes'][:1])
         need('a plan cue list written', plan_list_written(events), plan_list_written(events))
-        tsrct = [e['command'][:120] for e in events if e['kind'] == 'command' and
-                 re.search(r'(?:^|[\s/\\"\'])tsrct(?:\.exe)?(?:\s|$)', e['command'])]
+        tsrct = tsrct_runs(events)
         need('stops at the hand-off: no tsrct run or attempt', not tsrct, tsrct)
         need('names the Tesseract hand-off', 'tesseract' in finals and re.search(r'hand', finals), None)
     elif rid == 'R17':
@@ -261,8 +331,8 @@ def check(case, events, score, project, fixture, skill_dir):
         pass  # route quick, and the forbidden reads and runs above: no paper edit, no triad
     elif rid == 'R19':
         need('screen.py run', any(s == 'screen.py' for s, _ in runs), None)
-        need('cut.py never run', not any(s == 'cut.py' for s, _ in runs) and not any(
-            'cut.py' in f['hit'] for f in score['forbidden']), None)
+        need('cut.py never run', not any(s == 'cut.py' for s, _ in runs) and not any('cut.py' in h for h in hits),
+             None)
     elif rid == 'R20':
         need('exchange.py write run', ('exchange.py', 'write') in runs, None)
         files = written_xml(project, fixture) if project else []

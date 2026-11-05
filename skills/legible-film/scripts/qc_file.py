@@ -5,7 +5,8 @@ Runs ffprobe and ffmpeg on the exact file you will deliver and reports:
   - container and stream metadata, compared with an expected spec;
   - a full decode of every video and audio stream (errors, decoded frame count, decoded length);
   - pixel format, colour tags, sample aspect ratio, rotation and MP4 fast start;
-  - integrated loudness, loudness range and true peak (ITU-R BS.1770, via ffmpeg's ebur128);
+  - integrated loudness, loudness range and true peak (ITU-R BS.1770, via ffmpeg's ebur128), with the sound checks
+    on the stream a player plays by default, and each stream's level when a file has several;
   - with --lossy-check, the true peak after an AAC re-encode like the one a platform makes;
   - with --detect, candidate black, frozen and silent intervals to inspect.
   - with --technical, crop, interlacing, freeze, sampled range and sound statistics in one decode.
@@ -155,12 +156,12 @@ def loudness(ffmpeg, path, stream='0:a:0', pre_filter=''):
     return out
 
 
-def pcm_levels(ffmpeg, path, start_args, seconds, channels=1):
+def pcm_levels(ffmpeg, path, start_args, seconds, channels=1, stream='0:a:0'):
     """Peak and RMS (dBFS) of a short stretch over all channels (no downmix, which can cancel
     out-of-phase content), decoded to 16-bit PCM; stdlib only."""
     from array import array
     channels = max(1, int(channels or 1))
-    result = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', *start_args, '-i', path, '-map', '0:a:0',
+    result = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', *start_args, '-i', path, '-map', stream,
                              '-t', str(seconds), '-ac', str(channels), '-ar', '48000', '-f', 's16le', '-'],
                             capture_output=True, check=False)
     samples = array('h')
@@ -194,9 +195,9 @@ def pcm_levels(ffmpeg, path, start_args, seconds, channels=1):
             'samples_per_channel': len(samples) // channels}
 
 
-def audio_end(ffprobe, path, decoded_end=None):
+def audio_end(ffprobe, path, decoded_end=None, stream='a:0'):
     """The audio stream's end on FFmpeg's input clock, not the container's end."""
-    probe = run([ffprobe, '-v', 'error', '-select_streams', 'a:0', '-show_entries',
+    probe = run([ffprobe, '-v', 'error', '-select_streams', stream, '-show_entries',
                  'stream=start_time,duration:stream_tags=DURATION:format=start_time', '-of', 'json', path])
     if probe.returncode:
         return None
@@ -229,12 +230,12 @@ def edge_is_hard(edge, reference, boundary):
     return reference is None or edge - reference > -12
 
 
-def audio_edges(ffmpeg, path, channels, decoded_end=None, ffprobe=None):
+def audio_edges(ffmpeg, path, channels, decoded_end=None, ffprobe=None, stream='0:a:0'):
     """Compare a 2 ms edge with nearby sound, with a tail seek based on the audio stream."""
     ffprobe = find_tool('ffprobe', ffprobe)
-    end = audio_end(ffprobe, path, decoded_end) if ffprobe else decoded_end
-    head = pcm_levels(ffmpeg, path, [], 0.05, channels)
-    tail = pcm_levels(ffmpeg, path, ['-ss', f'{max(0, end - .05):.9f}'], .05, channels) if end else None
+    end = audio_end(ffprobe, path, decoded_end, stream[2:]) if ffprobe else decoded_end
+    head = pcm_levels(ffmpeg, path, [], 0.05, channels, stream)
+    tail = pcm_levels(ffmpeg, path, ['-ss', f'{max(0, end - .05):.9f}'], .05, channels, stream) if end else None
     enough = lambda levels: levels is not None and levels['samples_per_channel'] >= 1056
     out = {'head_first_5ms_peak_dbfs': head and head['first_5ms_peak_dbfs'],
            'head_50ms_rms_dbfs': head and head['rms_dbfs'],
@@ -262,10 +263,10 @@ def audio_edges(ffmpeg, path, channels, decoded_end=None, ffprobe=None):
     return out
 
 
-def lossy_true_peak(ffmpeg, path, bitrate):
+def lossy_true_peak(ffmpeg, path, bitrate, stream='0:a:0'):
     with tempfile.TemporaryDirectory() as tmp:
         encoded = os.path.join(tmp, 'reencode.m4a')
-        result = run([ffmpeg, '-hide_banner', '-nostdin', '-v', 'error', '-i', path, '-map', '0:a:0',
+        result = run([ffmpeg, '-hide_banner', '-nostdin', '-v', 'error', '-i', path, '-map', stream,
                       '-c:a', 'aac', '-b:a', bitrate, encoded])
         if result.returncode:
             return {'error': (result.stderr.strip().splitlines() or ['encode failed'])[-1]}
@@ -274,11 +275,11 @@ def lossy_true_peak(ffmpeg, path, bitrate):
             'integrated_lufs': measured.get('integrated_lufs')}
 
 
-def detect(ffmpeg, path, has_audio, duration):
+def detect(ffmpeg, path, has_audio, duration, stream='0:a:0'):
     video_chain = '[0:v:0]blackdetect=d=0.10:pic_th=0.98:pix_th=0.10,freezedetect=n=-60dB:d=0.50[v]'
     graph, maps = video_chain, ['-map', '[v]']
     if has_audio:
-        graph += ';[0:a:0]silencedetect=n=-50dB:d=0.50[a]'
+        graph += f';[{stream}]silencedetect=n=-50dB:d=0.50[a]'
         maps += ['-map', '[a]']
     result = run([ffmpeg, '-hide_banner', '-nostdin', '-nostats', '-i', path, '-filter_complex', graph] + maps
                  + ['-f', 'null', '-'])
@@ -362,7 +363,7 @@ def verify_borders(ffmpeg, path, width, height, crop, scenes, duration):
     return False, 'candidate edges were not verified across a shot change; inspect the frame'
 
 
-def technical_measurements(ffmpeg, path, has_audio, width, height, duration):
+def technical_measurements(ffmpeg, path, has_audio, width, height, duration, stream='0:a:0'):
     """Measure delivery risks in one decode; sampled picture statistics stay bounded in memory."""
     graph = ("[0:v:0]split=2[full][sample];"
              "[full]scdet=threshold=15,metadata=mode=print:key=lavfi.scd.time,idet,"
@@ -372,7 +373,7 @@ def technical_measurements(ffmpeg, path, has_audio, width, height, duration):
              "signalstats=stat=brng,metadata=mode=print:key=lavfi.signalstats.BRNG[s]")
     maps = ['-map', '[v]', '-map', '[s]']
     if has_audio:
-        graph += (';[0:a:0]aformat=sample_fmts=fltp,astats=reset=0:'
+        graph += (f';[{stream}]aformat=sample_fmts=fltp,astats=reset=0:'
                   'measure_perchannel=DC_offset+Peak_level+Peak_count:measure_overall=none[a]')
         maps += ['-map', '[a]']
     command = [ffmpeg, '-hide_banner', '-nostdin', '-nostats', '-i', path,
@@ -610,14 +611,24 @@ def main():
     }
     if not args.skip_decode:
         report['decode'] = decode_all(ffmpeg, args.file)
+    # Every sound check reads the stream a player plays by default, which need not be the first.
+    played = project.default_audio_stream(audios)
+    position = audios.index(played) if played else 0
+    selector = f'0:a:{position}'
+    report['audio_selector'] = selector
+    if len(audios) > 1:
+        levels = project.audio_stream_levels(args.file, audios, ffmpeg)
+        report['audio_streams'] = [{'index': a['index'], 'default': a is played,
+                                    'language': (a.get('tags') or {}).get('language'), **levels[a['index']]}
+                                   for a in audios]
     if audios:
-        report['loudness'] = loudness(ffmpeg, args.file)
-        report['audio_edges'] = audio_edges(ffmpeg, args.file, audios[0].get('channels'),
-                                            report['loudness'].get('decoded_audio_length_s'), ffprobe)
-        if (audios[0].get('channels') or 0) >= 2:
+        report['loudness'] = loudness(ffmpeg, args.file, selector)
+        report['audio_edges'] = audio_edges(ffmpeg, args.file, played.get('channels'),
+                                            report['loudness'].get('decoded_audio_length_s'), ffprobe, selector)
+        if (played.get('channels') or 0) >= 2:
             # Fold to mono and play it on both channels: a large loss against the stereo mix
             # suggests out-of-phase content that disappears on mono speakers.
-            folded = loudness(ffmpeg, args.file, pre_filter='pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1')
+            folded = loudness(ffmpeg, args.file, selector, pre_filter='pan=stereo|c0=0.5*c0+0.5*c1|c1=0.5*c0+0.5*c1')
             stereo_i, mono_i = report['loudness'].get('integrated_lufs'), folded.get('integrated_lufs')
             if stereo_i is not None and mono_i is None:
                 drop = 99.0  # the fold-down measures as silence: fully out of phase
@@ -625,12 +636,12 @@ def main():
                 drop = round(stereo_i - mono_i, 1) if None not in (stereo_i, mono_i) else None
             report['mono_fold_down'] = {'integrated_lufs': mono_i, 'drop_lu': drop}
         if args.lossy_check:
-            report['lossy_reencode'] = lossy_true_peak(ffmpeg, args.file, args.lossy_bitrate)
+            report['lossy_reencode'] = lossy_true_peak(ffmpeg, args.file, args.lossy_bitrate, selector)
     if args.detect:
-        report['detect'] = detect(ffmpeg, args.file, bool(audios), duration)
+        report['detect'] = detect(ffmpeg, args.file, bool(audios), duration, selector)
     if args.technical:
         report['technical'] = technical_measurements(ffmpeg, args.file, bool(audios), geometry['width'],
-                                                     geometry['height'], duration)
+                                                     geometry['height'], duration, selector)
     if args.color_patch:
         report['color_patches'] = [color_patch(ffmpeg, args.file, spec, args.color_tolerance)
                                    for spec in args.color_patch]
@@ -689,7 +700,7 @@ def main():
         check('audio_checks_runnable', False, 'an audio stream for ' + ', '.join(asked),
               'no audio stream: ' + ', '.join(asked) + ' could not run')
     if audios:
-        a = report['audio'][0]
+        a = report['audio'][position]
         if args.acodec:
             check('acodec', a['codec'] == args.acodec, args.acodec, a['codec'])
         if args.sample_rate:
@@ -744,7 +755,8 @@ def main():
     if report['extra_video_streams']:
         warnings.append(f"{report['extra_video_streams']} extra video stream(s)")
     if len(audios) > 1:
-        warnings.append(f'{len(audios)} audio streams: confirm which one players will use')
+        warnings.append(f"{len(audios)} audio streams: measured stream {played['index']}, which players use by "
+                        'default; confirm it is the one you mean')
     warnings += (report.get('audio_edges') or {}).get('notes', [])
     drop = (report.get('mono_fold_down') or {}).get('drop_lu')
     if drop is not None and drop > 3:
@@ -766,8 +778,11 @@ def main():
           f"colour {vid['color_primaries']}/{vid['color_transfer']}/{vid['color_space']}; "
           f"faststart {report['faststart']}")
     print(f"  level: {vid['level_display']} (stream value {vid['level']}); size {os.path.getsize(args.file) / 1000000:.6f} MB")
-    for a in report['audio']:
-        print(f"  audio: {a['codec']} {a['sample_rate']} Hz, {a['channels']} ch")
+    for number, a in enumerate(report['audio']):
+        level = next((f" (stream {row['index']}, peak {row['peak_db']} dB)" for row in report.get('audio_streams', [])
+                      if row['index'] == audios[number]['index'] and row.get('peak_db') is not None), '')
+        print(f"  audio: {a['codec']} {a['sample_rate']} Hz, {a['channels']} ch{level}"
+              + (' <- measured: players use it by default' if len(audios) > 1 and number == position else ''))
     if 'decode' in report:
         d = report['decode']
         print(f"  decode: {'clean' if d['ok'] else 'ERRORS'}; {d['decoded_video_frames']} video frames; "

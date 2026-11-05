@@ -101,7 +101,7 @@ let pw;
 const tries = mod ? [path.resolve(mod, 'index.mjs'), path.resolve(mod)] : [];
 for (const m of ['playwright', 'playwright-core']) { try { tries.push(req.resolve(m)); } catch (e) {} }
 for (const t of tries) { try { pw = await import(pathToFileURL(t).href); break; } catch (e) {} }
-if (!pw) { console.log(JSON.stringify({ error: 'Playwright is not installed (npm i playwright-core, or pass --playwright)' })); process.exit(2); }
+if (!pw) { console.log(JSON.stringify({ error: 'Playwright is not installed: run setup.py --install kit, or pass --playwright' })); process.exit(2); }
 const chromium = pw.chromium || pw.default?.chromium;
 let browser;
 const out = { console: [], requests_after_ready: [] };

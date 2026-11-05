@@ -11,7 +11,8 @@ Contents: [1. Story from the material](#1-story-from-the-material) · [2. Ingest
 [3. Selects](#3-selects) · [4. The edit](#4-the-edit) · [5. The edit file](#5-the-edit-file) · [6. Other ratios](#6-other-ratios) ·
 [7. Speed and stabilisation](#7-speed-and-stabilisation) · [8. Colour](#8-colour) ·
 [9. Screen recordings](#9-screen-recordings) · [10. Dialogue](#10-dialogue) · [11. Captions](#11-captions) ·
-[12. Approvals and lock](#12-approvals-and-lock) · [13. Variants and hand-off](#13-variants-and-hand-off)
+[12. Approvals and lock](#12-approvals-and-lock) · [13. Variants and hand-off](#13-variants-and-hand-off) ·
+[14. Several recordings of one conversation](#14-several-recordings-of-one-conversation)
 
 ## 1. Story from the material
 
@@ -39,6 +40,11 @@ say, or moving an answer onto another question, is a claim the facts do not supp
   single-frame line, since the multi-frame line carries guesses across frames idet could not decide and called
   fine detail in progressive film interlaced). `assemble.py` reads
   presentation timestamps and converts deliberately; a conversion it cannot make is a reason to stop.
+- Several audio streams: `map.py run` prints each stream's level. A recorder can flag an empty track as the default, so
+  when the stream it would use is digitally silent and another has sound it uses the one with sound and prints the
+  `--stream` command that overrides it. `check.py --file` measures the stream a player plays by default and names the
+  others. A file that decodes short of its header (a partial download or copy) is named the same way:
+  `map.py run` warns and exits 1, and `cut.py check` refuses a line past where it really ends.
 - Mapping records coded dimensions, sample aspect ratio and rotation as well as the displayed square-pixel canvas.
   Rotation is applied by FFmpeg once before sizing a proxy, framing or burning captions; crop coordinates are
   fractions of that displayed canvas. Missing sample aspect ratio is assumed square and recorded. Reflections,
@@ -123,8 +129,8 @@ order of `picture`.
   frame already showing at each output time; it does not move a speech boundary to the nearest source frame.
   The report records each boundary and the covering source PTS. A picture cut can appear up to one output frame
   after a sub-frame edit boundary. If the first picture frame starts up to 0.5 seconds after an in-point, it is held
-  back to cover the gap and the report notes the hold. An out-point past the picture's end is clamped and reported
-  for review. `fit` is `cover` (default) or `contain` (with a `background` colour); contain
+  back to cover the gap and the report notes the hold. An out-point past the picture's end, by its header or by where
+  its frames really stop, is clamped and reported for review, and never filled with a frozen frame. `fit` is `cover` (default) or `contain` (with a `background` colour); contain
   enlarges smaller footage to fit. `retime` is `nearest` (default), `blend` or `motion`.
 - **`join`** describes the join into an item: `cut` (default), `dissolve` or `dip` (to `color`), with `dur`. A
   dissolve keeps the outgoing shot opaque while the incoming one fades over it. Three-way overlaps are refused.
@@ -154,6 +160,8 @@ order of `picture`.
   method. With faces in at least two samples and at least half of all samples, the assembler attempts to match median
   face height between automatic crops of the same source, within the detected-face fit and 2x zoom limits. Sparse
   detections do not set a matching zoom. An explicit `zoom` takes precedence. `fit contain` keeps the whole picture.
+  The default cover framing warns when it discards a third or more of a source's height or width
+  ([paper edit](paper-edit.md#7-modifiers)).
 - Detection can miss profiles, small or occluded faces, and can produce false positives. It does not identify a
   person or the speaker. A missing detection is not evidence that nobody is there. When detected people cannot fit
   together, or the smoothed crop cuts a detected face, a timecoded note asks for review: cut between people, adjust
@@ -205,6 +213,12 @@ order of `picture`.
   `captions.py burn` performs the same source-aware SDR conversion before drawing captions and records the
   conversion and any assumptions about missing colour tags in its JSON report. Untagged SDR primaries or transfer
   are not converted; the source matrix uses the recorded fallback if missing. This path delivers SDR, not HDR.
+
+- A cut with an HDR source converts it the same way, with the Hable tone map. The render prints a note, the version's
+  `manifest.json` names the source (`hdr_sources`) and `check.py` shows a look: this source was HDR and was converted
+  to SDR, so compare the highlights with the original. The tone map itself is unchanged because nothing has yet shown
+  it should be: the one report against it (the result looked dimmer) came from SDR clips converted to HDR, not from
+  real phone footage. Treat what you see on real footage as the evidence.
 
 - Match shots to a reference shot in one working space, exposure and white balance first. Measure, then look: a
   waveform shows levels and clipping, a vectorscope shows casts and skin tones (skin falls near one line on the
@@ -298,3 +312,83 @@ order of `picture`.
 - To hand a cut to an editor, `exchange.py write` writes it as Final Cut Pro 7 XML with its captions and a list of
   what it does not carry ([recipes](recipes.md#hand-a-legible-film-cut-to-an-editor)); hand over the rendered file
   and the paper edit too.
+
+## 14. Several recordings of one conversation
+
+A podcast usually has a mic per person and two or three cameras, all rolling on their own clocks. The steps for cutting
+one are in [cut](../paths/cut.md#a-podcast-with-several-cameras); this is what they rest on.
+
+**Lining up.** `map.py sync PROJECT [--reference ALIAS]` finds where each recording sits against one reference from the
+sound alone, with no clap. Name as the reference a source that hears everyone, a camera or a room mic; the default is
+the longest source with picture and sound. For each source it prints the offset, a confidence and the drift between the
+start and the end of the overlap, and saves them in `map/sync.json` bound to every file's SHA-256 and sound stream.
+
+- A changed source makes its row **stale** and a changed reference makes every row stale; `cut.py check`, `cut.py
+  render` and `map.py speakers` refuse a stale row. `map.py sync PROJECT --check` shows the record as they see it.
+- A low confidence, no overlap, two offsets that fit about equally or too little sound is a **look** with its reason. It
+  is never applied, and `map.py sync` exits 1. Listen, find the offset, and set it with `map.py sync PROJECT --set
+  ALIAS=SECONDS --note TEXT`, which is recorded in `decisions.jsonl`. The number is where that source's 0:00 falls on
+  the reference's clock.
+- **Drift** over one frame is printed and makes the command exit 1, and `check` warns on the first line that uses the
+  source. Each stretch of a line uses the offset at its own place in the recording, so lines stay in step through a long
+  recording; only a very long unbroken take moves against its picture. Picture and sound are never resampled, and the
+  sound that plays is the file's own. Over an overlap under a minute drift cannot be told from scatter, and it says so.
+- What lines up is where sound arrives. Sound takes about 3 ms a metre, so a camera across a room sits a few
+  milliseconds behind a lavalier, by a different amount for each speaker; that much is under a frame. A confident offset
+  says two recordings hold the same sound. It cannot say a camera's picture is in sync with its own sound.
+- A gap or restart inside a file is a look when the windows or searched stretches show it, since one offset cannot hold
+  on both sides of it. A short dropout, or one near the very end, can fall between them, so split a file you know was
+  stopped, and watch the end of a long recording.
+
+Measured on three meetings of the [AMI corpus](https://groups.inf.ed.ac.uk/ami/corpus/) (CC BY 4.0; checked 2026-11-05),
+15 to 25 minutes each, whose files share one clock, so a trim gives a known answer. A far-field table mic stood in for a
+camera, close headsets and a mix for mics. 25 of 27 pairs lined up, among them headset against headset, where only
+another person's faint voice connects them, and 100 parts per million of added drift (read within 2 ms of the 91 to
+151 ms added). The error had a median of 2.9 ms and a worst of 10.3 ms, and it includes the metres of air between the
+mics; a frame at 30 fps is 33 ms. The other two were 15 s excerpts against a whole meeting, and were looks. All 6 pairs
+from different meetings were looks. These are meetings in a few rooms, not podcasts, and no real camera's clock or
+picture was tested: a real camera's drift, a far-off mic or a very short overlap can do worse.
+
+**Who speaks.** `speaker` on a word in `words.json` is shown by `map.py words` and `transcript.md`, and it reaches
+`lines.json` and the captions, which break where it changes. Four things can set it, and a label is a draft until a
+person reads it, like the transcript itself:
+
+- **Per-person mics:** `map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben` compares level across the
+  lined-up mics over each word of ALIAS's transcript. Each mic is first scaled to its own speech, so a hot mic does not
+  win by gain. The mic clearly loudest over a word (by 6 dB, `--margin`) names its speaker. A word with no
+  clear winner stays unlabelled, and so do most words where people talk over each other. It says which mic heard a word
+  loudest, not who a person is: open mics in a small room or a person leaning into another's mic will mislabel words,
+  and a mic that hears everyone wins whatever the others hear faintly, so give each mic one person.
+- **An imported transcript:** `map.py run PROJECT --alias ALIAS --words import:FILE` keeps the speaker fields of
+  WhisperX, Deepgram, AssemblyAI, Rev, Amazon Transcribe, ElevenLabs Scribe and Google Speech-to-Text JSON and WebVTT
+  `<v Name>` tags. `map.py speakers PROJECT ALIAS --rename 0=Ana` gives them names. These follow each format's
+  documented shape and were tested on written examples, not on a recent export from each service.
+- **A person:** `map.py fix PROJECT WORD_ID --speaker Ana [--through WORD_ID]`, recorded in `decisions.jsonl` and kept
+  when `map.py speakers` runs again.
+- **One shared track:** `map.py speakers PROJECT ALIAS --shared --speakers 2 [--download]` is for a recording with no
+  per-person mics. It groups the transcript's words into stretches of talk, turns each into a voice embedding on this
+  machine, clusters them into the number of people you name and calls them `Speaker 1`, `Speaker 2`; `--rename` names
+  them. A stretch under 0.5 s, or about as near two voices as one, keeps no label. It needs onnxruntime and a model of
+  about 84 MB ([engines](engines.md)), which downloads only with `--download`; no audio leaves the machine. It cannot
+  count the speakers, and it cannot see a change of speaker inside a stretch of 2.5 s or less, so quick exchanges are
+  its weakest place. Use mics when there are mics: it is wrong about three times as often.
+
+Measured on the same three meetings, with each person's real headset as their mic (real bleed, real talk over talk) and
+the corpus's hand-timed words as the transcript. Spread is across meetings:
+
+| Method | People | Words | Labelled | Right, of the labelled |
+|---|---|---:|---:|---:|
+| Mics | 2 mics, the two who talk most | 6,246 | 93% | 97.5% (96.6 to 98.5) |
+| Mics | 4 mics | 6,908 | 88% | 96.8% (95.7 to 97.7) |
+| One track, far-field table mic | the two who talk most | 6,246 | 93% | 93.0% (91.6 to 94.2) |
+| One track, close mix | the two who talk most | 6,246 | 97% | 93.7% (91.4 to 96.6) |
+| One track, far-field table mic | 4 | 6,908 | 90% | 87.6% (86.3 to 89.6) |
+| One track, close mix | 4 | 6,908 | 95% | 90.4% (89.2 to 92.2) |
+
+One track's clusters were matched to people by the best mapping, as `--rename` does. Most of the mics' wrong labels fall
+on words where people overlap (about 1 in 100 or fewer elsewhere). A draft transcriber's word times are rougher than
+hand-timed ones, these are meetings and not podcasts, and the speech is one corpus's; a label is checked by a person
+because one word in 40, or one in 15, is still wrong.
+
+**A recorder with two mics in one file.** Each person's mic has to be its own source: split the channels first
+(`ffmpeg -i rec.wav -af "pan=mono|c0=c0" ana.wav`, and `c0=c1` for the other), then register both.

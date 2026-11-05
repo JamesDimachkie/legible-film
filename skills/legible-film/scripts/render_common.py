@@ -30,8 +30,8 @@ except ImportError as missing:
     project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
     sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
-COLOUR = ('scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,'
-          'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv')
+TAG_BT709 = 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv'
+COLOUR = 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,' + TAG_BT709
 LUT = np.arange(256, dtype=np.float32) / 255
 LUT = np.where(LUT <= 0.04045, LUT / 12.92, ((LUT + 0.055) / 1.055) ** 2.4)
 # H.264 Table A-1 MaxBR (kbit/s), MaxCPB (kbit), before the High-profile 1.25 factor.
@@ -195,14 +195,42 @@ def source_seek_safe(filename):
         return False
 
 
+# A stream's header and its decoded frames differ by a frame or two in a healthy file: decoding has stopped short only
+# when it falls more than this, and more than two and a half frames, before where it was expected to end.
+END_SLACK_S = 0.1
+
+
+def decoded_short(expected, decoded, frame=0.0):
+    """Whether decoding stopped measurably before `expected`."""
+    return expected - decoded > max(END_SLACK_S, 2.5 * frame)
+
+
+def picture_goes_on(ffprobe, filename, origin, moment):
+    """Whether the video stream still has a packet after a source time. A gap in a variable-rate source goes on; the
+    end of the picture does not. Reads packets, not frames, so a long source costs a demux and no decode."""
+    command = [ffprobe, '-v', 'quiet', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0']
+    if source_seek_safe(filename):
+        command[3:3] = ['-read_intervals', f'{origin + moment:.9f}']
+    try:
+        result = subprocess.run(command + [str(filename)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=1800)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('packet scan did not finish within 1800 seconds') from error
+    values = (line.strip(' ,') for line in result.stdout.splitlines())
+    return any(value.replace('.', '', 1).isdigit() and float(value) - origin > moment + 1e-6 for value in values)
+
+
 def presentation_frame_before(ffprobe, filename, origin, moment, through=None, return_seek=False):
-    """Find the covering frame, checking only selected frames for decoder error flags."""
+    """Find the covering frame, checking only selected frames for decoder error flags. A time past the last frame's
+    display is covered by nothing, however many frames come before it."""
     limit = max(1.0, moment + 1.0, (through if through is not None else moment) + 1.0)
-    seek = max(0.0, moment - 5.0) if source_seek_safe(filename) else 0.0
+    # FFmpeg reads from the keyframe at or before the seek, and an earlier frame found here is what is wanted.
+    seek = max(0.0, moment - 2.5) if source_seek_safe(filename) else 0.0
     while True:
         interval = (f'{origin + seek:.9f}' if seek else '') + f'%{origin + limit:.9f}'
         command = [ffprobe, '-v', 'error', '-select_streams', 'v:0', '-read_intervals', interval,
-                   '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time,decode_error_flags',
+                   '-show_frames', '-show_entries',
+                   'frame=best_effort_timestamp_time,decode_error_flags,duration_time,pkt_duration_time',
                    '-of', 'json', str(filename)]
         try:
             result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
@@ -213,9 +241,10 @@ def presentation_frame_before(ffprobe, filename, origin, moment, through=None, r
             raise ValueError('video decoder failed while resolving presentation frames: '
                              + result.stderr.strip()[-500:])
         try:
+            rows = [frame for frame in json.loads(result.stdout).get('frames', [])
+                    if 'best_effort_timestamp_time' in frame]
             frames = [(float(frame['best_effort_timestamp_time']) - origin, int(frame.get('decode_error_flags', 0)))
-                      for frame in json.loads(result.stdout).get('frames', [])
-                      if 'best_effort_timestamp_time' in frame]
+                      for frame in rows]
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             raise ValueError('invalid frame timestamp or decoder error flags') from error
         frames = [(time, flags) for time, flags in frames if math.isfinite(time)]
@@ -225,6 +254,16 @@ def presentation_frame_before(ffprobe, filename, origin, moment, through=None, r
             continue
         if earlier:
             selected = max(earlier)
+            if selected == frames[-1][0]:
+                last = rows[-1]
+                try:
+                    held = float(last.get('duration_time', last.get('pkt_duration_time', 0)))
+                except (TypeError, ValueError):
+                    held = 0.0
+                reach = selected + max(held, selected - frames[-2][0] if len(frames) > 1 else 0.0)
+                if moment >= reach - 1e-6 and not picture_goes_on(ffprobe, filename, origin, moment):
+                    raise ValueError(f'no picture frame covers source time {moment:.6f} in {filename}: the picture '
+                                     f'ends at {reach:.6f} s; choose an earlier in-point')
         elif frames and 0 <= frames[0][0] - moment <= .5 + 1e-6:
             selected = frames[0][0]
         else:
@@ -343,9 +382,10 @@ def auto_level(w, h, fps):
     raise ValueError('size/rate exceeds supported H.264 levels')
 
 
-def h264_args(w, h, fps, crf=14, level=None, preview=False):
+def h264_args(w, h, fps, crf=14, level=None, preview=False, threads=1):
     """FFmpeg output options for the delivery H.264 encode from RGB input: BT.709 matrix and tags, High
-    profile, an explicit level with its VBV limits, closed two-second GOPs and fast start."""
+    profile, an explicit level with its VBV limits, closed two-second GOPs and fast start. One encoder thread
+    unless asked: film and motion renders run several encoders side by side."""
     if w % 2 or h % 2:
         raise ValueError(f'H.264 4:2:0 needs even dimensions, not {w}x{h}')
     level = str(level or auto_level(w, h, fps))
@@ -360,7 +400,7 @@ def h264_args(w, h, fps, crf=14, level=None, preview=False):
             'veryfast' if preview else 'slow', '-crf', str(crf), '-level:v', level,
             '-maxrate', str(maxrate * 1250), '-bufsize', str(bufsize * 1250),
             '-g', str(max(1, round(fps * 2))), '-flags', '+cgop', '-x264-params', 'open-gop=0',
-            '-threads', '1', '-movflags', '+faststart', '-f', 'mp4']
+            '-threads', str(threads), '-movflags', '+faststart', '-f', 'mp4']
 
 
 def output_size(w, h, res=None):
@@ -411,22 +451,31 @@ def exact_rate(value):
 
 
 class Encoder:
-    def __init__(self, ffmpeg, path, w, h, fps, crf=14, level=None, preview=False, lossless=False):
+    def __init__(self, ffmpeg, path, w, h, fps, crf=14, level=None, preview=False, lossless=False, threads=1,
+                 pixels='rgb24', options=None):
+        """Encode raw frames fed through write or write_raw: `pixels` names their format and `options`, given,
+        replaces the output options."""
         self.log = tempfile.TemporaryFile()
         rate = exact_rate(fps)
-        cmd = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24',
+        cmd = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', pixels,
                '-s', f'{w}x{h}', '-r', f'{rate.numerator}/{rate.denominator}', '-i', 'pipe:0', '-an']
-        if lossless:
+        if options is not None:
+            cmd += options
+        elif lossless:
             # FFV1 in Matroska preserves all RGB bytes (no YUV subsampling or matrix round-trip).
             cmd += ['-c:v', 'ffv1', '-level', '3', '-pix_fmt', 'bgr0', '-threads', '1', '-f', 'matroska']
         else:
-            cmd += h264_args(w, h, fps, crf, level, preview)
+            cmd += h264_args(w, h, fps, crf, level, preview, threads)
         self.command = cmd + [str(path)]
         self.proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self.log)
 
     def write(self, rgb):
+        self.write_raw(rgb.tobytes())
+
+    def write_raw(self, frame):
+        """Send one frame's bytes, already in the encoder's pixel format."""
         try:
-            self.proc.stdin.write(rgb.tobytes())
+            self.proc.stdin.write(frame)
         except BrokenPipeError:
             self.close()
             raise RuntimeError('encoder pipe closed')
@@ -461,7 +510,7 @@ class Encoder:
 
 
 def decoded_count(ffprobe, path):
-    r = subprocess.run([ffprobe, '-v', 'error', '-count_frames', '-select_streams', 'v:0',
+    r = subprocess.run([ffprobe, '-v', 'error', '-threads', '8', '-count_frames', '-select_streams', 'v:0',
                         '-show_entries', 'stream=nb_read_frames', '-of', 'json', str(path)], capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError('output could not be decoded: ' + r.stderr[-500:])

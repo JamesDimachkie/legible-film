@@ -40,11 +40,12 @@ jobs:
         if: runner.os == 'Windows'
         run: choco install ffmpeg -y --no-progress
       - name: Python packages
-        run: python -m pip install numpy Pillow
-      # Linux also runs the tracking cases (OpenCV); Windows and macOS keep the minimal install, where they skip.
+        run: python -m pip install -c skills/legible-film/scripts/constraints.txt numpy Pillow
+      # Linux also runs the tracking cases (OpenCV); Windows and macOS keep the minimal install, where they skip. The
+      # headless build has the version users get, and needs no display libraries on the runner.
       - name: Optional OpenCV (Linux)
         if: runner.os == 'Linux'
-        run: python -m pip install "opencv-python-headless>=4.8,<5"
+        run: python -m pip install -c skills/legible-film/scripts/constraints.txt opencv-python-headless
       - name: FFmpeg version
         run: ffmpeg -hide_banner -version
       - name: Self-test
@@ -60,7 +61,7 @@ jobs:
       - name: Install FFmpeg 5.1 (Debian 12)
         run: apt-get update && apt-get install -y ffmpeg
       - name: Python packages
-        run: python -m pip install numpy Pillow
+        run: python -m pip install -c skills/legible-film/scripts/constraints.txt numpy Pillow
       - name: FFmpeg version
         run: ffmpeg -hide_banner -version
       - name: Self-test on the oldest supported Python and FFmpeg
@@ -81,16 +82,51 @@ jobs:
       - name: Install FFmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: Python packages
-        run: python -m pip install numpy Pillow
-      - name: Playwright and Chromium
+        run: python -m pip install -c skills/legible-film/scripts/constraints.txt numpy Pillow
+      - name: Playwright and Chromium, at the version setup.py pins
         run: |
+          version="$(sed -n "s/^PLAYWRIGHT_CORE = '\(.*\)'$/\1/p" skills/legible-film/scripts/setup.py)"
           mkdir -p "$RUNNER_TEMP/pw"
           cd "$RUNNER_TEMP/pw"
           npm init -y > /dev/null
-          npm install playwright@1.64.1
-          npx playwright install --with-deps chromium
+          npm install "playwright-core@$version"
+          npx playwright-core install --with-deps chromium
       - name: Kit self-test (capture, motion blur, colour, sizes)
-        run: python skills/legible-film/scripts/kit_selftest.py --require --playwright "$RUNNER_TEMP/pw/node_modules/playwright"
+        run: python skills/legible-film/scripts/kit_selftest.py --require --playwright "$RUNNER_TEMP/pw/node_modules/playwright-core"
+
+  # What setup.py installs from constraints.txt, on each system and on the oldest and the main Python, then what the
+  # scripts need from each package. No model is downloaded. The Actions Python 3.9 has no macOS arm64 build.
+  pins:
+    name: pinned packages (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event.repository.private && github.event_name != 'workflow_dispatch'
+              && '["ubuntu-latest", "windows-latest"]'
+              || '["ubuntu-latest", "macos-latest", "windows-latest"]') }}
+        python: ["3.9", "3.12"]
+        exclude:
+          - os: macos-latest
+            python: "3.9"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
+        with:
+          python-version: ${{ matrix.python }}
+      # libgl1 is what opencv-python, the build users get, needs on a machine with no desktop.
+      - name: Install FFmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - name: Install every group through setup.py and check the packages
+        run: python .github/scripts/extras_check.py
 
   docs:
     runs-on: ubuntu-latest
@@ -100,7 +136,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Python packages
-        run: python -m pip install numpy Pillow
+        run: python -m pip install -c skills/legible-film/scripts/constraints.txt numpy Pillow
       - name: Links, anchors, scripts named in the docs, and the personal-path gate
         run: python .github/scripts/check_docs.py
         env:

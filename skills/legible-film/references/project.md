@@ -17,6 +17,7 @@ Contents: [1. Layout](#1-layout) · [2. Sources and the map](#2-sources-and-the-
   audio/                conform, mixer and listening outputs, never beside a page
   brief.md              optional: who it is for, where it plays, what was promised
   map/sources.json      every source: alias, path, hash, probe, role
+  map/sync.json         where each recording of a conversation sits against one reference (references/footage.md §14)
   map/<alias>/          words.json, shots.json, audio.json and contact sheets for one source
   spatial/<name>.json   a track or matte layer bound to one source, its frames beside it (references/spatial.md)
   cuts/v001/ ...        one folder per rendered version; its rendered media and compiled edit never change
@@ -46,9 +47,9 @@ may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
    "audio": {"channels": 2, "rate": 48000}, "mapped": {"words": true, "shots": true, "audio": true}}]}
 ```
 
-- **Aliases** are a role and a number (`int_01`, `broll_04`, `screen_02`, `music_01`, `still_03`, `vo_01`), never a
-  file name: file names often carry people's names, and an alias stays the same when a file moves. Roles: interview,
-  broll, screen, music, sfx, vo, still, other.
+- **Aliases** are a role and a number (`int_01`, `cam_02`, `mic_01`, `broll_04`, `screen_02`, `music_01`, `still_03`,
+  `vo_01`), never a file name: file names often carry people's names, and an alias stays the same when a file moves.
+  Roles: interview, camera, mic, broll, screen, music, sfx, vo, still, other.
 - `path` points at the file where it already is: relative to the project folder when the file is inside it,
   otherwise the absolute local path. Media is not copied (`map.py add --copy` makes alias-named copies for a
   self-contained project). Paths stay in this local file and the Screening Room shows aliases only; review packets and reports
@@ -80,7 +81,9 @@ may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
 - Times are source seconds. A word ID is the source alias and the word's position in that transcript, so it is stable
   for that `words.json`; a new transcription makes new IDs, recorded by `engine`.
 - `estimated: true` marks a word whose edges were not measured (split from a longer segment). Empty transcript rows
-  are dropped, never kept as words. `speaker` stays null unless a source states it.
+  are dropped, never kept as words. `speaker` stays null until an imported transcript, the mics (`map.py speakers`) or
+  a person (`map.py fix WORD_ID --speaker NAME`) sets it; `speaker_labels` says how, and a label is a draft until a
+  person reads it ([footage](footage.md) §14).
 - A transcript, once written, is kept: rerunning the map never replaces it (a person may have corrected it). Replace
   one deliberately with `map.py run PROJECT --alias ALIAS --retranscribe ALIAS`; `--words import:FILE` needs exactly
   one `--alias`. When a file moves, `map.py relink PROJECT ALIAS PATH` checks its hash and keeps its alias.
@@ -102,9 +105,17 @@ may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
   whether a transcript is present, not whether it is accurate. `map.py run PROJECT` rehashes the source. Complete
   pre-versioned v1 maps are reused and labeled; `--rebuild` regenerates map outputs. Transcripts remain protected
   unless explicitly retranscribed.
+- A source's `ends` records, for `picture` and `sound`, what the stream's own header claims (`header`), how far it
+  really decodes (`decoded`, from the decodes mapping does anyway) and the end a line may use (`usable`: the header's,
+  unless decoding stopped more than 0.1 s and two and a half frames before it). A file cut short keeps its header, so
+  `map.py run` warns on every run and exits 1, `duration_s` becomes the usable length, and `cut.py check` refuses a line
+  past it. A map without `ends` keeps working, and `--rebuild` adds them.
 - A source's `audio` records the chosen stream: its absolute index, language, layout and start. Mapping,
   transcription, cutting and checks all use that stream; choosing another (`--stream`) for a source that already
-  has a transcript needs `--retranscribe`.
+  has a transcript needs `--retranscribe`. With several sound streams, `map.py run` measures each, prints its level
+  and keeps them in `audio_streams`. When the stream it would use is digitally silent and another has sound (a
+  recorder that flags an empty track as the default), it uses the one with sound and prints the `--stream` command
+  that overrides it; a stream named with `--stream` stays chosen (`audio_stream_chosen`), with a warning instead.
 
 `map/<alias>/shots.json`: `{"version": 1, "source": "…", "shots": [{"start": 0.0, "end": 4.2, "sheet": "sheet-01.jpg",
 "tile": 3}], "sampled": false}`. Sheets hold up to 60 tiles each and cover every shot up to 600; above that the
@@ -115,10 +126,11 @@ have no `effects` until `map.py run --rebuild`.
 `map/<alias>/audio.json`: `{"version": 1, "source": "…", "integrated_lufs": -23.1, "levels_db":
 {"step_s": 0.25, "values": […]}, "silences": [{"start": 3.1, "end": 4.6}]}`.
 
-Transcription runs locally: faster-whisper when it is installed (`setup.py --install transcription`; the `small`
-model by default, `--quality best` for large-v3-turbo), otherwise FFmpeg's whisper filter with a downloaded model
-(less accurate, word edges estimated), or an imported transcript. A model not yet on this machine is downloaded
-only with `--download` (its size is named first); without it the run stops and keeps any existing transcript.
+Transcription runs locally: faster-whisper when it is installed (`setup.py --install transcription`, and `--download`
+for the `small` model, the default; `--quality best` for large-v3-turbo), otherwise FFmpeg's whisper filter with a
+downloaded model (less accurate, word edges estimated), or an imported transcript. A model not yet on this machine is
+downloaded only with `--download` (its size is named first); without it the run stops and keeps any existing
+transcript.
 Nothing is uploaded.
 
 ## 3. The paper edit
@@ -190,7 +202,9 @@ scorecard derived from them may be refreshed and replaced:
   "duration_s": 45.0, "size": [1080, 1920], "fps": "30", "film_md_sha256": "…", "files": {"preview.mp4": "<sha256>"},
   "notes_resolved": ["n4"], "sources": {"int_01": {"path": "…", "bytes": 1234, "sha256": "…", "video_stream": 0,
   "audio_stream": 1, "words_sha256": "…"}}}`. `sources` records every mapped source the version used as the map had
-  it at render time, so a later re-map or a replaced file is visible against the version.
+  it at render time, so a later re-map or a replaced file is visible against the version. `picture_path` says which way
+  the picture was drawn (`ffmpeg`, or `every-frame` with the reason; see [finishing](finishing.md#1-render-custody)), and
+  `hdr_sources` names any source converted from HDR, for which `check.py` asks for a look at the highlights.
 - `film.md` as compiled, `edit.json` (the timeline `assemble.py` renders), `lines.json` (each paper-edit line's place
   in edit time: `{"line": 12, "section": "Why", "kind": "spoken", "source": "int_01", "start": 6.0, "end": 10.6,
   "jump_cuts": [8.1], "words": [{"id": "int_01-w000412", "text": "So", "start": 6.02, "end": 6.18}]}`; a cutaway also
@@ -321,7 +335,12 @@ the transcript hears is checked against the whole caption timeline, differences 
 `look`, so it passes only when every transcribed word is in a caption; `skip` with the install line without
 faster-whisper). `captions_speech` is the only item that compares captions with the sound, and its agreement is a
 screen, not proof: a transcript can mishear. Report its differences for review, and have a person check every
-caption against the audio. On a final file, `loudness` (against the destination's target only when one is named)
+caption against the audio. A caption file with no captions on a film with sound is a `look` in `captions_rules` (a
+`fail` when the delivery settings require captions; `captions: none` in `film.md` means no caption items at all), and
+a transcript with no words is `skip` unless the sound measures as silence, so "no speech was heard" is only ever
+said of silence. Every sound check reads the stream a player plays by default; a file with several gets
+`audio_streams`, which says which it read and names the others with their levels, and is a `look` when that stream is
+silent and another has sound. On a final file, `loudness` (against the destination's target only when one is named)
 and `true_peak` (after a lossy re-encode; `skip` with the diagnostic when it could not be measured, `fail` when the
 original already exceeds −1 dBTP) are separate items. Each run writes to a fresh folder and copies only what it
 produced into `qa/` (`qa/final-*` for a final file): a scanner that crashed, lacked a dependency or wrote no report is

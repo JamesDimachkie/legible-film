@@ -388,7 +388,8 @@ def doctor(a, sizes, need_aac=True):
             m = importlib.import_module(module)
             add(package, True, getattr(m, '__version__', 'installed'))
         except ImportError:
-            add(package, False, f'not importable by {sys.executable}', f'"{sys.executable}" -m pip install {package}')
+            add(package, False, f'not importable by {sys.executable}',
+                P.python_command([HERE / 'setup.py', '--install', 'core']))
     ffmpeg, ffprobe = find_tool('ffmpeg', a.ffmpeg), find_tool('ffprobe', a.ffprobe)
     for name, exe in (('FFmpeg', ffmpeg), ('ffprobe', ffprobe)):
         if not exe:

@@ -78,9 +78,348 @@ def check_reviews_bound_to_file(record, j, scripts_dir):
            and finals.get('heard') == 'you', str(finals))
 
 
+def check_missing_tool_claim(record, j, scripts_dir):
+    """A file FFmpeg cannot read is not a missing FFmpeg: that is said only when FFmpeg really cannot be found."""
+    module, error = load_module(scripts_dir, 'check')
+    if module is None:
+        record('check: "moov atom not found" is not called a missing FFmpeg', False, error)
+        return
+    damaged = ('ffprobe failed: [mov,mp4,m4a,3gp,3g2,mj2 @ 000] moov atom not found\n'
+               'nomoov.mp4: Invalid data found when processing input')
+    present = module.why_not_run('qc_file.py', 2, damaged)
+    original = module.shutil.which
+    module.shutil.which = lambda name, *args, **options: None
+    try:
+        absent = module.why_not_run('qc_file.py', 2, 'ffmpeg: not found')
+    finally:
+        module.shutil.which = original
+    record('check: "moov atom not found" is not called a missing FFmpeg, and a missing FFmpeg still is',
+           'was not found' not in present and 'Invalid data' in present and 'FFmpeg was not found' in absent,
+           present + ' | ' + absent)
+    folder = Path(j('check-no-moov'))
+    folder.mkdir(parents=True, exist_ok=True)
+    broken = folder / 'no-moov.mp4'
+    broken.write_bytes(bytes.fromhex('00000018') + b'ftypisom' + bytes(4000))
+    done = subprocess.run([sys.executable, '-I', str(Path(scripts_dir) / 'check.py'), '--file', str(broken)],
+                          capture_output=True, text=True, encoding='utf-8', errors='replace')
+    record('check: a file with no index exits 2 and does not ask for FFmpeg to be installed',
+           done.returncode == 2 and 'install FFmpeg' not in done.stderr and 'could not run' in done.stderr,
+           done.stderr[-300:])
+
+
+def check_empty_captions(tool, record, j, scripts_dir):
+    """An empty sidecar on a file with sound is never ok, and a transcript with no words of measurable sound is not
+    assessed, never "no speech was heard"."""
+    spec = importlib.util.spec_from_file_location('lf_project_empty', os.path.join(scripts_dir, 'project.py'))
+    project = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(project)
+    folder = Path(j('check-empty-captions'))
+    folder.mkdir(parents=True, exist_ok=True)
+    video = folder / 'export.mp4'
+    make_video(video, 'testsrc2=s=320x180:r=30')
+    empty, words = folder / 'empty.srt', folder / 'words.json'
+    empty.write_bytes(b'')
+    words.write_text(json.dumps({'words': [], 'media': {'sha256': file_sha(video)}}), encoding='utf-8')
+
+    def checked(name, path=video, *extra):
+        out = folder / (name + '.json')
+        code, output = tool('check.py', '--file', path, '--captions', empty, '--speech-words', words, *extra,
+                            '--json', out)
+        return code, by_id(checks_at(out)), output
+
+    code, found, output = checked('plain')
+    rules, speech = found.get('captions_rules', {}), found.get('captions_speech', {})
+    record('check: an empty sidecar on a file with sound is a look, not "0 captions follow the reading rules"',
+           code == 1 and rules.get('state') == 'look' and 'empty' in rules.get('label', '')
+           and 'empty.srt' in rules.get('detail', ''), str(rules) + output[-300:])
+    record('check: a transcript with no words of measurable sound is not assessed, never "no speech was heard"',
+           speech.get('state') == 'skip' and speech.get('label', '').startswith('Not assessed')
+           and 'no speech was heard' not in output and 'LUFS' in speech.get('detail', ''), str(speech))
+    record('check: an empty sidecar does not read as following the edit, or ask a person to check its names',
+           found.get('captions_edit', {}).get('state') == 'skip' and 'names' not in found,
+           str(found.get('captions_edit')))
+    required = folder / 'delivery.json'
+    required.write_text(json.dumps({'captions_required': True}), encoding='utf-8')
+    code, found, output = checked('required', video, '--delivery', str(required))
+    record('check: an empty sidecar fails when the delivery settings require captions',
+           code == 1 and found.get('captions_rules', {}).get('state') == 'fail'
+           and 'required' in found.get('captions_rules', {}).get('label', ''), str(found.get('captions_rules')))
+    empty.write_text('  \n\n', encoding='utf-8')
+    _, found, _ = checked('blank')
+    record('check: a sidecar of blank lines is an empty sidecar',
+           found.get('captions_rules', {}).get('state') == 'look', str(found.get('captions_rules')))
+    silent = folder / 'silent.mp4'
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30:d=2', '-f', 'lavfi',
+                    '-i', 'anullsrc=r=48000:cl=stereo', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                    '-c:a', 'aac', str(silent)], check=True)
+    words.write_text(json.dumps({'words': [], 'media': {'sha256': file_sha(silent)}}), encoding='utf-8')
+    empty.write_bytes(b'')
+    _, found, _ = checked('silent', silent)
+    speech = found.get('captions_speech', {})
+    record('check: on sound that measures as silence, no words and no captions are measured facts, not gaps',
+           found.get('captions_rules', {}).get('state') == 'pass' and speech.get('state') == 'pass'
+           and 'no speech was heard' in speech.get('detail', '') and 'silence' in speech.get('detail', ''), str(speech))
+
+    root, version = make_version(project, j('check-empty-project'), '')
+    code, output = tool('check.py', root, '--no-speech')
+    found = read_checks(version)
+    record('check: a project version with sound and an empty captions.srt is a look',
+           code == 1 and found.get('captions_rules', {}).get('state') == 'look'
+           and 'captions.srt' in found.get('captions_rules', {}).get('detail', ''),
+           str(found.get('captions_rules')) + output[-300:])
+    film = version / 'film.md'
+    film.write_text(film.read_text(encoding='utf-8').replace('fps: 30', 'fps: 30\ncaptions: none'), encoding='utf-8')
+    code, output = tool('check.py', root, '--no-speech')
+    record('check: a film that says captions: none has no caption items', 'captions_rules' not in read_checks(version),
+           str(read_checks(version).get('captions_rules')) + output[-200:])
+    final = version / 'final-empty.srt'
+    final.write_bytes(b'')
+    code, output = tool('check.py', root, '--final', version / 'preview.mp4', '--captions', final, '--no-speech')
+    found = read_checks(version, 'checks-final.json')
+    record('check: a project final with an empty sidecar is a look, not a pass',
+           found.get('captions_rules', {}).get('state') == 'look', str(found.get('captions_rules')) + output[-300:])
+    speech = speech_with(scripts_dir, j('check-empty-no-words'), '1\n00:00:00,000 --> 00:00:01,500\nHello there\n', [])
+    record('check: captions over a transcript with no words are a look, not a match',
+           speech.get('state') == 'look', str(speech))
+    code, output = tool('captions.py', 'check', empty, '--words', words, '--strict')
+    record('captions: --strict does not call an empty file against no words complete',
+           code == 1 and '"complete": false' in output, output[-300:])
+
+
+def edit_source(folder):
+    """20 s whose every 1.5 s of picture and sound is unlike the rest: random blocks that drift, and noise bands whose
+    level changes every fifth of a second. A wrong passage cannot pass for the right one by chance."""
+    import numpy as np
+    import wave
+    folder = Path(folder)
+    rng = np.random.default_rng(22)
+    width, height, rate, seconds = 320, 180, 12, 20
+    frames = bytearray()
+    for shot in range(int(seconds / 1.5) + 1):
+        blocks = rng.integers(30, 225, (9, 16, 3), dtype=np.uint8)
+        picture = np.repeat(np.repeat(blocks, 20, axis=0), 20, axis=1)
+        for number in range(18):
+            frames += np.roll(picture, number, axis=1).tobytes()
+    frames = bytes(frames[:width * height * 3 * rate * seconds])
+    samples = np.zeros(48000 * seconds)
+    for start in range(0, len(samples), 9600):
+        noise = rng.normal(0, 1, 9600)
+        spectrum = np.fft.rfft(noise)
+        low, high = sorted(rng.integers(20, 2400, 2))
+        spectrum[:low] = 0
+        spectrum[high + 200:] = 0
+        burst = np.fft.irfft(spectrum, n=9600)
+        samples[start:start + 9600] = burst / (np.abs(burst).max() + 1e-9) * rng.uniform(.05, .5)
+    wav = folder / 'source.wav'
+    with wave.open(str(wav), 'wb') as stream:
+        stream.setnchannels(1)
+        stream.setsampwidth(2)
+        stream.setframerate(48000)
+        stream.writeframes((samples * 32767).astype('<i2').tobytes())
+    source = folder / 'source.mp4'
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{width}x{height}',
+                    '-r', str(rate), '-i', '-', '-i', str(wav), '-map', '0:v', '-map', '1:a', '-c:v', 'libx264',
+                    '-crf', '16', '-pix_fmt', 'yuv420p', '-bsf:v', TAGS, '-c:a', 'aac', '-b:a', '192k', '-movflags',
+                    '+faststart', str(source)], input=frames, check=True, capture_output=True)
+    return source, wav
+
+
+def check_edit_content(tool, record, j):
+    """A quick edit is compared with its source where that is cheap, tolerant of re-encoding and scaling: confident
+    disagreement is a fail, too little to compare is not assessed, and an edit kind that cannot be compared says so."""
+    folder = Path(j('check-edit-content'))
+    folder.mkdir(parents=True, exist_ok=True)
+    source, wav = edit_source(folder)
+
+    def make(name, *args):
+        path = folder / name
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', *map(str, args), str(path)], check=True, capture_output=True)
+        return path
+
+    def checked(path, edit):
+        out = folder / (Path(path).stem + '-' + edit.split(':')[0] + '.json')
+        code, output = tool('check.py', '--file', path, '--against', source, '--edit', edit, '--no-speech',
+                            '--json', out)
+        return code, by_id(checks_at(out)), output
+
+    tone = make('wrong.wav', '-f', 'lavfi', '-i', 'sine=frequency=330:sample_rate=48000:duration=20')
+    code, found, output = checked(tone, 'extract-audio')
+    record('quick edits: a tone passed off as the extracted audio fails, naming what it compared',
+           code == 1 and found.get('edit_audio', {}).get('state') == 'fail'
+           and 'differs' in found['edit_audio']['detail'], str(found.get('edit_audio')) + output[-200:])
+    silent = make('silent.wav', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '20')
+    code, found, output = checked(silent, 'extract-audio')
+    record('quick edits: silence passed off as the extracted audio fails',
+           found.get('edit_audio', {}).get('state') == 'fail', str(found.get('edit_audio')))
+    other = make('other.wav', '-ss', 5, '-i', wav, '-af', 'apad', '-t', '20')
+    code, found, output = checked(other, 'extract-audio')
+    record('quick edits: another passage passed off as the extracted audio fails',
+           found.get('edit_audio', {}).get('state') == 'fail', str(found.get('edit_audio')))
+    for name, *options in (('right.m4a', '-c:a', 'aac', '-b:a', '128k'), ('right.wav', '-c:a', 'pcm_s16le'),
+                           ('right-low.m4a', '-ac', '1', '-c:a', 'aac', '-b:a', '24k')):
+        right = make(name, '-i', source, '-vn', *options)
+        code, found, output = checked(right, 'extract-audio')
+        wanted = ('pass', 'skip') if 'low' in name else ('pass',)
+        record(f'quick edits (control): the real audio, {name}, raises no false alarm in extract-audio',
+               found.get('edit_audio', {}).get('state') in wanted, str(found.get('edit_audio')) + output[-200:])
+
+    def clip(name, picture, sound, *options):
+        """6 s of output, with its picture and sound from the given source times."""
+        return make(name, '-ss', picture, '-t', 6, '-i', source, '-ss', sound, '-t', 6, '-i', source,
+                    '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'libx264', '-crf', '20', '-pix_fmt', 'yuv420p',
+                    '-bsf:v', TAGS, '-c:a', 'aac', *options)
+
+    code, found, output = checked(clip('trim-right.mp4', 2, 2), 'trim:2,8')
+    record('quick edits (control): a correct trim passes on picture and sound',
+           found.get('edit_picture', {}).get('state') == 'pass'
+           and found.get('edit_trim_content_offset', {}).get('state') == 'pass',
+           str(found.get('edit_picture')) + str(found.get('edit_trim_content_offset')))
+    low = make('trim-low.mp4', '-ss', 2, '-t', 6, '-i', source, '-vf', 'scale=160:-2,fps=8', '-c:v', 'libx264', '-b:v',
+               '40k', '-pix_fmt', 'yuv420p', '-bsf:v', TAGS, '-ac', '1', '-c:a', 'aac', '-b:a', '24k')
+    code, found, output = checked(low, 'trim:2,8')
+    record('quick edits (control): a correct trim scaled and re-encoded at a low bitrate raises no false alarm',
+           found.get('edit_picture', {}).get('state') == 'pass'
+           and found.get('edit_trim_content_offset', {}).get('state') in ('pass', 'skip'),
+           str(found.get('edit_picture')) + str(found.get('edit_trim_content_offset')))
+    code, found, output = checked(clip('trim-wrong-picture.mp4', 10, 2), 'trim:2,8')
+    record('quick edits: the right sound over picture from 10-16 s fails on the picture, naming the frames',
+           code == 1 and found.get('edit_picture', {}).get('state') == 'fail'
+           and found.get('edit_trim_content_offset', {}).get('state') == 'pass'
+           and 'do not match' in found['edit_picture']['detail'], str(found.get('edit_picture')))
+    code, found, output = checked(clip('trim-wrong-both.mp4', 10, 10), 'trim:2,8')
+    sound = found.get('edit_trim_content_offset', {})
+    record('quick edits: picture and sound both from 10-16 s fail on both, not "too few confident windows"',
+           code == 1 and found.get('edit_picture', {}).get('state') == 'fail' and sound.get('state') == 'fail'
+           and 'differs' in sound.get('detail', '') and 'too few' not in sound.get('detail', ''), str(sound))
+    code, found, output = checked(clip('trim-offset.mp4', 2, 2.15), 'trim:2,8')
+    record('quick edits: a real offset is still called an offset, not different content',
+           found.get('edit_trim_content_offset', {}).get('state') == 'fail'
+           and 'offset' in found.get('edit_trim_content_offset', {}).get('detail', ''),
+           str(found.get('edit_trim_content_offset')))
+    shaped = make('trim-reframed.mp4', '-ss', 2, '-t', 6, '-i', source, '-vf', 'crop=101:180', '-c:v', 'libx264',
+                  '-pix_fmt', 'yuv420p', '-bsf:v', TAGS, '-c:a', 'aac')
+    code, found, output = checked(shaped, 'trim:2,8')
+    record('quick edits (control): a trim that also reframes is not assessed on its picture, never a false alarm',
+           found.get('edit_picture', {}).get('state') == 'skip'
+           and found['edit_picture']['label'].startswith('Not assessed: content'), str(found.get('edit_picture')))
+    black = make('black.mp4', '-f', 'lavfi', '-i', 'color=black:s=320x180:r=12:d=20', '-f', 'lavfi', '-i',
+                 'sine=frequency=440:sample_rate=48000:duration=20', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                 '-bsf:v', TAGS, '-c:a', 'aac', '-shortest', '-movflags', '+faststart')
+    flat = make('black-trim.mp4', '-ss', 2, '-t', 6, '-i', black, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                '-bsf:v', TAGS, '-c:a', 'aac')
+    out = folder / 'flat.json'
+    code, output = tool('check.py', '--file', flat, '--against', black, '--edit', 'trim:2,8', '--no-speech',
+                        '--json', out)
+    found = by_id(checks_at(out))
+    record('quick edits: flat picture and a steady tone are too little to compare: not assessed, never fail',
+           found.get('edit_picture', {}).get('state') == 'skip'
+           and found['edit_picture']['label'].startswith('Not assessed: content')
+           and found.get('edit_trim_content_offset', {}).get('state') == 'skip',
+           str(found.get('edit_picture')) + str(found.get('edit_trim_content_offset')))
+    detail = make('detail-over-flat.mp4', '-ss', 10, '-t', 6, '-i', source, '-map', '0:v:0', '-c:v', 'libx264',
+                  '-pix_fmt', 'yuv420p', '-bsf:v', TAGS)
+    out = folder / 'detail-flat.json'
+    tool('check.py', '--file', detail, '--against', black, '--edit', 'trim:2,8', '--no-speech', '--json', out)
+    record('quick edits: a picture where its source is flat black fails',
+           by_id(checks_at(out)).get('edit_picture', {}).get('state') == 'fail',
+           str(by_id(checks_at(out)).get('edit_picture')))
+
+    fast = make('speed.mp4', '-i', source, '-filter_complex', '[0:v]setpts=0.5*PTS[v];[0:a]atempo=2[a]', '-map', '[v]',
+                '-map', '[a]', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-bsf:v', TAGS, '-c:a', 'aac')
+    code, found, output = checked(fast, 'speed:0.5')
+    record('quick edits (control): a correct speed change passes on the picture, and says the sound was not compared',
+           found.get('edit_picture', {}).get('state') == 'pass' and found.get('edit_audio', {}).get('state') == 'skip'
+           and found['edit_audio']['label'].startswith('Not assessed: content'), str(found.get('edit_audio')))
+    wrong_fast = make('speed-wrong.mp4', '-ss', 4, '-i', source, '-filter_complex',
+                      '[0:v]setpts=0.5*PTS[v];[0:a]atempo=2[a]', '-map', '[v]', '-map', '[a]', '-t', 10, '-c:v',
+                      'libx264', '-pix_fmt', 'yuv420p', '-bsf:v', TAGS, '-c:a', 'aac')
+    code, found, output = checked(wrong_fast, 'speed:0.5')
+    record('quick edits: a speed change from the wrong place fails on the picture',
+           found.get('edit_picture', {}).get('state') == 'fail', str(found.get('edit_picture')))
+
+    small = make('compress.mp4', '-i', source, '-vf', 'scale=200:-2', '-c:v', 'libx264', '-b:v', '60k', '-pix_fmt',
+                 'yuv420p', '-bsf:v', TAGS, '-c:a', 'aac', '-b:a', '32k', '-movflags', '+faststart')
+    code, found, output = checked(small, 'compress')
+    record('quick edits (control): a correct compress at a low bitrate raises no false alarm on picture or sound',
+           found.get('edit_picture', {}).get('state') == 'pass'
+           and found.get('edit_audio', {}).get('state') in ('pass', 'skip'),
+           str(found.get('edit_picture')) + str(found.get('edit_audio')))
+    other = make('compress-wrong.mp4', '-ss', 5, '-i', source, '-vf', 'tpad=stop_mode=clone:stop_duration=5', '-af',
+                 'apad', '-t', 20, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-bsf:v', TAGS, '-c:a', 'aac')
+    code, found, output = checked(other, 'compress')
+    record('quick edits: a compress of the wrong passage fails on picture and sound',
+           found.get('edit_picture', {}).get('state') == 'fail' and found.get('edit_audio', {}).get('state') == 'fail',
+           str(found.get('edit_picture')) + str(found.get('edit_audio')))
+    converted = make('convert.mkv', '-i', source, '-c:v', 'mpeg4', '-q:v', '12', '-c:a', 'aac')
+    code, found, output = checked(converted, 'convert')
+    record('quick edits (control): a correct convert passes on picture and sound',
+           found.get('edit_picture', {}).get('state') == 'pass' and found.get('edit_audio', {}).get('state') == 'pass',
+           str(found.get('edit_picture')) + str(found.get('edit_audio')))
+    gif = make('convert.gif', '-i', source, '-an', '-vf', 'fps=8,scale=160:-1')
+    code, found, output = checked(gif, 'convert')
+    record('quick edits (control): a correct GIF passes on picture, and says it carries no sound to compare',
+           found.get('edit_picture', {}).get('state') == 'pass' and found.get('edit_audio', {}).get('state') == 'skip'
+           and found['edit_audio']['label'].startswith('Not assessed: content'),
+           str(found.get('edit_picture')) + str(found.get('edit_audio')))
+    reframed = make('reframe.mp4', '-i', source, '-vf', 'crop=101:180,scale=406:720', '-c:v', 'libx264', '-pix_fmt',
+                    'yuv420p', '-bsf:v', TAGS, '-c:a', 'copy')
+    code, found, output = checked(reframed, 'reframe')
+    record('quick edits: a reframe keeps its sound compared and says plainly the picture was not',
+           found.get('edit_audio', {}).get('state') == 'pass' and found.get('edit_picture', {}).get('state') == 'skip'
+           and 'Not assessed: content' in output, str(found.get('edit_picture')) + str(found.get('edit_audio')))
+    code, found, output = checked(make('captions.mkv', '-i', source, '-c', 'copy'), 'captions')
+    record('quick edits: a captions edit compares its packets, as content that must not change',
+           found.get('edit_video', {}).get('state') == 'pass' and found.get('edit_audio', {}).get('state') == 'pass',
+           str(found.get('edit_video')))
+
+
+def check_default_audio_stream(tool, record, j):
+    """check.py measures the stream a player plays by default and names the others; a silent default with sound in
+    another stream is a look."""
+    folder = Path(j('check-audio-streams'))
+    folder.mkdir(parents=True, exist_ok=True)
+
+    def source(name, default):
+        path = folder / name
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3', '-f', 'lavfi',
+                        '-i', 'anullsrc=r=48000:cl=stereo', '-f', 'lavfi',
+                        '-i', 'sine=frequency=440:sample_rate=48000:duration=3', '-map', '0:v', '-map', '1:a',
+                        '-map', '2:a', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+                        '-disposition:a:0', 'default' if default == 0 else '0',
+                        '-disposition:a:1', 'default' if default == 1 else '0', str(path)],
+                       check=True, capture_output=True)
+        return path
+
+    second = source('default-second.mkv', 1)
+    code, output = tool('check.py', '--file', second, '--no-speech', '--json', folder / 'second.json')
+    found = by_id(checks_at(folder / 'second.json'))
+    level = found.get('loudness', {})
+    streams = found.get('audio_streams', {})
+    record('check: the stream a player plays by default is the one measured when it is not the first',
+           'LUFS' in level.get('label', '') and '-70' not in level.get('label', '')
+           and streams.get('state') == 'pass' and 'stream 2' in streams.get('label', '')
+           and 'stream 1' in streams.get('detail', ''), str(level) + str(streams) + output[-200:])
+    first = source('default-first.mkv', 0)
+    code, output = tool('check.py', '--file', first, '--no-speech', '--json', folder / 'first.json')
+    found = by_id(checks_at(folder / 'first.json'))
+    streams = found.get('audio_streams', {})
+    record('check: a silent default stream with sound in another is a look that names both',
+           code == 1 and streams.get('state') == 'look' and 'stream 1' in streams.get('label', '')
+           and 'stream 2' in streams.get('detail', ''), str(streams) + output[-200:])
+    plain = folder / 'plain.mp4'
+    make_video(plain, 'testsrc2=s=320x180:r=30')
+    code, output = tool('check.py', '--file', plain, '--no-speech', '--json', folder / 'plain.json')
+    record('check: one sound stream gets no stream item',
+           'audio_streams' not in by_id(checks_at(folder / 'plain.json')), output[-200:])
+
+
 def run_check_cases(tool, record, j, scripts_dir):
     """Clean and flashing files, a project version with captions, person reviews and exit codes."""
     check_reviews_bound_to_file(record, j, scripts_dir)
+    check_missing_tool_claim(record, j, scripts_dir)
+    check_default_audio_stream(tool, record, j)
+    check_edit_content(tool, record, j)
+    check_empty_captions(tool, record, j, scripts_dir)
     check_craft2_units(record, scripts_dir)
     check_craft2_pattern_battery(tool, record, j)
     check_craft2_fine_pattern(tool, record, j)

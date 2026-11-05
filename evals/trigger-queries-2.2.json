@@ -1,0 +1,18 @@
+{
+  "skill_name": "legible-film",
+  "source": "Added for 2.2: the skill's description had dropped captions, subtitles, interviews and podcasts, and no should-trigger query covered them. Written for this check, not taken from the skill's text.",
+  "should_trigger": [
+    "add subtitles to this video",
+    "burn captions into my reel",
+    "cut our podcast episode down to the best 20 minutes",
+    "edit this interview into a two minute story",
+    "make three vertical shorts from this long video",
+    "remove the long pauses from my screen recording"
+  ],
+  "should_not_trigger": [
+    "write show notes for my podcast episode",
+    "what is a good mic for recording interviews",
+    "translate this srt file into French",
+    "give me a list of questions for my next podcast guest"
+  ]
+}

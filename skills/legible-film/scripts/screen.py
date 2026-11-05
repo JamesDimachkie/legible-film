@@ -2485,7 +2485,7 @@ function render(){
     if(/captions.*speech|speech.*captions|faster.whisper|onnxruntime|captions_speech/i.test(s))
       return 'Speech was not compared with the captions on this machine.';
     if(/loudness.*preview/i.test(s))return 'Sound level is checked on the final file.';
-    if(/pip install/i.test(s))return 'A check could not run on this machine; ask your agent for details.';
+    if(/pip install|--install /i.test(s))return 'A check could not run on this machine; ask your agent for details.';
     return s});
     $('blind').textContent='Blind spots: '+(spots.join(' \u00b7 ')||'none recorded')});sync();
 }

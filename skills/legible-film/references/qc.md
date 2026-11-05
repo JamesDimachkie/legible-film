@@ -72,7 +72,14 @@ Run 1-9 on every delivered rendition (each aspect ratio, the loop, the alpha ver
 the invariants of that kind of edit as well as the file: `trim:A,B` lasts B minus A within one frame with the audio
 offset unchanged; `speed:X` scales the duration by X; `reframe` keeps duration and sound; `convert` keeps duration
 and the stream count for its destination; `extract-audio` has no video stream and the source's duration; `captions`
-changes no stream; `compress` keeps duration and streams.
+changes no stream; `compress` keeps duration and streams. Where it is cheap it also compares content with the source,
+tolerant of re-encoding and scaling: eight sampled pictures against the source frames the edit says they show (`trim`,
+`speed`, `convert`, `compress`) and the sound against the source's (`trim`, `convert`, `compress`, `extract-audio`,
+`reframe`). Sound that matches nothing there, or most pictures that do not match, is a `fail`; a mix of matching and
+not is a `look`; too little to compare (flat picture, a steady tone) is not assessed. What is not compared says
+`Not assessed: content`: a reframe's picture or any frame that changed shape, a speed change's sound, and sound in a
+file with several streams or over 15 minutes. A passage in the same shot a second or less away can still match: this finds the wrong content, not a slip
+of a moment. Thresholds were measured on the first-cut example and synthetic media, not across kinds of film.
 
 **The context and sync groups.** Inside a project, `check.py` adds two groups. Their `unconfirmed` and
 `not assessed` items leave the exit code alone unless `--strict` is given; a stale cue list is a `fail` either way.

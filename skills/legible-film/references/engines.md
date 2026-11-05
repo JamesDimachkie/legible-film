@@ -139,7 +139,7 @@ dithered images when a soft ramp bands.
 
 ## 4. HyperFrames
 
-HeyGen's HTML-to-video framework (Apache-2.0; release 0.8.223 was the latest when checked on 2026-10-31; pre-1.0,
+HeyGen's HTML-to-video framework (Apache-2.0; release 0.9.14 was the latest when checked on 2026-11-04; pre-1.0,
 with releases most days; Node 22+ and FFmpeg required). Pin a version per project.
 
 - **Loop:** `npx hyperframes init <dir> --non-interactive`, author, `lint`, `check --json` (the browser gate: console
@@ -229,6 +229,8 @@ compare them with `compare_versions.py` against the pipeline's noise floor (§2)
 Tesseract is a proprietary video tool with its own agent skills (Edit Video, Motion Graphics) and a command line,
 `tsrct`. This skill holds no Tesseract code, files or dependency, and has not run it. When the person has Tesseract
 installed and chooses it, create, cut and insert hand the build to Tesseract's skills, and everything else stays here.
+Take the person's word that it is installed and do not run `tsrct`, not even to check it: write the steps below whether
+or not this machine can reach it.
 
 1. Write the brief and the frame as usual, and record `timeline: tesseract` in `film.md` ([project](project.md) §3).
 2. Write the cue list as a plan: `cues.json` v2 whose picture is `{"kind": "plan", "sha256": null}`, with the sections,
@@ -288,6 +290,15 @@ renders for memory; run one at a time.
 The optional MODNet download is about 26 MB and requires `setup.py --install spatial --download` with consent.
 The runtime checks its hash before inference and records the model URL, hash and licences in each layer. A low
 flicker measure cannot establish that the subject or its edges were found correctly.
+
+### Optional speaker model (checked 2026-11-05)
+
+`map.py speakers --shared` compares voices on one track ([footage](footage.md) §14) with [SpeechBrain's
+ECAPA-TDNN](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb) (Apache-2.0), through a [community ONNX
+conversion](https://huggingface.co/vedk00/ecapa-voxceleb-speaker-embedding-onnx) pinned to revision `a9cb9321b07b` and
+each file's SHA-256 in `lineup.py`. It is about 84 MB, downloads only with `--download` after its size is named, runs
+through onnxruntime and sends nothing out. SpeechBrain does not publish this conversion, so a hash that does not match
+is refused rather than updated.
 
 ## 8. Capture
 

@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "frozen": "2026-11-02",
+  "source": "Held-out prompts for the second acceptance (iteration 2), written blind by a new session given only the five task-family names; kept outside the repository and never copied into it. The harness reads them at run time (--sets heldout-v2) and refuses the file when its SHA-256 differs from evals/heldout-v2.sha256. Case ids carry a v2 suffix so their rows never collide with the first set's.",
+  "path_from_repository": "../legible-film-levelup/v2/reshape/heldout/heldout-v2.json",
+  "sha256_file": "evals/heldout-v2.sha256",
+  "id_suffix": "v2",
+  "families": "The same five task families as the first set (SPEC section 13): four create requests, the first with the money gate before any generation, and a download-and-transcribe request that should not load the skill. The expected routes below follow those families.",
+  "cases": [
+    {"id": "H1", "n": 11, "expected": "create", "money_gate": true, "frame": "asked",
+     "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+    {"id": "H2", "n": 12, "expected": "create", "frame": "asked",
+     "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+    {"id": "H3", "n": 13, "expected": "create", "frame": "asked",
+     "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+    {"id": "H4", "n": 14, "expected": "create", "frame": "asked",
+     "forbidden": [{"run": "transcribe.py"}, {"run": "cut.py", "note": "cut.py as the timeline owner"}]},
+    {"id": "H5", "n": 15, "expected": "no-skill", "frame": "none",
+     "forbidden": [{"read_path_file": true}]}
+  ],
+  "reply": "Anything I haven't said is your call. Go ahead and plan it here."
+}

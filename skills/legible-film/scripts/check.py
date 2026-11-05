@@ -16,7 +16,8 @@ supply what it needs; its label begins "Not assessed", and the readiness line co
 passed):
 - spec: frame size or shape, frame rate, duration, codec, pixel format, colour tags (qc_file.py);
 - measured loudness, compared with a target only when supplied; final files with sound also get a lossy true-peak
-  check;
+  check. Every sound check reads the stream a player plays by default, and a file with several says which it read and
+  names the others with their levels (a look when that stream is silent and another has sound);
 - clicks at the start and a cut-off tail (qc_file.py's audio edges), and holes of digital silence inside the film
   (a look: the room tone drops out). A tail that ends away from silence is named as the last sound still playing
   when the picture ends; for a project version whose edit places its last sound past the picture's last frame (a
@@ -36,10 +37,17 @@ passed):
   local, never downloading weights here), every word heard checked against the whole caption timeline, gaps
   included; differences and speech no caption carries are looks, since a transcript can mishear. It passes only when
   every word heard is in a caption. This is the only item that compares captions with what is said; without
-  faster-whisper it is not assessed and says how to install it;
+  faster-whisper it is not assessed and says how to install it. A transcript with no words is "no speech was heard"
+  only when the sound measures as silence; over measurable sound it is not assessed, since speech may have been missed;
+  a caption file with no captions on a film with sound is a look, or a failure when captions are required;
 - title contrast, when the version has titles: each title's letters against the picture around them at its midpoint
   (a look below 3:1, naming for each low title the nearest colour and the black plate that would reach 3.3:1 against
   the ground measured there, with their ratios); full-frame cards are not measured;
+- with --against IN --edit KIND, what that kind of edit must keep: its duration and streams, and its content where
+  that is cheap to compare: sampled pictures against the source frames the edit says they show (trim, speed, convert,
+  compress) and the sound against the source's (trim, convert, compress, extract-audio, reframe), tolerant of
+  re-encoding and scaling. Confident disagreement fails; too little to compare (flat picture, a steady tone) is not
+  assessed. What is not compared says "Not assessed: content": a reframe's picture and a speed change's sound;
 - what only a person can judge: watched muted, heard with sound, names in captions; an item a person has recorded
   in status.json (`reviewed`) counts as passed only for the file it was recorded against (its SHA-256; an older
   record without one counts for the version's preview only), so watching the preview never passes a final file.
@@ -97,6 +105,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import platform
 import re
 import shutil
@@ -114,7 +123,6 @@ READING_RULES = {'invalid timing', 'lines', 'line length', 'overlap', 'minimum d
                  'orphan', 'gap'}
 WORD_PROMPTS = {'spelled differently from the words', 'contraction differs from the words', 'spoken but not captioned',
                 'speech with no caption', 'apparent offset from estimated word times: listen'}
-PACKAGES = {'PIL': 'Pillow', 'cv2': '"opencv-python>=4.8,<5"', 'faster_whisper': 'faster-whisper'}
 QA_FILES = ('qc.json', 'flash_scan.json', 'blank_scan.json', 'captions-rules.json', 'captions-edit.json',
             'captions-speech.json', 'speech-words.json', 'captions-check.json', 'captions-contrast.json',
             'titles-contrast.json', 'technical.json')
@@ -123,6 +131,21 @@ TITLE_CONTRAST = 3.0
 SUGGEST_MARGIN = 1.1
 DROPOUT_DB = -80
 DROPOUT_S = 0.08
+# EBU R128's absolute gate: ebur128 reports this for digital silence and for sound too quiet to measure.
+SILENCE_LUFS = -70.0
+# A quick edit's frames are compared with its source's as grey thumbnails. Measured on the first-cut example's one
+# scene, as the best correlation with the source frames around each of eight samples: faithful re-encodes down to
+# 30 kb/s at 160 pixels wide, a GIF, VP9 and MPEG-4 at 0.995 or more; another passage of that scene at 0.53 or less; a
+# passage one second off, in a shot with little movement, at 0.83 or more, which is too close to tell. A thumbnail that
+# varies by less than PICTURE_FLAT grey levels has too little detail to correlate.
+THUMBNAIL = (64, 36)
+PICTURE_SAMPLES = 8
+PICTURE_SAME = 0.9
+PICTURE_OTHER = 0.6
+PICTURE_FLAT = 3.0
+PICTURE_SHAPE = 0.04
+# sync_check.py holds both sounds in memory, at about 0.4 MB a second each.
+AUDIO_COMPARE_S = 900
 # The first frame is read at this size; it is one colour when no channel spans more than FLAT_SPAN code values.
 FIRST_FRAME_SIZE = (96, 54)
 FLAT_SPAN = 12
@@ -205,13 +228,11 @@ def why_not_run(name, code, output):
         return f'{name} could not run: {named.group(0).strip()}'
     missing = re.search(r"No module named '([\w.]+)'", output)
     if missing:
-        module = missing.group(1).split('.')[0]
-        if module in ('PIL', 'numpy', 'faster_whisper', 'onnxruntime'):
-            return f'{name} could not run: {P.dependency_message(module)}'
-        return (f'{name} could not run: the Python module {module} is missing; install it: '
-                f'pip install {PACKAGES.get(module, module)}')
-    if re.search(r'ffmpeg|ffprobe', output, re.IGNORECASE) and re.search(r'not found|no such file|cannot find',
-                                                                          output, re.IGNORECASE):
+        return f"{name} could not run: {P.dependency_message(missing.group(1).split('.')[0])}"
+    # "moov atom not found" is a damaged file named by a tool that is plainly there, so the tools are looked for.
+    tools = all(shutil.which(os.environ.get(tool.upper()) or tool) for tool in ('ffmpeg', 'ffprobe'))
+    if not tools and re.search(r'ffmpeg|ffprobe', output, re.IGNORECASE) and re.search(
+            r'not found|no such file|cannot find', output, re.IGNORECASE):
         return f'{name} could not run: FFmpeg was not found; install FFmpeg (ffmpeg and ffprobe on PATH)'
     last = output.strip().splitlines()[-1][-160:] if output.strip() else 'no output'
     return f'{name} could not run (exit {code}): {last}; run it on its own to see why'
@@ -381,7 +402,34 @@ def edges_item(qc, has_audio, overrun=None):
     return item('edges', label, 'look', '; '.join(details))
 
 
-def dropout_item(video, has_audio):
+def audio_streams_item(qc):
+    """Which of several sound streams was measured, and the others by level; None for a file with one. A default stream
+    with no sound while another has it is what a viewer would get: silence."""
+    rows = qc.get('audio_streams') or []
+    played = next((row for row in rows if row.get('default')), None)
+    if len(rows) < 2 or played is None:
+        return None
+
+    def described(row):
+        level = 'not measured' if row.get('peak_db') is None else f"peak {row['peak_db']:.1f} dB"
+        if P.stream_is_silent(row):
+            level = 'digitally silent'
+        return f"stream {row['index']} ({level})"
+
+    others = [row for row in rows if row is not played]
+    named = ', '.join(described(row) for row in others)
+    sounding = [row for row in others if row.get('peak_db') is not None and not P.stream_is_silent(row)]
+    if P.stream_is_silent(played) and sounding:
+        return item('audio_streams', f"Players use sound stream {played['index']} by default, and it is silent", 'look',
+                    f'also in the file: {named}. The sound checks here read the default stream; a player plays it. '
+                    f'Flag the stream with the sound as the default (ffmpeg -i IN -map 0 -c copy -disposition:a:'
+                    f'{rows.index(played)} 0 -disposition:a:{rows.index(sounding[0])} default OUT), or remove the '
+                    'silent one')
+    return item('audio_streams', f"Sound measured on stream {played['index']}, which players use by default", 'pass',
+                f'{described(played)}; also in the file, not measured by the sound checks here: {named}')
+
+
+def dropout_item(video, has_audio, selector='0:a:0'):
     """Holes of digital silence inside the film's sound, where a listener hears the room vanish. Produced sources
     carry them at their own edit points (a NASA programme had exact zeros for 0.56 s inside an answer), and each of
     four agent cuts tested kept at least one. Silence at the very start, and after the last sound, is left to the
@@ -393,7 +441,7 @@ def dropout_item(video, has_audio):
         return item('dropouts', 'Holes in the sound', 'skip', 'FFmpeg or ffprobe not found')
     probe = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', str(video)],
                            capture_output=True, text=True)
-    result = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-i', str(video), '-map', '0:a:0', '-af',
+    result = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-i', str(video), '-map', selector, '-af',
                              f'silencedetect=noise={DROPOUT_DB}dB:d={DROPOUT_S}', '-f', 'null', '-'],
                             capture_output=True, text=True, encoding='utf-8', errors='replace')
     try:
@@ -770,15 +818,43 @@ def word_rows(report):
     return findings, prompts, timing
 
 
-def rules_item(srt, fresh, profile=None):
+def measured_sound(fresh):
+    """(whether this run measured sound in the checked file, its integrated loudness or None): qc_file.py's report in
+    this run's folder. Silence is only ever a measurement: a level this run did not get counts as sound, so nothing
+    is excused by a measurement that is missing."""
+    try:
+        report = P.load_json(Path(fresh) / 'qc.json', None)
+    except (OSError, ValueError):
+        report = None
+    loudness = report.get('loudness') if isinstance(report, dict) else None
+    if not isinstance(loudness, dict) or loudness.get('error'):
+        return True, None
+    level = number(loudness.get('integrated_lufs'))
+    return level is None or level > SILENCE_LUFS, level
+
+
+def rules_item(srt, fresh, profile=None, sound=False, required=None):
     """Caption reading rules: line length, lines and overlaps fail; reading speed, duration and gaps are looks. With a
-    house style (`profile`), captions.py check --profile applies its limits and reviewed exceptions."""
+    house style (`profile`), captions.py check --profile applies its limits and reviewed exceptions. A file with no
+    captions breaks no rule, so on a film with `sound` it is a look, or a failure when captions are `required`."""
     args = ['check', srt] + (['--profile', profile] if profile else []) + ['--json', fresh / 'captions-rules.json']
     report, why = run_report('captions.py', args, fresh / 'captions-rules.json')
     if report is None:
         return item('captions_rules', 'Caption reading rules', 'skip', why)
     findings, review, cues = report.get('findings') or [], report.get('review') or [], report.get('cues', 0)
     style = f' (house style {Path(profile).name})' if profile else ''
+    if not cues and not findings and (sound or required):
+        having = 'this film has sound' if sound else 'captions are required'
+        detail = f'{Path(srt).name} holds no captions and {having}, so a viewer who needs them gets nothing: '
+        if required:
+            entry = item('captions_rules', 'Captions required, but the caption file is empty', 'fail',
+                         detail + 'give the sidecar that has the captions')
+        else:
+            entry = item('captions_rules', 'The caption file is empty', 'look',
+                         detail + 'give the sidecar that has the captions, or, when the film is delivered without '
+                         'them, leave it out ("captions_required": false for --file, captions: none in film.md)')
+        entry['empty'] = True
+        return entry
     if findings:
         return item('captions_rules', f'Caption reading rules{style}: {len(findings)} to fix', 'fail',
                     counted(findings))
@@ -812,6 +888,9 @@ def edit_item(srt, lines, fresh, basis=LINES_BASIS, missing=None):
     if prompts:
         return item('captions_edit', f'Captions and the edit: {len(prompts)} to look at', 'look',
                     f'{counted(prompts)}: {examples(prompts)}; against {basis}', first_moment(prompts))
+    if not cues:
+        return item('captions_edit', 'Captions follow the edit', 'skip',
+                    f'{Path(srt).name} holds no captions, so there is nothing to compare with {basis}')
     edit_kind = 'the paper edit' if basis == LINES_BASIS else 'the edit'
     return item('captions_edit', 'Captions follow the edit', 'pass',
                 f'{cues} captions against {basis}: {edit_kind}, not the sound')
@@ -856,13 +935,16 @@ def speech_engine_missing():
     return ''
 
 
+NO_SPEECH = 'no speech was heard'
+
+
 def coverage_note(report):
     """What the speech comparison examined, or None when the report does not say (then no match is claimed)."""
     coverage = (report.get('timing_screen') or {}).get('coverage')
     if not isinstance(coverage, dict) or not isinstance(coverage.get('words'), int):
         return None
     if coverage['words'] == 0:
-        return 'no speech was heard'
+        return NO_SPEECH
     return f"every one of the {coverage['words']} words heard is in a caption"
 
 
@@ -910,6 +992,14 @@ def speech_compare(srt, words, fresh, source):
         return item('captions_speech', 'Captions and speech: coverage not reported', 'look',
                     f'captions.py did not say which words it checked against {source}; compare them by listening')
     timing_note = f'; timing prompts: {counted(timing)}' if timing else ''
+    if covered == NO_SPEECH:
+        sound, level = measured_sound(fresh)
+        if sound:
+            measured = f'measures {level:.1f} LUFS' if level is not None else 'was not measured as silence'
+            return item('captions_speech', label, 'skip',
+                        f'{source} holds no words, but the sound {measured}, so speech may have been missed: listen, '
+                        'and give a transcript that has the speech')
+        covered = NO_SPEECH + ' (the sound measures as silence)'
     return item('captions_speech', label, 'pass', f'{cues} captions against {source}; {covered}{timing_note}')
 
 
@@ -1129,9 +1219,17 @@ def caption_items(folder, video, fresh, speech, has_audio, captions=None, note='
     """The three caption items (reading rules, follow the edit, match the speech) for a version with captions: its
     own captions.srt, or `captions`, the sidecar delivered with a final. `note` says which file was checked."""
     srt = Path(captions) if captions else folder / 'captions.srt'
+    sound = has_audio and measured_sound(fresh)[0]
     if captions is None and (not srt.is_file() or not P.read_text(srt).strip()):
-        return []
-    items = [with_note(rules_item(srt, fresh, profile), note),
+        # The version's own empty file: nothing to compare, but a film with sound that did not say captions: none has
+        # captions a viewer will not get.
+        manifest = P.load_json(folder / 'manifest.json', {}) or {}
+        wanted = manifest['captions'] if 'captions' in manifest else (
+            front_matter(folder / 'film.md').get('captions', 'srt').lower() != 'none')
+        if not srt.is_file() or not wanted or not sound:
+            return []
+        return [with_note(rules_item(srt, fresh, profile, sound), note)]
+    items = [with_note(rules_item(srt, fresh, profile, sound), note),
              with_note(edit_item(srt, folder / 'lines.json', fresh), note)]
     contrast = caption_contrast_item(folder, video, fresh)
     if contrast is not None:
@@ -1281,7 +1379,8 @@ def file_caption_items(plan, video, fresh, has_audio):
                 edit['label'] = 'Captions and the edit: transcript identity not verified'
             edit['state'] = 'look'
         edit['detail'] += '; ' + IDENTITY_NOTE
-    items += [rules_item(captions, fresh, plan.get('profile')), edit]
+    items += [rules_item(captions, fresh, plan.get('profile'), has_audio and measured_sound(fresh)[0],
+                         plan.get('captions_required')), edit]
     if plan.get('speech_words') and has_audio:
         items.append(supplied_speech_item(captions, plan['speech_words'], fresh, plan['sha256']))
     else:
@@ -2093,12 +2192,15 @@ def run_checks(video, qa=None, spec=None, duration=None, final=False, target=DEF
             color and f'{color.upper()} tags', 'fast start' if final and faststart else '') if part)
         basis += ' (the web defaults unless --delivery or the flags name another)' if final and not spec and faststart else ''
         items = [spec_item(qc, basis)] + loudness_items(qc, target, final, has_audio)
+        streams = audio_streams_item(qc)
+        if streams:
+            items.append(streams)
         declaration = P.load_json(captions_folder / 'declared.json', {}) if captions_folder else {}
         items.append(first_frame_item(video, declaration))
         edges = edges_item(qc, has_audio, sound_past_picture(captions_folder, expected_frames))
         if edges:
             items.append(edges)
-        dropouts = dropout_item(video, has_audio)
+        dropouts = dropout_item(video, has_audio, qc.get('audio_selector', '0:a:0'))
         if dropouts:
             items.append(dropouts)
         P.save_json(fresh / 'technical.json', qc.get('technical') or {})
@@ -2112,7 +2214,8 @@ def run_checks(video, qa=None, spec=None, duration=None, final=False, target=DEF
         titles = title_contrast_item(captions_folder, video, fresh) if captions_folder else None
         if titles:
             items.append(titles)
-        items += person_items(reviewed, has_audio, any(entry['id'] == 'captions_rules' for entry in captions))
+        items += person_items(reviewed, has_audio, any(entry['id'] == 'captions_rules' and not entry.get('empty')
+                                                       for entry in captions))
         if qa is not None:
             publish(fresh, Path(qa), 'final-' if final else '')
     not_assessed(items)
@@ -2361,6 +2464,15 @@ def cue_related_inputs(root, folder):
     return [P.input_row(role, path, project_path(root, path)) for role, path in found]
 
 
+def hdr_items(manifest):
+    """A look for each version made from HDR sources: the tone map changes how highlights read."""
+    names = [row.get('alias', '?') for row in manifest.get('hdr_sources') or [] if isinstance(row, dict)]
+    if not names:
+        return []
+    return [item('hdr_source', 'HDR source converted to SDR', 'look',
+                 f"{', '.join(names)}: compare the highlights with the original")]
+
+
 def project_inputs(root, folder, video, digest, final, captions, speech, profile=None, manifest=None):
     """The inputs a project check depends on: the checked file, the captions checked, the version's lines.json,
     edit.json, film.md, declared.json, manifest.json and caption-burn.json (recorded as absent when missing, so adding
@@ -2542,6 +2654,7 @@ def check_project(root, version=None, final_file=None, speech=True, target=None,
         cold = preview_checks.get('cold_read') if isinstance(preview_checks, dict) else None
     checks['items'] += context_items(read_frame(frame_path), cold, digest)
     checks['items'].append(binding_item(manifest.get('identity')))
+    checks['items'] += hdr_items(manifest)
     sync_items, transcript = project_sync_items(folder, video, manifest,
                                                 required=project_path_name(frame_path) in ('create', 'insert', 'sound'))
     checks['items'] += sync_items
@@ -2830,23 +2943,212 @@ def packet_signature(path, selector):
     return hashed.stdout.strip(), times
 
 
-def signatures_match(first, second, tolerance=.001):
+def schedule_shift(first, second):
+    """How far a stream's whole schedule moved. A remux can move every stream together: Matroska shifts them all so
+    that sound with encoder priming starts at zero, which changes no timing between them."""
+    return (min(row[0] for row in second[1]) - min(row[0] for row in first[1])) if first[1] and second[1] else 0.0
+
+
+def signatures_match(first, second, tolerance=.0015, shift=0.0):
+    """The same packets on the same schedule, `shift` apart. The tolerance covers Matroska's whole milliseconds, and the
+    last packet's duration is left out: an end trim in an MP4 edit list does not carry over to it, with the same data."""
     hash_a, times_a = first
     hash_b, times_b = second
     return hash_a == hash_b and len(times_a) == len(times_b) and all(
-        abs(a - b) <= tolerance for pair_a, pair_b in zip(times_a, times_b) for a, b in zip(pair_a, pair_b))
+        abs(a[0] + shift - b[0]) <= tolerance for a, b in zip(times_a, times_b)) and all(
+        abs(a[1] - b[1]) <= tolerance for a, b in zip(times_a[:-1], times_b[:-1]))
+
+
+def thumbnails(path, moment, count=1):
+    """Frames from a time on as grey thumbnails ([] when nothing decodes there). This small, re-encoding and scaling
+    change little, and a detail a low bitrate loses barely counts."""
+    ffmpeg = shutil.which('ffmpeg')
+    width, height = THUMBNAIL
+    result = subprocess.run([ffmpeg, '-v', 'error', '-nostdin', '-ss', f'{max(0.0, moment):.4f}', '-i', str(path),
+                             '-map', '0:v:0', '-frames:v', str(count), '-vf',
+                             f'scale={width}:{height}:flags=area,format=gray', '-f', 'rawvideo', '-'],
+                            capture_output=True)
+    size = width * height
+    return [result.stdout[start:start + size] for start in range(0, len(result.stdout) - size + 1, size)]
+
+
+def level_and_spread(picture):
+    """A thumbnail's mean grey level and its standard deviation."""
+    mean = sum(picture) / len(picture)
+    return mean, math.sqrt(sum((value - mean) ** 2 for value in picture) / len(picture))
+
+
+def picture_verdict(frame, candidates):
+    """One sampled frame against the source frames it may show: 'same', 'other', 'between', or 'flat' when neither has
+    the detail to tell. A flat frame where the source has detail, or the reverse, is another picture."""
+    level, spread = level_and_spread(frame)
+    best = -1.0
+    for candidate in candidates:
+        other_level, other_spread = level_and_spread(candidate)
+        if spread < PICTURE_FLAT or other_spread < PICTURE_FLAT:
+            if max(spread, other_spread) > 3 * PICTURE_FLAT or abs(level - other_level) > 12 * PICTURE_FLAT:
+                continue
+            return 'flat'
+        best = max(best, sum((a - level) * (b - other_level) for a, b in zip(frame, candidate))
+                   / (len(frame) * spread * other_spread))
+    return 'same' if best >= PICTURE_SAME else 'other' if best < PICTURE_OTHER else 'between'
+
+
+def media_seconds(data):
+    """A probed file's length: its first video stream's, else the container's; None when neither says."""
+    video = next((row for row in data.get('streams', []) if row.get('codec_type') == 'video'), {})
+    for value in (video.get('duration'), (data.get('format') or {}).get('duration')):
+        try:
+            if math.isfinite(float(value)) and float(value) > 0:
+                return float(value)
+        except (TypeError, ValueError):
+            pass
+    return None
+
+
+def frame_seconds(data):
+    """How long one frame of a probed file's first video stream lasts, or None."""
+    video = next((row for row in data.get('streams', []) if row.get('codec_type') == 'video'), {})
+    try:
+        rate = Fraction(str(video.get('avg_frame_rate')))
+        return float(1 / rate) if rate > 0 else None
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def audio_position(data):
+    """Which of a probed file's audio streams a player plays by default, counted among its audio streams."""
+    rows = [row for row in data.get('streams', []) if row.get('codec_type') == 'audio']
+    played = P.default_audio_stream(rows)
+    return rows.index(played) if played else 0
+
+
+def frame_shape(data):
+    """A probed file's first video stream as width over height, or None."""
+    video = next((row for row in data.get('streams', []) if row.get('codec_type') == 'video'), {})
+    try:
+        return float(video['width']) / float(video['height'])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def picture_content_item(reference, output, source, destination, when, what):
+    """Sampled frames of the output against the source frames the edit says they show (`when` turns an output time
+    into a source time; `what` names them). Confident disagreement fails, a mixed result is a look, and too little
+    detail to tell is not assessed."""
+    label = 'Not assessed: content of the picture'
+    seconds = media_seconds(destination)
+    if not shutil.which('ffmpeg'):
+        return item('edit_picture', label, 'skip', 'FFmpeg is required')
+    if not seconds:
+        return item('edit_picture', label, 'skip', 'the output has no length to sample')
+    shapes = frame_shape(source), frame_shape(destination)
+    if all(shapes) and abs(shapes[1] / shapes[0] - 1) > PICTURE_SHAPE:
+        # A trim that also reframes, say: its frames show part of the source's, so they cannot be matched whole.
+        return item('edit_picture', label, 'skip', f'the frame changed shape, from {shapes[0]:.3f} to {shapes[1]:.3f}, '
+                    'so its frames cannot be matched with the whole source; look at the framing')
+    source_frame = frame_seconds(source) or .04
+    reach = max(source_frame, (frame_seconds(destination) or source_frame) * (when(1.0) - when(0.0)))
+    count = min(12, math.ceil(2 * reach / source_frame) + 1)
+    verdicts = []
+    for number in range(PICTURE_SAMPLES):
+        moment = (number + .5) / PICTURE_SAMPLES * seconds
+        frame, candidates = thumbnails(output, moment), thumbnails(reference, when(moment) - reach, count)
+        verdicts.append((moment, picture_verdict(frame[0], candidates) if frame and candidates else 'flat'))
+    other = [moment for moment, verdict in verdicts if verdict == 'other']
+    same = sum(verdict == 'same' for _, verdict in verdicts)
+    informative = PICTURE_SAMPLES - sum(verdict == 'flat' for _, verdict in verdicts)
+    counted = f'{PICTURE_SAMPLES} frames sampled against {what}'
+    if informative < 3:
+        return item('edit_picture', label, 'skip', f'too little to compare: {counted}, and {informative} had the '
+                    'detail to tell them apart; look at the picture')
+    if len(other) >= max(2, math.ceil(informative / 2)):
+        return item('edit_picture', 'Picture content', 'fail', f'{len(other)} of {informative} comparable frames do '
+                    f'not match: {counted}; first at {P.format_time(other[0])}', other[0])
+    if other or same * 4 < informative * 3:
+        return item('edit_picture', 'Picture content', 'look', f'{same} of {informative} comparable frames match and '
+                    f'{len(other)} do not: {counted}; look at them', other[0] if other else None)
+    return item('edit_picture', 'Picture content', 'pass',
+                f'{same} of {informative} comparable frames match: {counted}')
+
+
+def sync_state(summary):
+    """What sync_check.py's comparison of sound with its source says: (state, detail): the same, measurably not, or too
+    little to tell. Most windows silent where the source has sound is measurably not, though transport cannot say."""
+    verdict = summary.get('verdict', '')
+    silent, windows = summary.get('windows_delivered_silent') or 0, summary.get('windows') or 0
+    if verdict == 'consistent with the reference within tolerance':
+        return 'pass', verdict
+    if silent >= max(2, math.ceil(2 * windows / 3)):
+        return 'fail', (f'content differs: the output is silent in {silent} of {windows} windows where the source has '
+                        'sound')
+    if verdict.startswith('part of the sound differs'):
+        return 'look', verdict
+    if verdict.startswith(('constant offset', 'lag changes', 'content differs')):
+        return 'fail', verdict
+    return 'skip', verdict or 'audio comparison inconclusive'
+
+
+def audio_content_item(reference, output, source, destination):
+    """The whole of the output's sound against the source's, tolerant of re-encoding; a source too long to hold both in
+    memory, or with several streams to choose from, is not compared."""
+    label = 'Not assessed: content of the sound'
+
+    def audio(data):
+        return [row for row in data.get('streams', []) if row.get('codec_type') == 'audio']
+
+    if not audio(destination):
+        return item('edit_audio', label, 'skip', 'the output has no sound stream to compare')
+    if not audio(source):
+        return item('edit_audio', label, 'skip', 'the source has no sound stream to compare with')
+    if len(audio(source)) > 1 or len(audio(destination)) > 1:
+        return item('edit_audio', label, 'skip', 'several sound streams: compare the one that matters with '
+                    'sync_check.py by hand')
+    longest = max(media_seconds(source) or 0, media_seconds(destination) or 0)
+    if longest > AUDIO_COMPARE_S:
+        return item('edit_audio', label, 'skip', f'{longest / 60:.0f} minutes is too long to compare here: compare a '
+                    'passage with sync_check.py by hand')
+    seconds = media_seconds(destination) or 0
+    if seconds < 1:
+        return item('edit_audio', label, 'skip', 'the sound is too short to compare')
+    tolerance_ms = 1000 * (frame_seconds(source) or .04)
+    with tempfile.TemporaryDirectory(prefix='lf-edit-sound-') as temp:
+        report_path = Path(temp) / 'sync.json'
+        report, why = run_report('sync_check.py', [output, reference, '--window', f'{min(3.0, seconds / 4):g}',
+                                                   '--max-lag-ms', f'{min(500.0, seconds * 100):g}', '--tolerance-ms',
+                                                   f'{tolerance_ms:g}', '--json', report_path], report_path)
+    if report is None:
+        return item('edit_audio', label, 'skip', why)
+    state, detail = sync_state(report.get('summary') or {})
+    row = item('edit_audio', label if state == 'skip' else 'Sound content', state,
+               detail + '; compared with the source')
+    row['measurement'] = report.get('summary')
+    return row
 
 
 def edit_content_items(reference, output, kind, source, destination):
-    """Check the streams that the declared edit promises to keep."""
+    """Compare what the declared edit promises to keep, where that is cheap, and say where it is not compared."""
     kind, values = edit_kind(kind)
     if kind == 'trim':
-        return trim_audio_content_items(reference, output, values, source, destination)
-    if kind not in ('reframe', 'captions'):
-        return []
+        start, end = values
+        return (trim_audio_content_items(reference, output, values, source, destination)
+                + [picture_content_item(reference, output, source, destination, lambda moment: start + moment,
+                                        f'the source from {P.format_time(start)} to {P.format_time(end)}')])
+    if kind == 'speed':
+        factor = values[0]
+        return [picture_content_item(reference, output, source, destination, lambda moment: moment / factor,
+                                     f'the source at {factor:g} times its length'),
+                item('edit_audio', 'Not assessed: content of the sound', 'skip',
+                     'a speed change rewrites the waveform, so it is not compared; listen to it')]
+    if kind == 'extract-audio':
+        return [audio_content_item(reference, output, source, destination)]
+    if kind in ('convert', 'compress'):
+        return [picture_content_item(reference, output, source, destination, lambda moment: moment, 'the source'),
+                audio_content_item(reference, output, source, destination)]
     old, new = source.get('streams', []), destination.get('streams', [])
     selected = ('audio',) if kind == 'reframe' else ('video', 'audio')
     items = []
+    shift = None
     for media in selected:
         src_count = sum(row.get('codec_type') == media for row in old)
         dst_count = sum(row.get('codec_type') == media for row in new)
@@ -2862,7 +3164,9 @@ def edit_content_items(reference, output, kind, source, destination):
         except (OSError, ValueError, json.JSONDecodeError) as error:
             items.append(item('edit_' + media, 'Not assessed: edit ' + media + ' content', 'skip', str(error)))
             continue
-        if all(signatures_match(a, b) for a, b in signatures):
+        # The first stream sets how far the file moved; a stream moved differently has changed against the others.
+        shift = schedule_shift(*signatures[0]) if shift is None else shift
+        if all(signatures_match(a, b, shift=shift) for a, b in signatures):
             items.append(item('edit_' + media, 'Edit ' + media + ' content', 'pass',
                               'packet hashes and presentation timestamps match'))
             continue
@@ -2878,22 +3182,30 @@ def edit_content_items(reference, output, kind, source, destination):
             items.append(item('edit_audio', 'Not assessed: edit audio content', 'skip', why))
             continue
         verdict = report.get('outside', {}).get('verdict', '')
-        if verdict == 'unchanged within tolerance' and report.get('summary', {}).get('verdict') == \
-                'consistent with the reference within tolerance':
+        overall = report.get('summary', {}).get('verdict', '')
+        if verdict == 'unchanged within tolerance' and overall == 'consistent with the reference within tolerance':
             state = 'pass'
         elif verdict == 'changed outside the passage':
             state = 'fail'
+        elif overall.startswith('content differs'):
+            state, verdict = 'fail', overall
         else:
             state = 'skip'
         label = 'Not assessed: edit audio content' if state == 'skip' else 'Edit audio content'
         items.append(item('edit_audio', label, state, verdict or 'audio comparison inconclusive'))
+    if kind == 'reframe':
+        items.append(item('edit_picture', 'Not assessed: content of the picture', 'skip',
+                          'a reframe crops and moves the picture, so its frames cannot be matched with the whole '
+                          'source; look at the framing'))
     return items
 
 
 def trim_audio_content_items(reference, output, bounds, source, destination):
-    """Compare the trimmed source sound with the delivered sound's transport."""
+    """Compare the trimmed source sound with the delivered sound's transport and content."""
     def result(state, detail, measurement=None):
         label = ('Not assessed: ' if state == 'skip' else '') + 'Trim audio content offset'
+        if detail.startswith('content differs'):
+            label = 'Trim audio content'
         row = item('edit_trim_content_offset', label, state, detail)
         if measurement is not None:
             row['measurement'] = measurement
@@ -2930,8 +3242,9 @@ def trim_audio_content_items(reference, output, bounds, source, destination):
         return result('skip', 'FFmpeg is required')
     with tempfile.TemporaryDirectory(prefix='lf-trim-audio-') as temp:
         clipped, report_path = Path(temp) / 'reference.wav', Path(temp) / 'sync.json'
+        selector = f"0:a:{audio_position(source)}"
         command = [ffmpeg, '-v', 'error', '-nostdin', '-i', str(reference), '-ss', str(bounds[0]),
-                   '-t', str(duration), '-map', '0:a:0', '-ac', '2', '-ar', '48000',
+                   '-t', str(duration), '-map', selector, '-ac', '2', '-ar', '48000',
                    '-c:a', 'pcm_s16le', str(clipped)]
         try:
             run = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
@@ -2940,18 +3253,13 @@ def trim_audio_content_items(reference, output, bounds, source, destination):
         if run.returncode:
             return result('skip', 'cannot decode the source passage: ' + run.stderr.strip()[-200:])
         report, why = run_report('sync_check.py', [output, clipped, '--window', str(min(.5, duration / 4)),
-            '--max-lag-ms', str(max_lag_ms), '--tolerance-ms', str(tolerance_ms), '--json', report_path], report_path)
+            '--max-lag-ms', str(max_lag_ms), '--tolerance-ms', str(tolerance_ms),
+            '--delivered-stream', str(audio_position(destination)), '--json', report_path], report_path)
     if report is None:
         return result('skip', why or 'audio comparison could not run')
     summary = report.get('summary') or {}
-    verdict = summary.get('verdict', '')
-    if verdict == 'consistent with the reference within tolerance':
-        state = 'pass'
-    elif verdict.startswith('constant offset') or verdict.startswith('lag changes'):
-        state = 'fail'
-    else:
-        state = 'skip'
-    return result(state, (verdict or 'audio comparison inconclusive') +
+    state, verdict = sync_state(summary)
+    return result(state, verdict +
                   '; compared sampled audio with the declared source passage', summary)
 
 

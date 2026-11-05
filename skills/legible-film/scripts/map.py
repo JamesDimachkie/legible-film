@@ -8,6 +8,10 @@
   python map.py fix PROJECT WORD_ID [TEXT] [--start S] [--end E] [--by person|agent]
   python map.py confirm-words PROJECT ALIAS --note TEXT [--stream INDEX] [--by person|agent]
   python map.py words PROJECT ALIAS [--from TIME] [--to TIME]
+  python map.py sync PROJECT [--reference ALIAS] [--alias ALIAS ...] [--json FILE] | --check
+      | --set ALIAS=SECONDS --note TEXT
+  python map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben [--margin DB]
+      | --shared --speakers N [--download] | --rename OLD=NEW
   python map.py run PROJECT [--alias ALIAS] --check
   python map.py run PROJECT [--alias ALIAS] --rebuild
 
@@ -21,13 +25,25 @@ Words prints each word's ID and source-second edges and, between words, the paus
 spoken (the map's voice-activity segments) and how far the gap's quarter-second level falls below the words either
 side. FFmpeg's fixed -40 dB silence threshold is shown only where it found quiet, and the header says when a source's
 room tone sits above it. Maps made before voice activity was recorded, or without faster-whisper, show levels only.
+Words also names each word's speaker when its transcript has labels. sync lines recordings of one conversation up from
+their sound and saves the result bound to each file's SHA-256; speakers names each word's speaker from the mics, and
+fix --speaker corrects one or a run of them. lineup.py --help says how and what neither can establish. Labels are
+drafts until a person reads them, like transcripts.
 Maps are drafts and detected cuts and silences need inspection. Shot-change candidates within 1 s of each other
 that return to the same picture (a flash or effect inside one shot) are recorded in shots.json as effects, not shot
-changes; maps made before this keep their shots until --rebuild. Exit 0 on success, 1 for an incomplete --check or
-when a transcript is stale (its warning names both remedies), 2 on error.
+changes; maps made before this keep their shots until --rebuild. Mapping decodes the picture and the sound once each
+anyway, and records where each really ends (sources.json "ends"), since a header can claim seconds a file no longer
+holds; a source that decodes short of its header gets a warning on every run and its usable length as duration_s, and
+cut.py check refuses a line past that end. Maps made before this have no "ends" until --rebuild. Exit 0 on success, 1
+for an incomplete --check, when a transcript is stale (its warning names both remedies) or when a source decodes short
+of its header, 2 on error.
 --words auto (the default) transcribes speech roles only: music and sfx sources skip words, so mapping a music bed
 never waits on transcription. --words all transcribes every role, lyrics included.
-Uncached transcription weights download only with --download or with setup.py --install transcription and consent.
+Uncached transcription weights download only with --download here or setup.py --install transcription --download, after
+the size is named.
+With several sound streams, map.py run measures each and prints its level. When the stream it would use is digitally
+silent and another has sound, it uses the one with sound and says so with the --stream command to override; a stream
+named with --stream stays chosen, and a transcript already made keeps its stream, each with a warning instead.
 Transcripts retain their original media and sound-stream binding when a source changes; stale transcripts warn on
 every run, words, fix and the readable transcript. Retranscribe, or explicitly confirm a checked transcript with a
 note, to rebind it. Older unbound transcripts are bound to the previously registered media on run. A binding does
@@ -44,6 +60,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
@@ -186,6 +203,8 @@ def _add(root, name, role, copy, target, stream=None):
                 row['video'] = {**render_common.display_geometry(video), 'fps': video['avg_frame_rate']}
             if audio:
                 row['audio'] = audio
+            if stream is not None:
+                row['audio_stream_chosen'] = True
             data['sources'].append(row)
             project.save_json(target, data)
             installed = None
@@ -197,13 +216,73 @@ def _add(root, name, role, copy, target, stream=None):
             installed.unlink(missing_ok=True)
 
 
-def shots(path, end):
-    """Find scene cut candidates with FFmpeg scdet: (shots, effects), where candidates that return to the same
-    picture within EFFECT_S seconds are one effect inside a shot, not shot changes."""
+def scan_picture(path):
+    """Decode the picture once with FFmpeg scdet: (scene cut candidates, where the decoded frames end or None)."""
     import re
     run = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-i', str(path), '-vf', 'scdet=threshold=10',
-                          '-an', '-f', 'null', '-'], capture_output=True, text=True, check=True)
+                          '-an', '-progress', 'pipe:1', '-f', 'null', '-'], capture_output=True, text=True, check=True)
     times = [float(x) for x in re.findall(r'lavfi\.scd\.time:\s*([\d.]+)', run.stderr)]
+    ends = re.findall(r'out_time_us=(\d+)', run.stdout)
+    return times, (int(ends[-1]) / 1e6 if ends and int(ends[-1]) else None)
+
+
+def last_frame_end(path, facts, decoded):
+    """Where the last frame stops showing, read again from just before it: FFmpeg's progress can stop at that frame's
+    start (FFmpeg 5.1), and a last frame can hold for seconds. The figure itself when nothing more can be read."""
+    try:
+        origin = float((facts.get('format') or {}).get('start_time') or 0)
+        result = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', 'v:0', '-read_intervals',
+                                 f'{origin + max(0.0, decoded - 2.0):.6f}', '-show_entries',
+                                 'frame=best_effort_timestamp_time,duration_time,pkt_duration_time', '-of', 'json',
+                                 str(path)], capture_output=True, text=True, timeout=600)
+        rows = [row for row in json.loads(result.stdout or '{}').get('frames', [])
+                if 'best_effort_timestamp_time' in row]
+        last = rows[-1]
+        held = float(last.get('duration_time', last.get('pkt_duration_time', 0)))
+        return max(decoded, float(last['best_effort_timestamp_time']) - origin + held)
+    except (IndexError, TypeError, ValueError, subprocess.TimeoutExpired):
+        return decoded
+
+
+def stream_end(facts, stream, decoded, frame=0.0):
+    """One stream's ends: what its own header claims (None when it claims nothing of its own), what decoding reached,
+    and the end a line may use: the header's, unless decoding stopped measurably before it."""
+    container = {key: value for key, value in (facts.get('format') or {}).items() if key != 'duration'}
+    try:
+        header = transcribe.presentation_duration({'format': container, 'streams': [stream]})
+    except (TypeError, ValueError):
+        header = None
+    short = header is not None and decoded is not None and render_common.decoded_short(header, decoded, frame)
+    return {'header': header, 'decoded': decoded, 'usable': decoded if short or header is None else header}
+
+
+def picture_ends(path, facts, stream, decoded):
+    """The video stream's stream_end, reading its last frame again only when decoding looks short of the header."""
+    try:
+        frame = float(1 / Fraction(stream.get('avg_frame_rate', '0/1')))
+    except (ValueError, ZeroDivisionError):
+        frame = 0.0
+    ends = stream_end(facts, stream, decoded, frame)
+    if decoded is not None and ends['usable'] == decoded:
+        ends = stream_end(facts, stream, last_frame_end(path, facts, decoded), frame)
+    return ends
+
+
+def warn_short(alias, ends):
+    """Say plainly when a source decodes short of its header; such a source makes the command exit 1."""
+    short = {name: row for name, row in (ends or {}).items() if row.get('header') is not None
+             and row.get('usable') is not None and row['usable'] < row['header']}
+    if short:
+        SHORT.append(alias)
+        reached = ' and '.join(f"the {name} only to {row['usable']:.2f} s" for name, row in short.items())
+        print(f"warning: {alias}: the file's header says {max(row['header'] for row in short.values()):.2f} s, but it "
+              f'decodes {reached}: the file is cut short or damaged. cut.py check refuses a line past that end; use a '
+              'complete copy for the rest.', file=sys.stderr)
+
+
+def shots(path, times, end):
+    """Shots and effects from scene cut candidates: candidates that return to the same picture within EFFECT_S seconds
+    are one effect inside a shot, not shot changes."""
     cuts, effects = split_effects(path, [t for t in times if 0 < t < end])
     boundaries = [0.0] + cuts + [end]
     return [{'start': a, 'end': b} for a, b in zip(boundaries, boundaries[1:])], effects
@@ -244,17 +323,20 @@ def audio_map(path, has_audio, length, stream=None):
     """Measure quarter-second RMS and FFmpeg loudness and silence events."""
     import re
     result = {'integrated_lufs': None, 'levels_db': {'step_s': 0.25, 'values': []},
-              'speech_band_db': {'step_s': 0.25, 'values': []}, 'silences': []}
+              'speech_band_db': {'step_s': 0.25, 'values': []}, 'silences': [], 'decoded_end_s': None}
     if not has_audio:
         return result
     require_tool('ffmpeg')
     info = transcribe.probe_audio(path, stream)
-    cmd = transcribe.audio_window_command(path, info['index'], 0.0, length, rate=8000)
+    # Unpadded, so the bytes read are how far the sound really decodes; the levels are filled to the length after it.
+    cmd = transcribe.audio_window_command(path, info['index'], 0.0, length, rate=8000, pad=False)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    decoded = 0
     while True:
         raw = proc.stdout.read(8000)
         if not raw:
             break
+        decoded += len(raw) // 4
         samples = np.frombuffer(raw[:len(raw) // 4 * 4], dtype='<f4')
         rms = math.sqrt(float(np.mean(samples * samples))) if len(samples) else 0
         result['levels_db']['values'].append(round(20 * math.log10(rms), 2) if rms > 1e-10 else -200.0)
@@ -270,6 +352,10 @@ def audio_map(path, has_audio, length, stream=None):
                                                   if speech_rms > 1e-10 else -200.0)
     if proc.wait():
         raise ValueError('audio decode failed')
+    result['decoded_end_s'] = round(decoded / 8000, 6)
+    missing = math.ceil(round(length * 8000) / 2000) - len(result['levels_db']['values'])
+    for track in ('levels_db', 'speech_band_db'):
+        result[track]['values'].extend([-200.0] * max(0, missing))
     clock = f"asetpts=PTS-({info['origin_s']:.9f})/TB,aresample=async=1:first_pts=0"
     run = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-copyts', '-i', str(path),
                           '-map', f"0:{info['index']}",
@@ -293,6 +379,56 @@ def audio_map(path, has_audio, length, stream=None):
     return result
 
 
+def sound_streams(source, facts, path, actual):
+    """Each sound stream's measured level when a source has several ([] with one): one decode per file, kept in the
+    map so running again does not decode a long source again."""
+    streams = [row for row in facts.get('streams', []) if row.get('codec_type') == 'audio']
+    if len(streams) < 2:
+        return []
+    cached = source.get('audio_streams') or {}
+    if cached.get('sha256') == actual and isinstance(cached.get('streams'), list):
+        return cached['streams']
+    levels = project.audio_stream_levels(path, streams)
+    played = project.default_audio_stream(streams)['index']
+    return [{'index': row['index'], 'language': (row.get('tags') or {}).get('language'),
+             'default': row['index'] == played, **levels[row['index']]} for row in streams]
+
+
+def stream_level(row):
+    """One sound stream's level, as map.py prints it."""
+    if row.get('peak_db') is None:
+        return 'level not measured'
+    if project.stream_is_silent(row):
+        return f"peak {row['peak_db']:.1f} dB, digitally silent"
+    return f"peak {row['peak_db']:.1f} dB, mean {row['mean_db']:.1f} dB"
+
+
+def audible_stream(root, alias, streams, selected, chosen, transcribed):
+    """Print each sound stream's level; the stream to use: the selected one, unless it is digitally silent, another has
+    sound, and neither a person's choice (`chosen`) nor a transcript (`transcribed`) holds it there."""
+    for row in streams:
+        language = f", {row['language']}" if row.get('language') else ''
+        print(f"{alias}: sound stream {row['index']} ({'default' if row['default'] else 'not default'}{language}): "
+              f'{stream_level(row)}')
+    current = next((row for row in streams if row['index'] == selected), {})
+    other = next((row['index'] for row in streams if row.get('peak_db') is not None
+                  and not project.stream_is_silent(row)), None)
+    if not project.stream_is_silent(current) or other is None:
+        return selected
+    command = f'map.py run "{root}" --alias {alias} --stream'
+    if chosen:
+        print(f'warning: {alias}: stream {selected}, the one chosen, is digitally silent; stream {other} has sound. To '
+              f'use it: {command} {other}', file=sys.stderr)
+        return selected
+    if transcribed:
+        print(f'warning: {alias}: stream {selected} is digitally silent, and its transcript was made from it; stream '
+              f'{other} has sound. To use it: {command} {other} --retranscribe {alias}', file=sys.stderr)
+        return selected
+    print(f'{alias}: stream {selected} is digitally silent, so this map uses stream {other}, which has sound. To use '
+          f'stream {selected} anyway: {command} {selected}')
+    return other
+
+
 def sheet_indices(count):
     """Choose every shot through 600, then evenly sample 600."""
     if count <= 600:
@@ -304,9 +440,11 @@ def transcript_markdown(alias, words, review=None, identity_state=None):
     """Write timed, readable phrases with each underlying word ID visible."""
     phrases = []
     group = []
+    labelled = any(word.get('speaker') is not None for word in words)
     for word in words:
         if group and (len(group) >= 12 or word['start'] - group[-1]['end'] >= .6
-                      or group[-1]['text'].rstrip().endswith(('.', '?', '!'))):
+                      or group[-1]['text'].rstrip().endswith(('.', '?', '!'))
+                      or (labelled and word.get('speaker') != group[-1].get('speaker'))):
             phrases.append(group)
             group = []
         group.append(word)
@@ -314,6 +452,9 @@ def transcript_markdown(alias, words, review=None, identity_state=None):
         phrases.append(group)
     lines = [f'# Transcript: {alias}', '',
              'Draft: check the words against the sound. Correct a word by its ID with map.py fix.', '']
+    if labelled:
+        lines[-1:] = ['Speaker labels are drafts until a person reads them; [?] has no label. Correct them with '
+                      'map.py fix WORD_ID --speaker NAME.', '']
     if identity_state == 'stale':
         lines.extend([f'STALE: this transcript is not bound to the current media and sound stream. '
                       f'Retranscribe with --retranscribe {alias}, or check it and use '
@@ -330,7 +471,8 @@ def transcript_markdown(alias, words, review=None, identity_state=None):
         end = project.format_time(phrase[-1]['end'])
         text = ' '.join(str(word.get('text', '')).strip() for word in phrase)
         ids = ' '.join('`' + str(word.get('id', '?')) + '`' for word in phrase)
-        lines += [f'**{start}-{end}**  {text}', '', ids, '']
+        speaker = f"[{phrase[0].get('speaker') or '?'}] " if labelled else ''
+        lines += [f'**{start}-{end}**  {speaker}{text}', '', ids, '']
     return '\n'.join(lines)
 
 
@@ -357,6 +499,7 @@ def source_at_file(root, source):
 
 WORDLESS_ROLES = ('music', 'sfx')   # --words auto skips these roles; --words all keeps lyrics
 STALE = []
+SHORT = []
 
 
 class NotTranscribed(ValueError):
@@ -452,11 +595,14 @@ def confirm_words(root, alias, note, by='agent', stream_index=None):
             if actual != source.get('sha256') or stream != source.get('audio'):
                 source.update(sha256=actual, bytes=size, audio=stream,
                               duration_s=mapped_duration(facts, source['role']))
+                source.pop('ends', None)
                 video = next((row for row in facts['streams'] if row['codec_type'] == 'video'
                               and not row.get('disposition', {}).get('attached_pic')), None)
                 source['video'] = ({**render_common.display_geometry(video), 'fps': video['avg_frame_rate']}
                                    if video else None)
                 source.setdefault('mapped', {}).update(shots=False, audio=False)
+            if stream_index is not None:
+                source['audio_stream_chosen'] = True
             project.save_json(words_path, words)
             try:
                 project.save_json(index, data)
@@ -472,6 +618,42 @@ def confirm_words(root, alias, note, by='agent', stream_index=None):
                 print(f'warning: confirmation saved, but transcript.md was not refreshed: {error}; '
                       f'run map.py run with --alias {alias}', file=sys.stderr)
     print(f'{alias}: transcript confirmed against current media; decision recorded')
+
+
+def fix_speaker(root, word_id, speaker, through=None, by='agent'):
+    """Correct the speaker of a word, or of the run of words through another, and record it: a label set this way is
+    kept when map.py speakers runs again."""
+    root = Path(root).resolve()
+    speaker = speaker.strip()
+    if not speaker or any(char in speaker for char in '\r\n'):
+        raise ValueError('--speaker must be a nonempty, single-line name')
+    sources = project.load_json(root / 'map' / 'sources.json', {}).get('sources', [])
+    source = next((row for row in sources if word_id.startswith(row['alias'] + '-w')), None)
+    if source is None:
+        raise ValueError(f'{word_id}: no registered source has that word ID')
+    folder = root / 'map' / source['alias']
+    path = folder / 'words.json'
+    with project.file_lock(path):
+        data = project.load_json(path, None)
+        if not isinstance(data, dict) or not isinstance(data.get('words'), list):
+            raise ValueError(f"{source['alias']} has no words.json; map the source first")
+        words = data['words']
+        places = {row.get('id'): index for index, row in enumerate(words)}
+        if word_id not in places:
+            raise ValueError(f"{word_id}: no such word in {source['alias']}; {nearest_word(words, word_id)}")
+        last = through or word_id
+        if last not in places or places[last] < places[word_id]:
+            raise ValueError(f'--through {last} must be a word of the same transcript at or after {word_id}')
+        for word in words[places[word_id]:places[last] + 1]:
+            word['speaker'] = speaker
+            word['speaker_by'] = 'person'
+        project.save_json(path, data)
+        project.append_jsonl(root / 'decisions.jsonl', {
+            'at': project.now(), 'by': by, 'category': 'captions', 'subject': word_id,
+            'decision': f'Speaker of {word_id} through {last} is {speaker}', 'rejected': [],
+            'version': project.current_version(root)})
+        write_transcript(folder, source['alias'], words, warn_stale(root, source_at_file(root, source), data))
+    print(f'{word_id} through {last}: speaker {speaker}; kept when map.py speakers runs again')
 
 
 def fix_word(root, word_id, text=None, by='agent', start=None, end=None):
@@ -880,13 +1062,19 @@ def show_words(root, alias, from_time=None, to_time=None):
     coverage = threshold_coverage(words, segments, unspoken, track, silences, duration)
     selected = [word for word in words if float(word['end']) >= start and float(word['start']) <= end]
     print('\n'.join(words_header(unspoken, track, silences, coverage)))
+    labelled = any(word.get('speaker') is not None for word in words)
+    if labelled:
+        print('Speaker: in brackets; drafts until a person reads them. [?] has no label. map.py fix WORD_ID --speaker '
+              'NAME corrects one.')
     previous = None
     for word in selected:
         if previous is not None:
             line = gap_line(previous, word, unspoken, track, silences)
             if line:
                 print(line)
-        print(f"{word.get('id', '?')} {float(word['start']):.3f}-{float(word['end']):.3f}s {word.get('text', '')}")
+        speaker = f" [{word.get('speaker') or '?'}]" if labelled else ''
+        print(f"{word.get('id', '?')} {float(word['start']):.3f}-{float(word['end']):.3f}s {word.get('text', '')}"
+              f'{speaker}')
         previous = word
     if not selected:
         print('No words in this range.')
@@ -1066,6 +1254,13 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 raise ValueError(f'{alias}: changing streams needs --retranscribe {alias} or a checked '
                                  f'map.py confirm-words "{root}" {alias} --stream {selected_audio["index"]} '
                                  '--note TEXT')
+            streams = sound_streams(source, facts, path, actual)
+            if streams and selected_audio:
+                use = audible_stream(root, alias, streams, selected_audio['index'],
+                                     stream is not None or source.get('audio_stream_chosen'),
+                                     (folder / 'words.json').exists() and retranscribe != alias)
+                if use != selected_audio['index']:
+                    selected_audio = transcribe.audio_stream_info(facts, use)
             bind_legacy_words(folder / 'words.json', source, actual)
             source['audio'] = selected_audio
             key = map_key(actual, selected_audio['index'] if selected_audio else None)
@@ -1077,11 +1272,23 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 print(f'{alias}: cached ({detail})')
                 if detail == 'legacy v1 outputs':
                     print(f'{alias}: reusing pre-versioned v1 outputs; --rebuild regenerates them')
+                if 'ends' not in source and source.get('duration_s'):
+                    print(f'{alias}: this map does not record where picture and sound really end; '
+                          f'map.py run "{root}" --alias {alias} --rebuild measures it')
             else:
                 source['sha256'] = actual
                 source['bytes'] = path.stat().st_size
                 source['duration_s'] = mapped_duration(facts, source['role'])
-                found, effects = shots(path, source['duration_s']) if source.get('video') else ([], [])
+                ends = {}
+                found, effects = [], []
+                if source.get('video'):
+                    times, decoded = scan_picture(path)
+                    last_shot = source['duration_s']
+                    if current_video and source['duration_s']:
+                        ends['picture'] = picture_ends(path, facts, current_video, decoded)
+                        if ends['picture']['header'] and ends['picture']['usable'] < ends['picture']['header']:
+                            last_shot = ends['picture']['usable']
+                    found, effects = shots(path, times, last_shot)
                 sampled = len(found) > 600
                 indices = sheet_indices(len(found))
                 for page in range(0, len(indices), 60):
@@ -1107,10 +1314,16 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 audio['stream_index'] = selected_audio['index'] if selected_audio else None
                 project.save_json(folder / 'audio.json', {'version': 1, 'source': alias, **audio})
                 source['mapped'].update({'shots': True, 'audio': True})
+                if selected_audio and source['duration_s']:
+                    chosen = next(s for s in facts['streams'] if s.get('index') == selected_audio['index'])
+                    ends['sound'] = stream_end(facts, chosen, audio['decoded_end_s'])
+                if any(row['header'] and row['usable'] < row['header'] for row in ends.values()):
+                    source['duration_s'] = max(row['usable'] for row in ends.values() if row['usable'])
+                source['ends'] = ends
                 with project.file_lock(index):
                     latest = project.load_json(index)
                     target = next(s for s in latest['sources'] if s['alias'] == alias)
-                    target.update({key: source[key] for key in ('sha256', 'bytes', 'duration_s', 'video')})
+                    target.update({key: source[key] for key in ('sha256', 'bytes', 'duration_s', 'video', 'ends')})
                     target.setdefault('mapped', {}).update({'shots': True, 'audio': True})
                     project.save_json(index, latest)
                     data = latest
@@ -1187,6 +1400,10 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 target = next(s for s in latest['sources'] if s['alias'] == alias)
                 target['audio'] = selected_audio
                 target['video'] = source.get('video')
+                if streams:
+                    target['audio_streams'] = {'sha256': actual, 'streams': streams}
+                if stream is not None:
+                    target['audio_stream_chosen'] = True
                 project.save_json(index, latest)
             project.save_json(folder / 'cache.json', key)
             shot_data = project.load_json(folder / 'shots.json', {}).get('shots', [])
@@ -1201,6 +1418,7 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
             silence = project.load_json(folder / 'audio.json', {}).get('silences', [])
             print(f"{alias} {source['role']} {source['duration_s']:.2f}s "
                   f'{len(shot_data)} shots {len(word_data)} words {len(silence)} silences')
+            warn_short(alias, source.get('ends'))
         with project.file_lock(root / 'status.json'):
             status = project.read_status(root)
             fields = {'running': [job for job in status.get('running', [])
@@ -1248,6 +1466,80 @@ def relink(root, alias, path):
     print(f'relinked {alias}')
 
 
+def load_lineup():
+    """lineup.py, loaded only by the commands that use it."""
+    lineup_spec = importlib.util.spec_from_file_location('lf_map_lineup', SCRIPTS / 'lineup.py')
+    module = importlib.util.module_from_spec(lineup_spec)
+    lineup_spec.loader.exec_module(module)
+    return module
+
+
+def run_sync(args):
+    """map.py sync: measure, set by hand, or report the saved line-up. 0 all lined up, 1 a look, stale row or drift."""
+    lineup = load_lineup()
+    for name in ('ffmpeg', 'ffprobe'):
+        require_tool(name)
+    if args.check:
+        rows, code = lineup.check_report(args.project)
+        print('\n'.join(rows))
+        return code
+    if args.set_offset:
+        alias, _, seconds = args.set_offset.partition('=')
+        try:
+            offset = float(seconds)
+        except ValueError as error:
+            raise ValueError(f'--set takes ALIAS=SECONDS, found {args.set_offset!r}') from error
+        lineup.set_by_hand(args.project, alias, offset, args.note, args.by)
+        print(f'{alias}: {offset:+.3f} s, set by hand and recorded in decisions.jsonl')
+        stale = lineup.stale_labels(args.project)
+        if stale:
+            print('\n'.join(stale))
+        return 1 if stale else 0
+    if args.note:
+        raise ValueError('--note goes with --set')
+    record = lineup.sync_project(args.project, args.reference, args.alias)
+    print('\n'.join(lineup.sync_report(record) + lineup.stale_labels(args.project)))
+    if args.json:
+        lineup.write_json_report(args.json, record)
+    frame = float(record.get('frame_s') or 1 / 30)
+    rows = record['sources'].values()
+    return 1 if any(row.get('state') == 'look' or abs(row.get('drift_s') or 0.0) > frame for row in rows) else 0
+
+
+def run_speakers(args):
+    """map.py speakers: label a transcript from lined-up mics, or rename its speakers."""
+    lineup = load_lineup()
+    root = Path(args.project).resolve()
+    if sum(map(bool, (args.mic, args.rename, args.shared))) != 1:
+        raise ValueError('give --mic ALIAS=NAME for each mic, --shared --speakers N for one track, or --rename OLD=NEW')
+    if args.rename:
+        changed = lineup.rename_speaker(root, args.alias, lineup.parse_pairs(args.rename, '--rename'))
+        print(f'{args.alias}: renamed {changed} words')
+    elif args.shared:
+        require_tool('ffmpeg')
+        counts = lineup.label_from_shared(root, args.alias, args.speakers, args.download)
+        shown = ', '.join(f'{name} {count}' for name, count in counts['labelled'].items())
+        print(f"{args.alias}: {shown}; too short or too close to call, left unlabelled: {counts['unlabelled']}"
+              + (f"; kept from a person: {counts['kept_from_a_person']}" if counts['kept_from_a_person'] else ''))
+        print('Drafts until a person reads them: name them with --rename, read transcript.md, listen where it matters, '
+              'correct with map.py fix WORD_ID --speaker NAME.')
+    else:
+        mics = lineup.parse_pairs(args.mic, '--mic')
+        margin = lineup.MARGIN_DB if args.margin is None else args.margin
+        counts = lineup.label_from_mics(root, args.alias, mics, margin)
+        shown = ', '.join(f'{name} {count}' for name, count in counts['labelled'].items())
+        print(f"{args.alias}: {shown}; no clear winner, left unlabelled: {counts['unlabelled']}"
+              + (f"; kept from a person: {counts['kept_from_a_person']}" if counts['kept_from_a_person'] else ''))
+        print('Drafts until a person reads them: read transcript.md, listen where it matters, correct with map.py fix '
+              'WORD_ID --speaker NAME.')
+    data = project.load_json(root / 'map' / args.alias / 'words.json', {})
+    sources = project.load_json(root / 'map' / 'sources.json', {}).get('sources', [])
+    source = next(row for row in sources if row['alias'] == args.alias)
+    write_transcript(root / 'map' / args.alias, args.alias, data.get('words', []),
+                     warn_stale(root, source_at_file(root, source), data))
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -1282,6 +1574,8 @@ def main():
     fix.add_argument('--start', type=float, help='corrected start in source seconds')
     fix.add_argument('--end', type=float, help='corrected end in source seconds')
     fix.add_argument('--by', choices=('agent', 'person'), default='agent', help='who made the correction')
+    fix.add_argument('--speaker', help='set the speaker label instead of the text or times')
+    fix.add_argument('--through', metavar='WORD_ID', help='with --speaker: label every word through this one')
     confirm = sub.add_parser('confirm-words', help='confirm checked words against the current media and sound stream')
     confirm.add_argument('project', help='project folder')
     confirm.add_argument('alias', help='registered source alias')
@@ -1294,6 +1588,31 @@ def main():
     show.add_argument('alias')
     show.add_argument('--from', dest='from_time', help='start in source time (seconds or m:ss)')
     show.add_argument('--to', dest='to_time', help='end in source time (seconds or m:ss)')
+    line = sub.add_parser('sync', help='line recordings of one conversation up from their sound (lineup.py --help)')
+    line.add_argument('project')
+    line.add_argument('--reference', help='the alias every other source is measured against (default: the saved one, '
+                      'else the longest with picture and sound)')
+    line.add_argument('--alias', action='append', help='measure only this source; repeat to select more (default: '
+                      'camera, mic, interview, vo and other roles)')
+    line.add_argument('--check', action='store_true',
+                      help='report the saved line-up as readers see it; measure nothing')
+    line.add_argument('--set', dest='set_offset', metavar='ALIAS=SECONDS', help="after listening: where this source's "
+                      "0:00 falls on the reference's clock; needs --note")
+    line.add_argument('--note', help='what was checked before --set')
+    line.add_argument('--by', choices=('agent', 'person'), default='agent', help='who set the offset with --set')
+    line.add_argument('--json', help='also write the saved record to this file')
+    speak = sub.add_parser('speakers', help="label a transcript's words from per-person mics (lineup.py --help)")
+    speak.add_argument('project')
+    speak.add_argument('alias', help='the source whose transcript to label')
+    speak.add_argument('--mic', action='append', metavar='ALIAS=NAME', help='a lined-up mic and whose it is; repeat')
+    speak.add_argument('--margin', type=float, help='dB the loudest mic must stand above the next (higher labels fewer '
+                       'words)')
+    speak.add_argument('--shared', action='store_true', help='one track holds everyone: compare voices on this machine '
+                       '(a model of about 84 MB)')
+    speak.add_argument('--speakers', type=int, help='with --shared: how many people speak')
+    speak.add_argument('--download', action='store_true', help='with --shared: permit downloading the missing model')
+    speak.add_argument('--rename', action='append', metavar='OLD=NEW', help='rename a speaker across the transcript; '
+                       'repeat')
     args = parser.parse_args()
     project.safe_output()
     try:
@@ -1302,7 +1621,18 @@ def main():
         elif args.command == 'relink':
             relink(args.project, args.alias, args.path)
         elif args.command == 'fix':
-            fix_word(args.project, args.word_id, args.text, args.by, args.start, args.end)
+            if args.speaker is not None:
+                if args.text is not None or args.start is not None or args.end is not None:
+                    raise ValueError('--speaker changes the label only; correct the text or times in a separate fix')
+                fix_speaker(args.project, args.word_id, args.speaker, args.through, args.by)
+            elif args.through:
+                raise ValueError('--through goes with --speaker')
+            else:
+                fix_word(args.project, args.word_id, args.text, args.by, args.start, args.end)
+        elif args.command == 'sync':
+            return run_sync(args)
+        elif args.command == 'speakers':
+            return run_speakers(args)
         elif args.command == 'confirm-words':
             confirm_words(args.project, args.alias, args.note, args.by, args.stream)
         elif args.command == 'words':
@@ -1316,7 +1646,7 @@ def main():
                 raise ValueError('--words must be auto, all, skip or import:FILE')
             run(args.project, args.alias, args.words, args.ggml_model, args.engine, args.quality, args.retranscribe,
                 args.stream, args.prompt, args.rebuild, args.download)
-        return 1 if STALE else 0
+        return 1 if STALE or SHORT else 0
     except Exception as error:
         print('cannot run: ' + str(error), file=sys.stderr)
         return 2

@@ -1,7 +1,7 @@
 # A first cut in a minute
 
 A 23-second scene with clear speech, its transcript and a paper edit, so a first check and a first cut need no
-footage of your own and no transcription model. On a laptop the cut takes about a minute from an empty folder.
+footage of your own and no transcription model. On a laptop the cut takes well under a minute from an empty folder.
 
 | File | What it is |
 |---|---|

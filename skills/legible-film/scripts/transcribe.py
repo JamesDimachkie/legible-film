@@ -12,6 +12,10 @@ FFmpeg word times are estimated; its lower accuracy needs review. --no-download 
 Every transcript records the input file's SHA-256, byte count and selected audio stream, including imports. The
 input must remain unchanged during transcription, and the output cannot replace the media or imported transcript.
 A matching media record establishes file identity, not that a draft accurately represents the speech.
+An imported transcript keeps its speaker labels. Word-timed JSON from WhisperX, Deepgram, AssemblyAI, Rev, Amazon
+Transcribe, ElevenLabs Scribe and Google Speech-to-Text is read by its shape, and a WebVTT cue's <v Name> names its
+words. These are the formats' documented shapes, not a guarantee of any service's output today. Labels are drafts until
+a person reads them. Word times far past the media's end are read as milliseconds, and it says so.
 Exit 0 on success, 2 when it cannot run.
 """
 import argparse
@@ -32,6 +36,20 @@ project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
 
 
+def other_streams_note(path, stream):
+    """What to try when a stream gave no words and the file has others: their levels and --stream, or ''."""
+    result = subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(path)], capture_output=True,
+                            text=True)
+    streams = json.loads(result.stdout or '{}').get('streams', []) if not result.returncode else []
+    if sum(row.get('codec_type') == 'audio' for row in streams) < 2 or not shutil.which('ffmpeg'):
+        return ''
+    levels = project.audio_stream_levels(path, streams)
+    others = [f"stream {index} (peak {level['peak_db']:.1f} dB)" if level['peak_db'] is not None else f'stream {index}'
+              for index, level in levels.items() if index != stream]
+    return (f"no words from audio stream {stream}; this file also has {', '.join(others)}: choose one with --stream "
+            'INDEX') if others else ''
+
+
 def audio_stream_info(facts, requested=None):
     """Choose one absolute audio stream index and its zero-based presentation metadata."""
     streams = [stream for stream in facts.get('streams', []) if stream.get('codec_type') == 'audio']
@@ -40,8 +58,7 @@ def audio_stream_info(facts, requested=None):
         if stream is None:
             raise ValueError(f'audio stream {requested} does not exist')
     else:
-        stream = next((item for item in streams if item.get('disposition', {}).get('default')), None)
-        stream = stream or (streams[0] if streams else None)
+        stream = project.default_audio_stream(streams)
     if stream is None:
         return None
     try:
@@ -79,8 +96,10 @@ def probe_audio(path, requested=None, ffprobe='ffprobe'):
     return chosen
 
 
-def audio_window_command(path, stream, start, end, rate=16000, sample_format='f32le', channels=1, ffmpeg='ffmpeg'):
-    """Decode a source-clock window, inserting silence when the selected stream starts late."""
+def audio_window_command(path, stream, start, end, rate=16000, sample_format='f32le', channels=1, ffmpeg='ffmpeg',
+                         pad=True):
+    """Decode a source-clock window, inserting silence when the selected stream starts late. It also pads to the
+    window's end; with pad=False the output stops where the sound does, so its length measures the stream's real end."""
     if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end and rate > 0):
         raise ValueError('invalid audio window')
     info = probe_audio(path, stream)
@@ -90,8 +109,9 @@ def audio_window_command(path, stream, start, end, rate=16000, sample_format='f3
     offset = info['origin_s']
     first = round(start * rate)
     filters = (f'asetpts=PTS-({offset:.9f})/TB,aresample={rate}:async=1:first_pts=0,'
-               f'atrim=start_sample={first}:end_sample={first + length},asetpts=PTS-STARTPTS,'
-               f'apad=whole_len={length},atrim=end_sample={length}')
+               f'atrim=start_sample={first}:end_sample={first + length},asetpts=PTS-STARTPTS')
+    if pad:
+        filters += f',apad=whole_len={length},atrim=end_sample={length}'
     options = ['-copyts']
     try:
         tick = Fraction(str(info['time_base']))
@@ -296,17 +316,108 @@ def split_segment(text, start, end, speaker=None):
             for i, word in enumerate(tokens)]
 
 
+def seconds_of(value):
+    """A time from an imported transcript as seconds: a number, or text like '1.500s'."""
+    return float(str(value).strip().rstrip('s') or 0)
+
+
+def deepgram_rows(results):
+    """Deepgram: results.channels[].alternatives[0].words, with a speaker when diarized and a channel when not."""
+    channels = results.get('channels') or []
+    rows = []
+    for number, channel in enumerate(channels):
+        for word in ((channel.get('alternatives') or [{}])[0].get('words') or []):
+            speaker = word.get('speaker', f'channel {number}' if len(channels) > 1 else None)
+            rows.append({'text': word.get('punctuated_word', word.get('word', '')), 'start': word.get('start'),
+                         'end': word.get('end'), 'p': word.get('confidence'), 'speaker': speaker})
+    return sorted(rows, key=lambda row: float(row['start'] or 0))
+
+
+def amazon_rows(results):
+    """Amazon Transcribe: results.items, a speaker on each item or in a separate speaker_labels list, and punctuation as
+    its own item with no time."""
+    speakers = {}
+    for segment in (results.get('speaker_labels') or {}).get('segments') or []:
+        for item in segment.get('items') or []:
+            speakers[str(item.get('start_time'))] = item.get('speaker_label', segment.get('speaker_label'))
+    rows = []
+    for item in results.get('items') or []:
+        best = (item.get('alternatives') or [{}])[0]
+        if item.get('type') == 'punctuation':
+            if rows:
+                rows[-1]['text'] += str(best.get('content', ''))
+            continue
+        rows.append({'text': str(best.get('content', '')), 'start': float(item['start_time']),
+                     'end': float(item['end_time']), 'p': float(best.get('confidence') or 0),
+                     'speaker': item.get('speaker_label', speakers.get(str(item.get('start_time'))))})
+    return rows
+
+
+def google_rows(results):
+    """Google Speech-to-Text: with diarization the last result repeats every word with its tag; else words by result."""
+    groups = [(result.get('alternatives') or [{}])[0].get('words') or [] for result in results]
+    tagged = [words for words in groups if any('speakerTag' in word or 'speakerLabel' in word for word in words)]
+    words = tagged[-1] if tagged else [word for group in groups for word in group]
+    return [{'text': word.get('word', ''), 'start': seconds_of(word.get('startTime', word.get('startOffset', 0))),
+             'end': seconds_of(word.get('endTime', word.get('endOffset', 0))), 'p': word.get('confidence'),
+             'speaker': word.get('speakerLabel', word.get('speakerTag'))} for word in words]
+
+
+def rev_rows(monologues):
+    """Rev: monologues[].elements, a word with its times and punctuation as its own element."""
+    rows = []
+    for monologue in monologues:
+        for element in monologue.get('elements') or []:
+            if element.get('type') == 'text':
+                rows.append({'text': element.get('value', ''), 'start': element.get('ts'), 'end': element.get('end_ts'),
+                             'p': element.get('confidence'), 'speaker': monologue.get('speaker')})
+            elif rows and str(element.get('value', '')).strip():
+                rows[-1]['text'] += str(element['value']).strip()
+    return rows
+
+
+def service_rows(data):
+    """Word rows from the word-timed formats whose shape is not this skill's own, or None for any other shape."""
+    if not isinstance(data, dict):
+        return None
+    results = data.get('results')
+    if isinstance(results, dict) and isinstance(results.get('channels'), list):
+        return deepgram_rows(results)
+    if isinstance(results, dict) and isinstance(results.get('items'), list):
+        return amazon_rows(results)
+    if isinstance(results, list) and any(isinstance(row, dict) and 'alternatives' in row for row in results):
+        return google_rows(results)
+    if isinstance(data.get('monologues'), list):
+        return rev_rows(data['monologues'])
+    words = data.get('words')
+    if isinstance(words, list) and any(isinstance(row, dict) and 'speaker_id' in row for row in words):
+        # ElevenLabs Scribe: spacing and sound events sit among the words.
+        return [dict(row, speaker=row.get('speaker_id')) for row in words if row.get('type', 'word') == 'word']
+    if isinstance(words, list) and 'audio_duration' in data:
+        # AssemblyAI gives milliseconds, and the file says how long the audio was in seconds.
+        last = max((float(row.get('end') or 0) for row in words), default=0.0)
+        if last > float(data['audio_duration'] or 0) * 2:
+            return [dict(row, start=float(row['start']) / 1000, end=float(row['end']) / 1000) for row in words]
+    return None
+
+
 def read_import(path):
-    """Read word JSON or SRT/WebVTT cues."""
+    """Read word JSON or SRT/WebVTT cues, keeping speaker labels."""
     text = project.read_text(path)
     if Path(path).suffix.lower() == '.json':
         data = json.loads(text)
+        known = service_rows(data)
+        if known is not None:
+            return known
         rows = data if isinstance(data, list) else data.get('words', data.get('segments', []))
         word_list = isinstance(data, list) or (isinstance(data, dict) and 'words' in data)
         result = []
         for row in rows:
             if row.get('words') is not None:
-                result.extend(row['words'])
+                # WhisperX names the segment's speaker, and a word it could not assign has none of its own.
+                speaker = row.get('speaker')
+                result.extend(word if speaker is None or word.get('speaker') is not None
+                              else dict(word, speaker=speaker) for word in row['words'])
             elif 'word' in row or (word_list and 'text' in row):
                 result.append(row)
             elif 'start' in row and 'end' in row:
@@ -324,8 +435,9 @@ def read_import(path):
             if match:
                 start = project.parse_time(match.group(1).replace(',', '.'))
                 end = project.parse_time(match.group(2).replace(',', '.'))
+                voice = re.match(r'\s*<v(?:\.[^\s>]*)?\s+([^>]+)>', ' '.join(lines[index + 1:]))
                 clean = re.sub(r'<[^>]*>', '', ' '.join(lines[index + 1:])).strip()
-                result.extend(split_segment(clean, start, end))
+                result.extend(split_segment(clean, start, end, voice.group(1).strip() if voice else None))
                 break
     return result
 
@@ -337,13 +449,24 @@ def normalize(rows, alias):
         text = str(row.get('word', row.get('text', ''))).strip()
         if not text or row.get('start') is None or row.get('end') is None:
             continue
+        speaker = row.get('speaker')
         word = {'id': f'{alias}-w{len(words) + 1:06d}', 'text': text, 'start': float(row['start']),
-                'end': float(row['end']), 'speaker': row.get('speaker'), 'estimated': bool(row.get('estimated', False))}
+                'end': float(row['end']), 'speaker': None if speaker is None else str(speaker),
+                'estimated': bool(row.get('estimated', False))}
         probability = row.get('probability', row.get('p', row.get('score')))
         if probability is not None:
             word['p'] = float(probability)
         words.append(word)
     return words
+
+
+def from_milliseconds(rows, length):
+    """Rows whose times run far past the media and fit it as milliseconds, read as milliseconds; (rows, whether so)."""
+    last = max((float(row['end']) for row in rows if row.get('end') is not None), default=0.0)
+    if last <= length * 1.5 + 5 or last / 1000 > length * 1.1 + 1:
+        return rows, False
+    return [dict(row, start=float(row['start']) / 1000, end=float(row['end']) / 1000)
+            if row.get('start') is not None and row.get('end') is not None else row for row in rows], True
 
 
 def presentation_duration(facts):
@@ -513,9 +636,10 @@ def faster(args):
                      'small.en': 'about 460 MB', 'large-v3-turbo': 'about 1.6 GB'}
             size = sizes.get(args.model, 'size unknown')
             command = getattr(args, 'download_help_command', None) or download_command(sys.argv[1:])
-            setup = project.python_command([Path(__file__).with_name('setup.py'), '--install', 'transcription'])
+            setup = project.python_command([Path(__file__).with_name('setup.py'), '--install', 'transcription',
+                                            '--download'])
             raise ValueError(f'Model {args.model} is not cached ({size}). To allow its download, run: {command}\n'
-                             f'For the default small model, or to install transcription, run: {setup}') from error
+                             f'For the default small model, or to install transcription too, run: {setup}') from error
         print('Downloading explicitly permitted model weights: ' + args.model, flush=True)
         model = WhisperModel(args.model, device='cpu', compute_type='int8', download_root=args.model_dir,
                              local_files_only=False)
@@ -654,6 +778,10 @@ def main():
             if not args.import_file:
                 raise ValueError('--engine import needs --import-file')
             rows, language = read_import(args.import_file), args.language
+            rows, scaled = from_milliseconds(rows, length)
+            if scaled:
+                print(f'note: {Path(args.import_file).name} has word times far past the {length:.2f} s of media; read '
+                      'them as milliseconds. Check a few words against the sound.')
         elif engine == 'ffmpeg':
             rows, language = filter_transcribe(args)
             rows = ordered_words(rows)
@@ -662,6 +790,10 @@ def main():
         if engine != 'import':
             rows = constrain_audio_start(rows, audio_start(args.file, args.stream))
         words = normalize(rows, alias)
+        if not words:
+            note = other_streams_note(args.file, args.stream)
+            if note:
+                print('note: ' + note, file=sys.stderr)
         name = engine + (' ' + args.model if engine == 'faster-whisper' else '')
         if project.file_sha256(args.file) != media_hash or Path(args.file).stat().st_size != media_size:
             raise ValueError('media changed during transcription; no transcript was written')
@@ -672,6 +804,12 @@ def main():
                   'words': words}
         if engine == 'ffmpeg':
             result['warning'] = 'Estimated word timing; FFmpeg filter was less accurate in the synthetic check.'
+        labelled = sum(1 for word in words if word['speaker'] is not None)
+        if engine == 'import' and labelled:
+            result['speaker_labels'] = {'method': 'imported', 'file': Path(args.import_file).name, 'draft': True,
+                                        'at': project.now(), 'labelled_words': labelled,
+                                        'unlabelled': len(words) - labelled,
+                                        'note': 'Drafts until a person reads them, like the words.'}
         if args.project and not args.out:
             with project.file_lock(out):
                 refuse_existing_project_words(out, args.project, alias)

@@ -1,0 +1,566 @@
+{
+ "candidate": "clean",
+ "note": "The clean triggering run: both arms in the same run, Claude sessions without the user's CLAUDE.md, rules or auto memory (trigger_run.py ff58cd5). Candidate 5cac88c against 2.0.0.",
+ "sources": {
+  "20/old": "trigger20-clean",
+  "20/new": "trigger20-clean",
+  "opus8/old": "trigger8-clean",
+  "opus8/new": "trigger8-clean"
+ },
+ "models": [
+  "claude-opus-5-5"
+ ],
+ "timeouts": 0,
+ "queries": [
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 0,
+   "query": "make a 30 second launch video for my app's new feature",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 1,
+   "query": "can you check this mp4 before I upload it to youtube",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 2,
+   "query": "my exported video looks washed out in safari but fine in chrome, why",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 3,
+   "query": "add background music and a few sound effects to this demo video",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 4,
+   "query": "there's a weird single frame flash in my hyperframes render around 12 seconds",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 5,
+   "query": "turn these four screenshots into a 20 second product teaser",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 6,
+   "query": "the audio in my reel clips after instagram compresses it",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 7,
+   "query": "make a seamless looping hero animation for our landing page",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 8,
+   "query": "the client wants the ending slower but everything else stays exactly as approved",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_trigger",
+   "index": 9,
+   "query": "what frame rate should I export a gif at so it plays at the right speed",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 0,
+   "query": "transcribe this podcast episode for me",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 1,
+   "query": "download this youtube video as an mp4",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 2,
+   "query": "write a blog post announcing our product launch",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 3,
+   "query": "design a logo for my startup",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 4,
+   "query": "compress this png so it loads faster",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 5,
+   "query": "fix the failing test in my react component",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 6,
+   "query": "summarise the main points from this meeting recording",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 7,
+   "query": "convert this wav file to mp3",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 8,
+   "query": "what is the resolution of this video file",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "20",
+   "kind": "should_not_trigger",
+   "index": 9,
+   "query": "write a script for a podcast intro",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_trigger",
+   "index": 0,
+   "query": "sound design for this silent clip",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_trigger",
+   "index": 1,
+   "query": "animate our logo reveal",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_trigger",
+   "index": 2,
+   "query": "a 15 s square launch post",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_trigger",
+   "index": 3,
+   "query": "make the drop land on the reveal",
+   "old": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 3,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_not_trigger",
+   "index": 0,
+   "query": "generate an image for my landing page",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_not_trigger",
+   "index": 1,
+   "query": "write lyrics for a jingle",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_not_trigger",
+   "index": 2,
+   "query": "make a slide deck",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  },
+  {
+   "set": "opus8",
+   "kind": "should_not_trigger",
+   "index": 3,
+   "query": "edit this photo",
+   "old": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "new": {
+    "loaded": 0,
+    "runs": 3,
+    "timed_out": 0
+   },
+   "no_worse": true
+  }
+ ],
+ "totals": {
+  "20": {
+   "should_trigger": {
+    "old": [
+     27,
+     30
+    ],
+    "new": [
+     27,
+     30
+    ]
+   },
+   "should_not_trigger": {
+    "old": [
+     0,
+     30
+    ],
+    "new": [
+     0,
+     30
+    ]
+   },
+   "no_worse": true,
+   "queries_worse": []
+  },
+  "combined": {
+   "should_trigger": {
+    "old": [
+     39,
+     42
+    ],
+    "new": [
+     39,
+     42
+    ]
+   },
+   "should_not_trigger": {
+    "old": [
+     0,
+     42
+    ],
+    "new": [
+     0,
+     42
+    ]
+   },
+   "no_worse": true,
+   "queries_worse": []
+  },
+  "opus8": {
+   "should_trigger": {
+    "old": [
+     12,
+     12
+    ],
+    "new": [
+     12,
+     12
+    ]
+   },
+   "should_not_trigger": {
+    "old": [
+     0,
+     12
+    ],
+    "new": [
+     0,
+     12
+    ]
+   },
+   "no_worse": true,
+   "queries_worse": []
+  }
+ }
+}

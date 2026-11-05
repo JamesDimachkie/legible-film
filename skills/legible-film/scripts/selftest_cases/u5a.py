@@ -665,8 +665,8 @@ def run_u5a_cases(tool, record, j, scripts_dir):
         for filename in ('u5a-trim-good.wav', 'u5a-trim-late.wav', 'u5a-trim-silent.wav'):
             rows = check.edit_content_items(j('u5a-trim-source.wav'), j(filename), 'trim:1,7', media(8), media(6))
             content.append(next((row['state'] for row in rows if row['id'] == 'edit_trim_content_offset'), None))
-        record('quick edits: trim detects shifted audio and cannot pass silent content',
-               content == ['pass', 'fail', 'skip'], str(content))
+        record('quick edits: trim detects shifted audio, and silence where the source has sound is a failure',
+               content == ['pass', 'fail', 'fail'], str(content))
     if not hasattr(check, 'binding_item'):
         record('sync: binding states and reasons remain visible', False, 'binding_item missing')
     else:

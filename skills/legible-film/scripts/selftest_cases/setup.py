@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -45,9 +46,13 @@ def check_kit_install(record, setup, j):
     record('setup: --install kit asks for Node first, installs playwright-core and Chromium where the kit looks, and '
            'starts Chromium once',
            'Node.js' in missing and not error and calls[:2] == [
-               ['/usr/bin/npm', 'install', '--prefix', target, 'playwright-core'],
+               ['/usr/bin/npm', 'install', '--save-exact', '--prefix', target,
+                'playwright-core@' + getattr(setup, 'PLAYWRIGHT_CORE', 'unpinned')],
                ['/usr/bin/npx', '--prefix', target, 'playwright-core', 'install', 'chromium']]
            and calls[2][:2] == ['/usr/bin/node', '-e'], missing + error + str(calls))
+    record('setup: the kit pins playwright-core to one exact version, which also fixes the Chromium build',
+           bool(re.fullmatch(r'\d+\.\d+\.\d+', getattr(setup, 'PLAYWRIGHT_CORE', ''))),
+           str(getattr(setup, 'PLAYWRIGHT_CORE', None)))
     record('setup: on Linux, a Chromium that will not start names the reason and the system-library command',
            'did not start' in broken and 'libnss3' in broken and 'install-deps chromium' in broken
            and 'sudo' in broken, broken)
@@ -131,7 +136,7 @@ def check_spatial(record, setup, j, scripts_dir):
         setup.install_spatial(True, 'example-python')
     args = pip.call_args.args[0]
     record('setup: spatial shares the faces OpenCV package and installs ONNX Runtime',
-           'opencv-python>=4.8,<5' in args and 'onnxruntime' in args and 'opencv-python-headless' not in args,
+           'opencv-python' in args and 'onnxruntime' in args and 'opencv-python-headless' not in args,
            str(args))
     script = Path(scripts_dir) / 'setup.py'
     denied = subprocess.run([sys.executable, '-I', str(script), '--install', 'spatial', '--json'],
@@ -174,6 +179,175 @@ def check_spatial(record, setup, j, scripts_dir):
            message.count('--install spatial') == 2 and '--download' in message, message)
 
 
+def constraint_lines(path):
+    """[(name, version, marker)] from a constraints file; a line that is not an exact pin gives version None."""
+    rows = []
+    for line in Path(path).read_text(encoding='utf-8').splitlines():
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        requirement, _, marker = line.partition(';')
+        found = re.fullmatch(r'([A-Za-z0-9._-]+)==([A-Za-z0-9.+!-]+)', requirement.strip())
+        rows.append((found.group(1).lower().replace('_', '-'), found.group(2), marker.strip()) if found
+                    else (line, None, ''))
+    return rows
+
+
+def marker_holds(marker, python, system):
+    """Whether a constraint's marker holds: python_version comparisons and sys_platform tests joined with `and`."""
+    for clause in filter(None, (part.strip() for part in marker.split(' and '))):
+        found = re.fullmatch(r'(python_version|sys_platform) (<|>=|==|!=) "([^"]+)"', clause)
+        if not found:
+            raise ValueError('a marker this check cannot read: ' + clause)
+        if found.group(1) == 'sys_platform':
+            same = system == found.group(3)
+            if same != (found.group(2) == '=='):
+                return False
+            continue
+        wanted = tuple(int(part) for part in found.group(3).split('.'))
+        if not {'<': python < wanted, '>=': python >= wanted, '==': python == wanted,
+                '!=': python != wanted}[found.group(2)]:
+            return False
+    return True
+
+
+def check_constraints(record, setup, scripts_dir):
+    """One file names one exact version of each package for each supported Python and system."""
+    path = Path(scripts_dir) / 'constraints.txt'
+    record('setup: the tested versions are one constraints file beside setup.py', path.is_file(), str(path))
+    rows = constraint_lines(path) if path.is_file() else []
+    loose = [name for name, version, _ in rows if version is None]
+    record('setup: every constraint is an exact version', bool(rows) and not loose, ', '.join(loose))
+    direct = ('numpy', 'pillow', 'opencv-python', 'opencv-python-headless', 'onnxruntime', 'faster-whisper', 'av',
+              'ctranslate2', 'tokenizers', 'huggingface-hub', 'torch', 'transformers', 'safetensors', 'librosa',
+              'soundfile', 'soxr')
+    gaps = []
+    try:
+        for python in ((3, 9), (3, 10), (3, 11), (3, 12), (3, 13), (3, 14)):
+            for system in ('win32', 'linux', 'darwin'):
+                chosen = {}
+                for name, version, marker in rows:
+                    if version and marker_holds(marker, python, system):
+                        chosen.setdefault(name, []).append(version)
+                gaps += [f'{name} on {python} {system}: {chosen.get(name)}' for name in direct
+                         if len(chosen.get(name, [])) != 1]
+                gaps += [f'{name} on {python} {system}: {found}' for name, found in chosen.items() if len(found) > 1]
+    except ValueError as error:
+        gaps.append(str(error))
+    record('setup: each package has exactly one version for each Python from 3.9 and each system',
+           bool(rows) and not gaps, '; '.join(gaps)[:600])
+    versions = {name: [version for other, version, _ in rows if other == name and version]
+                for name in ('opencv-python', 'opencv-python-headless', 'av', 'faster-whisper')}
+    major = lambda text: int(text.split('.')[0])  # noqa: E731
+    record('setup: OpenCV stays below 5 and PyAV below 16, where faster-whisper 1.2.1 fails',
+           bool(versions['opencv-python']) and versions['opencv-python'] == versions['opencv-python-headless']
+           and all(major(v) == 4 for v in versions['opencv-python'])
+           and bool(versions['av']) and all(major(v) < 16 for v in versions['av']), str(versions))
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, b'', b'')
+    with mock.patch.object(setup.subprocess, 'run', side_effect=run), \
+            mock.patch.object(sys, 'stderr', new=io.StringIO()):
+        setup.install_core('example-python')
+        setup.install_faces(True, 'example-python')
+        setup.install_spatial(True, 'example-python')
+        setup.install_transcription(True, 'example-python')
+        setup.install_ear(True, 'example-python')
+    pip = [command for command in calls if 'pip' in command]
+    named = str(path)
+    bare = [command for command in pip if '-c' not in command or command[command.index('-c') + 1] != named
+            or ':all:' not in command]
+    record('setup: every pip install in setup.py goes through the constraints file, wheels only',
+           len(pip) >= 5 and not bare, str(bare or pip)[:900])
+    named_parts = [part for command in pip for part in command[command.index('install') + 1:]
+                   if not part.startswith(('-', 'http', ':')) and part != named]
+    missing = sorted({part for part in named_parts if part.lower() not in {name for name, _, _ in rows}})
+    record('setup: every package setup.py names has a pin, with no version beside it', bool(pip) and not missing,
+           str(missing))
+    with mock.patch.object(setup.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'pip')), \
+            mock.patch.object(sys, 'stderr', new=io.StringIO()):
+        try:
+            setup.install_core('example-python')
+            refused = ''
+        except ValueError as error:
+            refused = str(error)
+    record('setup: a pinned version pip cannot install says so and names the file',
+           'constraints.txt' in refused and 'numpy' in refused, refused)
+    record('setup: a skill copy without the constraints file reports itself incomplete',
+           'constraints.txt' in setup.SCRIPTS, str(setup.SCRIPTS[-3:]))
+
+
+def check_hints(record, setup, scripts_dir):
+    """Hints name setup.py, which installs through the constraints, instead of repeating a package or a version."""
+    scripts = Path(scripts_dir)
+    skill = scripts.parent
+    files = [path for path in sorted(scripts.glob('*')) if path.suffix in ('.py', '.mjs', '.cjs')
+             and path.name != 'setup.py']
+    files += sorted((skill / 'references').glob('*.md')) + sorted((skill / 'paths').glob('*.md')) + [skill / 'SKILL.md']
+    pattern = re.compile(r'\bpip3? install|[\'"]pip[\'"], [\'"]install|\bnpm (?:i|install) playwright'
+                         r'|opencv-python(?:-headless|[<>=])')
+    found = []
+    for path in files:
+        for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+            if pattern.search(line) and '.test(s)' not in line:   # a viewer's pattern for old reports, not a hint
+                found.append(f'{path.name}:{number}')
+    record('setup: no script or document repeats a pip package or version outside setup.py', not found,
+           ', '.join(found)[:500])
+    project = setup.project
+    message = project.dependency_message('some_module')
+    record('setup: a module setup.py does not install gets setup.py, not a loose pip command',
+           'pip install' not in message and 'setup.py' in message, message)
+    screen = (scripts / 'screen.py').read_text(encoding='utf-8')
+    record('setup: the review page still turns an install hint into a plain sentence',
+           bool(re.search(r"/[^/\n]*--install[^/\n]*/i\.test\(s\)\)return 'A check could not run", screen)), '')
+
+    def load(name):
+        spec = importlib.util.spec_from_file_location('lf_hints_' + name, scripts / (name + '.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    card = load('grade')
+    with mock.patch.dict(sys.modules, {'cv2': None}):
+        faces = card.face_samples([])
+    why = load('check').why_not_run('reframe.py', 1, "No module named 'cv2'")
+    record('setup: a missing OpenCV names setup.py --install in the scorecard and in the check',
+           '--install faces' in faces.get('reason', '') and '--install' in why and 'pip install' not in why,
+           str(faces) + why)
+
+
+def check_repository_pins(record, setup, scripts_dir):
+    """In a clone: CI installs what users get, the newest-release workflow blocks nothing, CONTRIBUTING says how."""
+    root = Path(scripts_dir).resolve().parents[2]
+    workflow = root / '.github' / 'workflows' / 'ci.yml'
+    if not workflow.is_file():
+        print('skipped: the CI and CONTRIBUTING checks need a clone of the repository', flush=True)
+        return
+    ci = workflow.read_text(encoding='utf-8')
+    constraint = 'pip install -c skills/legible-film/scripts/constraints.txt '
+    loose = [line.strip() for line in ci.splitlines() if 'pip install' in line and constraint not in line
+             and 'git+https://' not in line]
+    record('setup: CI installs Python packages through the constraints file', not loose and constraint in ci,
+           '; '.join(loose))
+    record('setup: CI installs the playwright-core version setup.py pins',
+           'PLAYWRIGHT_CORE' in ci and 'npm install "playwright-core@$' in ci and 'playwright@' not in ci, '')
+    upstream = root / '.github' / 'workflows' / 'upstream.yml'
+    text = upstream.read_text(encoding='utf-8') if upstream.is_file() else ''
+    triggers = re.search(r'^on:\n((?:[ \t]+.*\n)+)', text, re.MULTILINE)
+    events = re.findall(r'^  ([a-z_]+):', triggers.group(1), re.MULTILINE) if triggers else []
+    used = re.findall(r'uses:\s*(\S+)', text)
+    record('setup: the newest-release workflow runs weekly or by hand, reads only, and pins actions as CI does',
+           sorted(events) == ['schedule', 'workflow_dispatch'] and re.search(r'^permissions:\n  contents: read$', text,
+                                                                             re.MULTILINE) is not None
+           and bool(used) and all(action in ci for action in used)
+           and 'constraints.txt' not in text, str((events, used)))
+    guide = (root / 'CONTRIBUTING.md').read_text(encoding='utf-8')
+    record('setup: CONTRIBUTING gives the measured self-test time and how to move a pin',
+           '16 to 32 minutes' in guide and '10 to 45' not in guide and 'constraints.txt' in guide
+           and 'PLAYWRIGHT_CORE' in guide, '')
+
+
 def run_setup_cases(tool, record, j, scripts_dir):
     """Check capability summaries, fixes, consent, updates and real FFmpeg features."""
     spec = importlib.util.spec_from_file_location('lf_setup_test', os.path.join(scripts_dir, 'setup.py'))
@@ -184,6 +358,9 @@ def run_setup_cases(tool, record, j, scripts_dir):
     check_kit_install(record, setup, j)
     check_old_node(record, setup)
     check_job_routing(record, setup)
+    check_constraints(record, setup, scripts_dir)
+    check_hints(record, setup, scripts_dir)
+    check_repository_pins(record, setup, scripts_dir)
     expected = {'Windows': ('winget', 'Gyan.FFmpeg', 'OpenJS.NodeJS.LTS'),
                 'Darwin': ('brew install', 'ffmpeg', 'node'),
                 'Linux': ('apt install', 'ffmpeg', 'nodejs')}

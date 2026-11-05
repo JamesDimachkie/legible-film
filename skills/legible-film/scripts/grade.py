@@ -15,8 +15,8 @@ A project version's card is cuts/vNNN/scorecard.json with its packet in cuts/vNN
 A loose file's card is NAME.scorecard.json beside it, with its packet in NAME.grade/.
 review builds cuts/vNNN/review/ for an independent editor; it does not score the cut.
 A loose file's words come from --words (word JSON, SRT or WebVTT), else from a local
-faster-whisper small transcript of its own audio when installed (pip install
-faster-whisper; cached; nothing uploaded), else the card says there is no transcript.
+faster-whisper small transcript of its own audio when installed (setup.py --install
+transcription --download; cached; nothing uploaded), else the card says there is no transcript.
 
 Numbers from frames, transcripts and sound are diagnostics, not scores of taste or
 proof of accessibility. Scores require cited reviewer evidence and remain subject
@@ -243,7 +243,8 @@ def read_cues(cut):
 
 
 NO_TRANSCRIPT_NEXT = ("Give --words FILE (word JSON, SRT or WebVTT on this file's clock), or install faster-whisper "
-                      '(setup.py --install transcription) and grade again to transcribe locally.')
+                      'and its model (setup.py --install transcription --download) and grade again to transcribe '
+                      'locally.')
 
 
 def transcription_failure(output):
@@ -299,8 +300,8 @@ def local_transcript(video, grade_folder, media_hash, has_audio, allowed):
         return [], {'state': 'not_available',
                     'reason': 'No transcript: faster-whisper is not installed for this Python and no --words file '
                               'was given.',
-                    'next': P.dependency_message('faster_whisper') + f' (the {SPEECH_MODEL} model, about 460 MB, '
-                            'downloads once, with your yes), or give --words FILE.'}
+                    'next': P.dependency_message('faster_whisper') + f' (add --download for the {SPEECH_MODEL} model, '
+                            'about 460 MB, with your yes), or give --words FILE.'}
     print(f'transcript: transcribing locally with faster-whisper {SPEECH_MODEL} (draft)', flush=True)
     Path(grade_folder).mkdir(parents=True, exist_ok=True)
     args = [sys.executable, '-I', str(HERE / 'transcribe.py'), str(Path(video).resolve()), '--engine',
@@ -416,7 +417,8 @@ def face_samples(frames):
     try:
         import cv2
     except ImportError:
-        return {'state': 'not_run', 'reason': 'Optional OpenCV missing: pip install "opencv-python>=4.8,<5"',
+        return {'state': 'not_run',
+                'reason': 'Optional OpenCV missing: ' + P.python_command([HERE / 'setup.py', '--install', 'faces']),
                 'note': 'No face inference; inspect the frames.'}
     directory = getattr(getattr(cv2, 'data', None), 'haarcascades', None)
     model = Path(directory or '') / 'haarcascade_frontalface_default.xml'

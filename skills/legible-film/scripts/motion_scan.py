@@ -43,6 +43,7 @@ than three frames.
 
 import argparse
 import csv
+import functools
 import importlib.util
 import json
 import math
@@ -78,6 +79,7 @@ def find_tool(name, explicit=None):
     return shutil.which(name)
 
 
+@functools.lru_cache(maxsize=None)
 def passthrough(ffmpeg):
     """Frame-exact output: -fps_mode passthrough (FFmpeg 5.1 and later), -vsync passthrough before it."""
     try:
