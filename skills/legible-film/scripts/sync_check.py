@@ -8,7 +8,7 @@ across the film are drift or an edit; weak or ambiguous correlation is inconclus
 windows with sound in the reference match nothing at all in the delivered audio, which says its
 content differs (or it was moved further than the search, or sped up beyond the 0.95-1.05 a fit
 covers): no correlation peak of 0.5 or more, or standing half as high again as the rest of the
-search. Measured over 3 s and 0.5 s windows on one film's sound and on noise: AAC re-encodes down
+search. Delivered silence is inconclusive as transport; the report counts its windows. Measured over 3 s and 0.5 s windows on one film's sound and on noise: AAC re-encodes down
 to 16 kb/s peak at 0.71 or more, or for white noise at 0.29 or more standing ten times above the
 rest; another passage, a tone or another speed peak at 0.38 or less, within 1.5 times of the rest.
 For steadily changing lag, short low-pass probes propose an affine time map, then
@@ -390,11 +390,9 @@ def fit_rows(rows, tolerance_ms, min_corr):
 
 def matches_nothing(reference, scores):
     """Whether a reference window with sound matches nothing in the delivered audio: no peak of either sign anywhere in
-    the search that is strong or stands alone, or nothing there at all to correlate."""
-    if level_db(reference) < NO_MATCH_DBFS:
+    the search that is strong or stands alone. Silence is too little to correlate, so it is not one of these."""
+    if level_db(reference) < NO_MATCH_DBFS or not np.any(np.isfinite(scores)):
         return False
-    if not np.any(np.isfinite(scores)):
-        return True
     sizes = np.abs(scores)
     best = int(np.nanargmax(sizes))
     peak = float(sizes[best])
@@ -608,6 +606,7 @@ def main():
             row.update(state='measured', lag_samples=lag, lag_ms=round(lag / RATE * 1000, 3),
                        correlation=round(peak, 4), runner_up=round(second, 4), ambiguous=second > .95 * peak)
         row['matches_nothing'] = matches_nothing(r, c)
+        row['delivered_silent'] = level_db(r) >= NO_MATCH_DBFS and not np.any(np.isfinite(c))
         rows.append(row)
     good = [r for r in rows if r['correlation'] is not None and r['correlation'] >= a.min_corr and not r['ambiguous']]
     original_rows = rows
@@ -625,6 +624,7 @@ def main():
                'delivered_length_s': round(len(deliv) / RATE, 3), 'reference_length_s': round(len(ref) / RATE, 3)}
     disagreeing = [r for r in rows if r['matches_nothing']]
     summary['windows_matching_nothing'] = len(disagreeing)
+    summary['windows_delivered_silent'] = sum(r['delivered_silent'] for r in rows)
     if len(good) < max(2, len(rows) // 2) and not fit and len(disagreeing) >= max(2, math.ceil(2 * len(rows) / 3)):
         verdict, code = (f'content differs: {len(disagreeing)} of {len(rows)} windows with sound in the reference match '
                          f'nothing in the delivered audio within {a.max_lag_ms:g} ms (other sound, or moved further, '

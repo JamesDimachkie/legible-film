@@ -3057,11 +3057,18 @@ def picture_content_item(reference, output, source, destination, when, what):
     return item('edit_picture', 'Picture content', 'pass', f'{same} of {informative} comparable frames match: {counted}')
 
 
-def sync_state(verdict):
-    """What a comparison of sound with its source says: the same, measurably not, or too little to tell."""
+def sync_state(summary):
+    """What sync_check.py's comparison of sound with its source says: (state, detail): the same, measurably not, or too
+    little to tell. Most windows silent where the source has sound is measurably not, though transport cannot say."""
+    verdict = summary.get('verdict', '')
+    silent, windows = summary.get('windows_delivered_silent') or 0, summary.get('windows') or 0
     if verdict == 'consistent with the reference within tolerance':
-        return 'pass'
-    return 'fail' if verdict.startswith(('constant offset', 'lag changes', 'content differs')) else 'skip'
+        return 'pass', verdict
+    if silent >= max(2, math.ceil(2 * windows / 3)):
+        return 'fail', f'content differs: the output is silent in {silent} of {windows} windows where the source has sound'
+    if verdict.startswith(('constant offset', 'lag changes', 'content differs')):
+        return 'fail', verdict
+    return 'skip', verdict or 'audio comparison inconclusive'
 
 
 def audio_content_item(reference, output, source, destination):
@@ -3094,10 +3101,8 @@ def audio_content_item(reference, output, source, destination):
                                                    f'{tolerance_ms:g}', '--json', report_path], report_path)
     if report is None:
         return item('edit_audio', label, 'skip', why)
-    verdict = (report.get('summary') or {}).get('verdict', '')
-    state = sync_state(verdict)
-    row = item('edit_audio', label if state == 'skip' else 'Sound content', state,
-               (verdict or 'the comparison said nothing') + '; compared with the source')
+    state, detail = sync_state(report.get('summary') or {})
+    row = item('edit_audio', label if state == 'skip' else 'Sound content', state, detail + '; compared with the source')
     row['measurement'] = report.get('summary')
     return row
 
@@ -3230,9 +3235,8 @@ def trim_audio_content_items(reference, output, bounds, source, destination):
     if report is None:
         return result('skip', why or 'audio comparison could not run')
     summary = report.get('summary') or {}
-    verdict = summary.get('verdict', '')
-    state = sync_state(verdict)
-    return result(state, (verdict or 'audio comparison inconclusive') +
+    state, verdict = sync_state(summary)
+    return result(state, verdict +
                   '; compared sampled audio with the declared source passage', summary)
 
 
