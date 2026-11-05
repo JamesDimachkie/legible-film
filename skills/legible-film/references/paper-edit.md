@@ -348,7 +348,8 @@ film.md:15: warning: cutaway runs 1.20 s past its line; it will be trimmed
 
 Errors stop a render: bad grammar, unknown aliases, ranges outside a source, unmatched or out-of-order words, a
 picture line on a source with no picture, and any line that would last longer than four times `target` (three hours
-without one), which is almost always a mistyped range or speed. Warnings describe something that will
+without one), which is almost always a mistyped range or speed. A blocked render exits 2, since nothing was made to
+look at (`check` exits 1 for the same errors; `render --json` says `"status": "blocked"`). Warnings describe something that will
 render but deserves a look: a duration far from `target`, a tight cut, a trimmed cutaway, uncovered audio-only picture,
 an abrupt sound change at a join, busy cutting, a flash frame (under half a second of a picture: a source's shot
 change just inside a range, or a moment of a line's own picture left between two cutaways), an interview line said

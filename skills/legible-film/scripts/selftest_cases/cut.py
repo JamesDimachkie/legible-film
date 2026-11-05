@@ -568,6 +568,7 @@ def run_cut_cases(tool, record, j, scripts_dir):
     make_source(media, 'int_01', 12.0, PATCHES['int'])
     make_source(media, 'broll_01', 6.0, PATCHES['broll'], audio=False)
     check_sound_past_picture(tool, record, j, media)
+    check_caption_ends_with_film(tool, record, j, media)
     root = make_project(j('cut-project'), media)
     (root / 'film.md').write_text(FILM, encoding='utf-8')
     paper_code, _ = tool('grade.py', 'paper', root)
@@ -1150,6 +1151,29 @@ def check_sound_past_picture(tool, record, j, media):
            not found['whole'] and not found['faded'], str(found))
 
 
+def check_caption_ends_with_film(tool, record, j, media):
+    """A caption's minimum reading time must not carry it past the film's last frame: a sidecar is read beside the
+    film, and a cue past its end is a caption no viewer sees the end of."""
+    root = make_project(j('cut-caption-end'), media)
+    (root / 'film.md').write_text('---\ntitle: Short word\nsize: 320x180\nfps: 25\ncaptions: srt\n---\n'
+                                  '> int_01 0:00.45-0:00.95 alpha\n', encoding='utf-8')
+    code, output = tool('cut.py', 'render', root)
+    version = root / 'cuts' / 'v001'
+    manifest = json.loads((version / 'manifest.json').read_text(encoding='utf-8')) if (
+        version / 'manifest.json').is_file() else {}
+    cues = (json.loads((version / 'captions.json').read_text(encoding='utf-8')) if (
+        version / 'captions.json').is_file() else {}).get('cues', [])
+    length = manifest.get('duration_s', 0)
+    srt = (version / 'captions.srt').read_text(encoding='utf-8') if (version / 'captions.srt').is_file() else ''
+    stamp = srt.split('-->')[1].split()[0] if '-->' in srt else ''
+    written = sum(float(part) * unit for part, unit in zip(stamp.replace(',', '.').split(':'), (3600, 60, 1))) \
+        if stamp else float('inf')
+    record('cut: a short last word keeps its caption inside the film, in the sidecar and its JSON',
+           code in (0, 1) and length > 0 and len(cues) == 1 and float(cues[0]['end']) <= length + 1e-6
+           and written <= length + 1e-6 and 'alpha' in srt,
+           f'film {length}; cue {cues}; srt end {stamp}; {output[-200:]}')
+
+
 def check_proxied_spoken(tool, record, j):
     """A preview proxy for a spoken source must keep the original source's sound."""
     root = Path(j('cut-proxy-spoken'))
@@ -1479,9 +1503,9 @@ def check_errors(tool, record, j, media):
         blocked = json.loads(json_output[json_output.index('{'):])
     except ValueError:
         blocked = {}
-    record('cut: render refuses a paper edit with errors, and --json says it was blocked (exit 1 alone does not)',
-           code == 1 and not (root / 'cuts' / 'v001').exists() and 'not rendered' in output
-           and json_code == 1 and blocked.get('status') == 'blocked' and blocked.get('version') is None
+    record('cut: render refuses a paper edit with errors with exit 2 (it could not run), and --json says it was blocked',
+           code == 2 and not (root / 'cuts' / 'v001').exists() and 'not rendered' in output
+           and json_code == 2 and blocked.get('status') == 'blocked' and blocked.get('version') is None
            and any(item['severity'] == 'error' for item in blocked.get('problems', [])), output[-300:])
 
 
@@ -1514,7 +1538,7 @@ def check_guards(tool, record, j, media, scripts_dir):
     except ValueError:
         loose = None
     record('cut: implausibly long lines (4x the target, or 3 hours) are refused before anything renders',
-           code == 1 and errors == [7, 8, 9] and render_code == 1 and not (root / 'cuts' / 'v001').exists()
+           code == 1 and errors == [7, 8, 9] and render_code == 2 and not (root / 'cuts' / 'v001').exists()
            and max(sizes) < 5 * 1024 ** 2 and sum(sizes) < 20 * 1024 ** 2 and loose == [6, 8],
            f'errors {errors}; loose {loose}; largest {max(sizes)}; {render_output[-300:]}')
     spec = importlib.util.spec_from_file_location('lf_cut_guard', os.path.join(scripts_dir, 'cut.py'))

@@ -36,7 +36,9 @@ passed):
   local, never downloading weights here), every word heard checked against the whole caption timeline, gaps
   included; differences and speech no caption carries are looks, since a transcript can mishear. It passes only when
   every word heard is in a caption. This is the only item that compares captions with what is said; without
-  faster-whisper it is not assessed and says how to install it;
+  faster-whisper it is not assessed and says how to install it. A transcript with no words is "no speech was heard"
+  only when the sound measures as silence; over measurable sound it is not assessed, since speech may have been missed;
+  a caption file with no captions on a film with sound is a look, or a failure when captions are required;
 - title contrast, when the version has titles: each title's letters against the picture around them at its midpoint
   (a look below 3:1, naming for each low title the nearest colour and the black plate that would reach 3.3:1 against
   the ground measured there, with their ratios); full-frame cards are not measured;
@@ -97,6 +99,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import platform
 import re
 import shutil
@@ -123,6 +126,8 @@ TITLE_CONTRAST = 3.0
 SUGGEST_MARGIN = 1.1
 DROPOUT_DB = -80
 DROPOUT_S = 0.08
+# EBU R128's absolute gate: ebur128 reports this for digital silence and for sound too quiet to measure.
+SILENCE_LUFS = -70.0
 # The first frame is read at this size; it is one colour when no channel spans more than FLAT_SPAN code values.
 FIRST_FRAME_SIZE = (96, 54)
 FLAT_SPAN = 12
@@ -210,8 +215,10 @@ def why_not_run(name, code, output):
             return f'{name} could not run: {P.dependency_message(module)}'
         return (f'{name} could not run: the Python module {module} is missing; install it: '
                 f'pip install {PACKAGES.get(module, module)}')
-    if re.search(r'ffmpeg|ffprobe', output, re.IGNORECASE) and re.search(r'not found|no such file|cannot find',
-                                                                          output, re.IGNORECASE):
+    # "moov atom not found" is a damaged file named by a tool that is plainly there, so the tools are looked for.
+    tools = all(shutil.which(os.environ.get(tool.upper()) or tool) for tool in ('ffmpeg', 'ffprobe'))
+    if not tools and re.search(r'ffmpeg|ffprobe', output, re.IGNORECASE) and re.search(
+            r'not found|no such file|cannot find', output, re.IGNORECASE):
         return f'{name} could not run: FFmpeg was not found; install FFmpeg (ffmpeg and ffprobe on PATH)'
     last = output.strip().splitlines()[-1][-160:] if output.strip() else 'no output'
     return f'{name} could not run (exit {code}): {last}; run it on its own to see why'
@@ -770,15 +777,43 @@ def word_rows(report):
     return findings, prompts, timing
 
 
-def rules_item(srt, fresh, profile=None):
+def measured_sound(fresh):
+    """(whether this run measured sound in the checked file, its integrated loudness or None): qc_file.py's report in
+    this run's folder. Silence is only ever a measurement: a level this run did not get counts as sound, so nothing
+    is excused by a measurement that is missing."""
+    try:
+        report = P.load_json(Path(fresh) / 'qc.json', None)
+    except (OSError, ValueError):
+        report = None
+    loudness = report.get('loudness') if isinstance(report, dict) else None
+    if not isinstance(loudness, dict) or loudness.get('error'):
+        return True, None
+    level = number(loudness.get('integrated_lufs'))
+    return level is not None and level > SILENCE_LUFS, level
+
+
+def rules_item(srt, fresh, profile=None, sound=False, required=None):
     """Caption reading rules: line length, lines and overlaps fail; reading speed, duration and gaps are looks. With a
-    house style (`profile`), captions.py check --profile applies its limits and reviewed exceptions."""
+    house style (`profile`), captions.py check --profile applies its limits and reviewed exceptions. A file with no
+    captions breaks no rule, so on a film with `sound` it is a look, or a failure when captions are `required`."""
     args = ['check', srt] + (['--profile', profile] if profile else []) + ['--json', fresh / 'captions-rules.json']
     report, why = run_report('captions.py', args, fresh / 'captions-rules.json')
     if report is None:
         return item('captions_rules', 'Caption reading rules', 'skip', why)
     findings, review, cues = report.get('findings') or [], report.get('review') or [], report.get('cues', 0)
     style = f' (house style {Path(profile).name})' if profile else ''
+    if not cues and not findings and sound:
+        detail = (f'{Path(srt).name} holds no captions and this film has sound, so a viewer who needs them gets '
+                  'nothing: ')
+        if required:
+            entry = item('captions_rules', 'Captions required, but the caption file is empty', 'fail',
+                         detail + 'give the sidecar that has the captions')
+        else:
+            entry = item('captions_rules', 'The caption file is empty', 'look',
+                         detail + 'give the sidecar that has the captions, or, when the film is delivered without '
+                         'them, leave it out ("captions_required": false for --file, captions: none in film.md)')
+        entry['empty'] = True
+        return entry
     if findings:
         return item('captions_rules', f'Caption reading rules{style}: {len(findings)} to fix', 'fail',
                     counted(findings))
@@ -812,6 +847,9 @@ def edit_item(srt, lines, fresh, basis=LINES_BASIS, missing=None):
     if prompts:
         return item('captions_edit', f'Captions and the edit: {len(prompts)} to look at', 'look',
                     f'{counted(prompts)}: {examples(prompts)}; against {basis}', first_moment(prompts))
+    if not cues:
+        return item('captions_edit', 'Captions follow the edit', 'skip',
+                    f'{Path(srt).name} holds no captions, so there is nothing to compare with {basis}')
     edit_kind = 'the paper edit' if basis == LINES_BASIS else 'the edit'
     return item('captions_edit', 'Captions follow the edit', 'pass',
                 f'{cues} captions against {basis}: {edit_kind}, not the sound')
@@ -856,13 +894,16 @@ def speech_engine_missing():
     return ''
 
 
+NO_SPEECH = 'no speech was heard'
+
+
 def coverage_note(report):
     """What the speech comparison examined, or None when the report does not say (then no match is claimed)."""
     coverage = (report.get('timing_screen') or {}).get('coverage')
     if not isinstance(coverage, dict) or not isinstance(coverage.get('words'), int):
         return None
     if coverage['words'] == 0:
-        return 'no speech was heard'
+        return NO_SPEECH
     return f"every one of the {coverage['words']} words heard is in a caption"
 
 
@@ -910,6 +951,14 @@ def speech_compare(srt, words, fresh, source):
         return item('captions_speech', 'Captions and speech: coverage not reported', 'look',
                     f'captions.py did not say which words it checked against {source}; compare them by listening')
     timing_note = f'; timing prompts: {counted(timing)}' if timing else ''
+    if covered == NO_SPEECH:
+        sound, level = measured_sound(fresh)
+        if sound:
+            measured = f'measures {level:.1f} LUFS' if level is not None else 'was not measured as silence'
+            return item('captions_speech', label, 'skip',
+                        f'{source} holds no words, but the sound {measured}, so speech may have been missed: listen, '
+                        'and give a transcript that has the speech')
+        covered = NO_SPEECH + ' (the sound measures as silence)'
     return item('captions_speech', label, 'pass', f'{cues} captions against {source}; {covered}{timing_note}')
 
 
@@ -1129,9 +1178,17 @@ def caption_items(folder, video, fresh, speech, has_audio, captions=None, note='
     """The three caption items (reading rules, follow the edit, match the speech) for a version with captions: its
     own captions.srt, or `captions`, the sidecar delivered with a final. `note` says which file was checked."""
     srt = Path(captions) if captions else folder / 'captions.srt'
+    sound = has_audio and measured_sound(fresh)[0]
     if captions is None and (not srt.is_file() or not P.read_text(srt).strip()):
-        return []
-    items = [with_note(rules_item(srt, fresh, profile), note),
+        # The version's own empty file: nothing to compare, but a film with sound that did not say captions: none has
+        # captions a viewer will not get.
+        manifest = P.load_json(folder / 'manifest.json', {}) or {}
+        wanted = manifest['captions'] if 'captions' in manifest else (
+            front_matter(folder / 'film.md').get('captions', 'srt').lower() != 'none')
+        if not srt.is_file() or not wanted or not sound:
+            return []
+        return [with_note(rules_item(srt, fresh, profile, sound), note)]
+    items = [with_note(rules_item(srt, fresh, profile, sound), note),
              with_note(edit_item(srt, folder / 'lines.json', fresh), note)]
     contrast = caption_contrast_item(folder, video, fresh)
     if contrast is not None:
@@ -1281,7 +1338,8 @@ def file_caption_items(plan, video, fresh, has_audio):
                 edit['label'] = 'Captions and the edit: transcript identity not verified'
             edit['state'] = 'look'
         edit['detail'] += '; ' + IDENTITY_NOTE
-    items += [rules_item(captions, fresh, plan.get('profile')), edit]
+    items += [rules_item(captions, fresh, plan.get('profile'), has_audio and measured_sound(fresh)[0],
+                         plan.get('captions_required')), edit]
     if plan.get('speech_words') and has_audio:
         items.append(supplied_speech_item(captions, plan['speech_words'], fresh, plan['sha256']))
     else:
@@ -2112,7 +2170,8 @@ def run_checks(video, qa=None, spec=None, duration=None, final=False, target=DEF
         titles = title_contrast_item(captions_folder, video, fresh) if captions_folder else None
         if titles:
             items.append(titles)
-        items += person_items(reviewed, has_audio, any(entry['id'] == 'captions_rules' for entry in captions))
+        items += person_items(reviewed, has_audio, any(entry['id'] == 'captions_rules' and not entry.get('empty')
+                                                       for entry in captions))
         if qa is not None:
             publish(fresh, Path(qa), 'final-' if final else '')
     not_assessed(items)

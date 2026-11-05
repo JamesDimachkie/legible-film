@@ -75,9 +75,9 @@ What this does not prove: that a cut sounds or looks right. Quiet audio is not a
 be quiet for a moment), transcripts are drafts, and the preview is a review copy. Watch and listen to every version.
 Needs numpy, Pillow and FFmpeg; check runs without FFmpeg from transcript timings alone.
 
-Exit codes: 0 nothing to report; 1 something to inspect (errors in film.md, so nothing rendered; a render with
-review notes; phrases not found); 2 could not run. render --json says which with "status": "rendered" (and the
-version) or "blocked" (and the problems).
+Exit codes: 0 nothing to report; 1 something to inspect (check found errors in film.md; a render with review notes;
+phrases not found); 2 could not run, which includes a render blocked by errors in film.md, since nothing was rendered.
+render --json says which with "status": "rendered" (and the version) or "blocked" (and the problems).
 """
 import argparse
 import contextlib
@@ -4167,6 +4167,27 @@ def build_captions(plan, version_dir, work_dir, notes, size=None, wanted=True):
     return 'captions.json'
 
 
+def end_captions_with_film(prefix, length, notes):
+    """End every caption by the film's last frame, rewriting the sidecars when one runs past it. Captions are segmented
+    before the picture exists: a caption's minimum reading time can carry a short last word past the film, and a film
+    length can round down to whole frames (a cue at 14.245 s on a film of 14.208 s)."""
+    data = project.load_json(prefix.with_suffix('.json'), None)
+    cues = data.get('cues') if isinstance(data, dict) else None
+    limit = math.floor(length * 1000 + 1e-6) / 1000
+    if not cues or all(float(cue['end']) <= limit for cue in cues):
+        return
+    kept = []
+    for cue in cues:
+        if float(cue['start']) >= limit:
+            notes.append(f'a caption starting past the end of the film was left out: "{cue.get("text", "")}"')
+            continue
+        cue['end'] = min(float(cue['end']), limit)
+        for word in cue.get('words') or []:
+            word['end'] = min(float(word['end']), limit)
+        kept.append(cue)
+    load_sibling('captions').write_sidecars(kept, str(prefix))
+
+
 # ----------------------------------------------------------------------------------------------- render media
 
 def estimate_spool(edit, settings, source_map, proxies):
@@ -4647,6 +4668,7 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
         job.update(0.87)
         frames_out = (project.load_json(work / 'assemble-report.json', {}) or {}).get('frames') or frames
         length = frames_out / float(settings['fps'])
+        end_captions_with_film(staging / 'captions', length, notes)
         stems = sorted(work.glob('*.wav'))
         master_report = None
         platform = getattr(args, 'master', None)
@@ -4845,14 +4867,14 @@ def run_render(args):
         if not math.isfinite(target) or not -70 <= target <= -5:
             raise ValueError('the master loudness target must be between -70 and -5 LUFS')
     if problems.count('error'):
-        # Exit 1 means "look at this" for a blocked render and for a render with notes alike; --json says which.
+        # Exit 2 is what it means everywhere: the render could not run, so nothing was made to look at.
         if args.json:
             print(json.dumps({'status': 'blocked', 'version': None, 'problems': problems.items}, indent=1,
                              ensure_ascii=False))
-            return 1
+            return 2
         print_problems(problems)
         print(f'not rendered: {problems.count("error")} error(s) in film.md')
-        return 1
+        return 2
     name, notes, manifest = render_version(root, args, plan, settings, source_map, problems, text)
     closing = resolve_commands(root, manifest.get('notes_resolved') or [], name)
     if args.json:

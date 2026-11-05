@@ -78,9 +78,119 @@ def check_reviews_bound_to_file(record, j, scripts_dir):
            and finals.get('heard') == 'you', str(finals))
 
 
+def check_missing_tool_claim(record, j, scripts_dir):
+    """A file FFmpeg cannot read is not a missing FFmpeg: that is said only when FFmpeg really cannot be found."""
+    module, error = load_module(scripts_dir, 'check')
+    if module is None:
+        record('check: "moov atom not found" is not called a missing FFmpeg', False, error)
+        return
+    damaged = ('ffprobe failed: [mov,mp4,m4a,3gp,3g2,mj2 @ 000] moov atom not found\n'
+               'nomoov.mp4: Invalid data found when processing input')
+    present = module.why_not_run('qc_file.py', 2, damaged)
+    original = module.shutil.which
+    module.shutil.which = lambda name, *args, **options: None
+    try:
+        absent = module.why_not_run('qc_file.py', 2, 'ffmpeg: not found')
+    finally:
+        module.shutil.which = original
+    record('check: "moov atom not found" is not called a missing FFmpeg, and a missing FFmpeg still is',
+           'was not found' not in present and 'Invalid data' in present and 'FFmpeg was not found' in absent,
+           present + ' | ' + absent)
+    folder = Path(j('check-no-moov'))
+    folder.mkdir(parents=True, exist_ok=True)
+    broken = folder / 'no-moov.mp4'
+    broken.write_bytes(bytes.fromhex('00000018') + b'ftypisom' + bytes(4000))
+    done = subprocess.run([sys.executable, '-I', str(Path(scripts_dir) / 'check.py'), '--file', str(broken)],
+                          capture_output=True, text=True, encoding='utf-8', errors='replace')
+    record('check: a file with no index exits 2 and does not ask for FFmpeg to be installed',
+           done.returncode == 2 and 'install FFmpeg' not in done.stderr and 'could not run' in done.stderr,
+           done.stderr[-300:])
+
+
+def check_empty_captions(tool, record, j, scripts_dir):
+    """An empty sidecar on a file with sound is never ok, and a transcript with no words of measurable sound is not
+    assessed, never "no speech was heard"."""
+    spec = importlib.util.spec_from_file_location('lf_project_empty', os.path.join(scripts_dir, 'project.py'))
+    project = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(project)
+    folder = Path(j('check-empty-captions'))
+    folder.mkdir(parents=True, exist_ok=True)
+    video = folder / 'export.mp4'
+    make_video(video, 'testsrc2=s=320x180:r=30')
+    empty, words = folder / 'empty.srt', folder / 'words.json'
+    empty.write_bytes(b'')
+    words.write_text(json.dumps({'words': [], 'media': {'sha256': file_sha(video)}}), encoding='utf-8')
+
+    def checked(name, path=video, *extra):
+        out = folder / (name + '.json')
+        code, output = tool('check.py', '--file', path, '--captions', empty, '--speech-words', words, *extra,
+                            '--json', out)
+        return code, by_id(checks_at(out)), output
+
+    code, found, output = checked('plain')
+    rules, speech = found.get('captions_rules', {}), found.get('captions_speech', {})
+    record('check: an empty sidecar on a file with sound is a look, not "0 captions follow the reading rules"',
+           code == 1 and rules.get('state') == 'look' and 'empty' in rules.get('label', '')
+           and 'empty.srt' in rules.get('detail', ''), str(rules) + output[-300:])
+    record('check: a transcript with no words of measurable sound is not assessed, never "no speech was heard"',
+           speech.get('state') == 'skip' and speech.get('label', '').startswith('Not assessed')
+           and 'no speech was heard' not in output and 'LUFS' in speech.get('detail', ''), str(speech))
+    record('check: an empty sidecar does not read as following the edit, or ask a person to check its names',
+           found.get('captions_edit', {}).get('state') == 'skip' and 'names' not in found,
+           str(found.get('captions_edit')))
+    required = folder / 'delivery.json'
+    required.write_text(json.dumps({'captions_required': True}), encoding='utf-8')
+    code, found, output = checked('required', video, '--delivery', str(required))
+    record('check: an empty sidecar fails when the delivery settings require captions',
+           code == 1 and found.get('captions_rules', {}).get('state') == 'fail'
+           and 'required' in found.get('captions_rules', {}).get('label', ''), str(found.get('captions_rules')))
+    empty.write_text('  \n\n', encoding='utf-8')
+    _, found, _ = checked('blank')
+    record('check: a sidecar of blank lines is an empty sidecar', found.get('captions_rules', {}).get('state') == 'look',
+           str(found.get('captions_rules')))
+    silent = folder / 'silent.mp4'
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30:d=2', '-f', 'lavfi',
+                    '-i', 'anullsrc=r=48000:cl=stereo', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                    '-c:a', 'aac', str(silent)], check=True)
+    words.write_text(json.dumps({'words': [], 'media': {'sha256': file_sha(silent)}}), encoding='utf-8')
+    empty.write_bytes(b'')
+    _, found, _ = checked('silent', silent)
+    speech = found.get('captions_speech', {})
+    record('check: on sound that measures as silence, no words and no captions are measured facts, not gaps',
+           found.get('captions_rules', {}).get('state') == 'pass' and speech.get('state') == 'pass'
+           and 'no speech was heard' in speech.get('detail', '') and 'silence' in speech.get('detail', ''), str(speech))
+
+    root, version = make_version(project, j('check-empty-project'), '')
+    code, output = tool('check.py', root, '--no-speech')
+    found = read_checks(version)
+    record('check: a project version with sound and an empty captions.srt is a look',
+           code == 1 and found.get('captions_rules', {}).get('state') == 'look'
+           and 'captions.srt' in found.get('captions_rules', {}).get('detail', ''),
+           str(found.get('captions_rules')) + output[-300:])
+    film = version / 'film.md'
+    film.write_text(film.read_text(encoding='utf-8').replace('fps: 30', 'fps: 30\ncaptions: none'), encoding='utf-8')
+    code, output = tool('check.py', root, '--no-speech')
+    record('check: a film that says captions: none has no caption items', 'captions_rules' not in read_checks(version),
+           str(read_checks(version).get('captions_rules')) + output[-200:])
+    final = version / 'final-empty.srt'
+    final.write_bytes(b'')
+    code, output = tool('check.py', root, '--final', version / 'preview.mp4', '--captions', final, '--no-speech')
+    found = read_checks(version, 'checks-final.json')
+    record('check: a project final with an empty sidecar is a look, not a pass',
+           found.get('captions_rules', {}).get('state') == 'look', str(found.get('captions_rules')) + output[-300:])
+    speech = speech_with(scripts_dir, j('check-empty-no-words'), '1\n00:00:00,000 --> 00:00:01,500\nHello there\n', [])
+    record('check: captions over a transcript with no words are a look, not a match',
+           speech.get('state') == 'look', str(speech))
+    code, output = tool('captions.py', 'check', empty, '--words', words, '--strict')
+    record('captions: --strict does not call an empty file against no words complete',
+           code == 1 and '"complete": false' in output, output[-300:])
+
+
 def run_check_cases(tool, record, j, scripts_dir):
     """Clean and flashing files, a project version with captions, person reviews and exit codes."""
     check_reviews_bound_to_file(record, j, scripts_dir)
+    check_missing_tool_claim(record, j, scripts_dir)
+    check_empty_captions(tool, record, j, scripts_dir)
     check_craft2_units(record, scripts_dir)
     check_craft2_pattern_battery(tool, record, j)
     check_craft2_fine_pattern(tool, record, j)

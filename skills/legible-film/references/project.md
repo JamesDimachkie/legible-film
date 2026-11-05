@@ -321,7 +321,10 @@ the transcript hears is checked against the whole caption timeline, differences 
 `look`, so it passes only when every transcribed word is in a caption; `skip` with the install line without
 faster-whisper). `captions_speech` is the only item that compares captions with the sound, and its agreement is a
 screen, not proof: a transcript can mishear. Report its differences for review, and have a person check every
-caption against the audio. On a final file, `loudness` (against the destination's target only when one is named)
+caption against the audio. A caption file with no captions on a film with sound is a `look` in `captions_rules` (a
+`fail` when the delivery settings require captions; `captions: none` in `film.md` means no caption items at all), and
+a transcript with no words is `skip` unless the sound measures as silence, so "no speech was heard" is only ever
+said of silence. On a final file, `loudness` (against the destination's target only when one is named)
 and `true_peak` (after a lossy re-encode; `skip` with the diagnostic when it could not be measured, `fail` when the
 original already exceeds −1 dBTP) are separate items. Each run writes to a fresh folder and copies only what it
 produced into `qa/` (`qa/final-*` for a final file): a scanner that crashed, lacked a dependency or wrote no report is

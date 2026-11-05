@@ -2540,12 +2540,16 @@ def run_check(args):
         report['burned_screen'] = visual
     apply_exceptions(report, cues, args)
     reasons = []
+    if not cues:
+        reasons.append('the file holds no captions')
     if report['findings']:
         reasons.append('findings remain')
     if report['review']:
         reasons.append('review prompts remain')
     if not args.words:
         reasons.append('no word basis was provided')
+    elif not report['timing_screen']['coverage'].get('words'):
+        reasons.append('the word basis holds no words')
     elif (report['timing_screen']['coverage']['all_dialogue_matched']
           != report['timing_screen']['coverage']['all_dialogue_words']):
         reasons.append('some dialogue words in the word basis are not captioned')
