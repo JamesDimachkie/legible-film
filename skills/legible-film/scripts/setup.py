@@ -623,8 +623,8 @@ def ear_size():
 
 
 def install_ear_packages(python):
-    """The CPU listening packages: PyTorch from its CPU index, the others from PyPI. Python 3.9's own pip rejects that
-    index's metadata, so the constraints move it first."""
+    """The CPU listening packages: PyTorch from its CPU index, the others from PyPI. pip 23.0, which older Pythons
+    bring, rejects that index's metadata, so the constraints move it first."""
     pypi = ('--isolated', '--index-url', 'https://pypi.org/simple')
     pip_install(python, ['pip'], *pypi)
     pip_install(python, ['torch'], '--isolated', '--index-url', 'https://download.pytorch.org/whl/cpu')

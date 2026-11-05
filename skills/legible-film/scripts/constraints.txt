@@ -53,9 +53,10 @@ urllib3==2.8.0 ; python_version >= "3.10"
 
 # setup.py --install ear, torch first and alone from the PyTorch CPU index. That index serves torch's own dependencies
 # too, and carries only some versions: filelock, fsspec, jinja2, markupsafe, mpmath, networkx, setuptools, sympy and
-# typing-extensions must be versions it has, and the macOS torch stops at 2.11. Python 3.9's own pip (23.0) rejects the
-# index's metadata, so setup.py moves it first. No torch at these versions runs on an Intel Mac.
+# typing-extensions must be versions it has, and the macOS torch stops at 2.11. pip 23.0, which Python 3.9 and 3.10 and
+# Debian 12 bring, rejects the index's metadata, so setup.py moves pip first. No torch here runs on an Intel Mac.
 pip==26.0.1 ; python_version < "3.10"
+pip==26.3 ; python_version >= "3.10"
 torch==2.8.0 ; python_version < "3.10"
 torch==2.14.1 ; python_version == "3.10" and sys_platform != "darwin"
 torch==2.15.0 ; python_version >= "3.11" and sys_platform != "darwin"
