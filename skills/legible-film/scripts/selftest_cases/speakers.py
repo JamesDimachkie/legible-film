@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import wave
 from pathlib import Path
+from xml.etree import ElementTree
 
 import numpy as np
 
@@ -482,6 +483,23 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
            and 'mic_a.wav' in xml and 'cam_b.mp4' in xml and 'no matching audio item' not in output, output[-500:])
     record('speakers: exchange.py write lists the line-up among what the XML cannot carry',
            'line-up' in output.lower() or 'lined up' in output.lower(), output[-400:])
+    if xml:
+        ticks = 254016000000
+        def clips(kind, name):
+            root_node = ElementTree.fromstring(xml)
+            names = {node.get('id'): node.findtext('name') for node in root_node.iter('file') if node.findtext('name')}
+            return [clip for track in root_node.findall(f'.//media/{kind}/track') for clip in track.findall('clipitem')
+                    if names.get(clip.find('file').get('id')) == name]
+        sound = [int(clip.findtext('pproTicksIn')) / ticks for clip in clips('audio', 'mic_a.wav')]
+        wanted = [run['sound_in'] for run in spoken['runs']]
+        record('speakers: in the hand-off each mic clip starts at the in-point its offset gave',
+               len(sound) >= len(wanted) and all(any(abs(have - want) < 0.002 for have in sound) for want in wanted),
+               f'{sound} against {wanted}')
+        picture = [int(clip.findtext('pproTicksIn')) / ticks for clip in clips('video', 'cam_b.mp4')]
+        shown = [row['range'][0] for row in lines if row.get('sync')]
+        record('speakers: in the hand-off the lined-up camera starts at the frame its offset gave',
+               len(picture) >= len(shown) and all(any(abs(have - want) < 1.5 / rate for have in picture)
+                                                  for want in shown), f'{picture} against {shown}')
     # A second run with the camera in its own line and a mic-only spoken line: the picture comes wholly from the camera.
     write_words(root, 'mic_02', [row for row in rows if row['true'] == 'Thom'])
     thom = [row for row in rows if row['true'] == 'Thom' and row['start'] > 2.0][:5]
@@ -509,6 +527,47 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
            code in (0, 1) and nat and nat[0]['src'] == 'mic_02'
            and abs(nat[0]['in'] - (round(half, 2) + data['cam_02']['offset_s'] - data['mic_02']['offset_s'])) < 1e-3,
            f'exit {code}, {str(nat)[:200]}; ' + output[-400:])
+    # Sound carried across a join and a continuous pair of lines, on a mic's own clock.
+    first_part, second_part = pick[:5], pick[5:10]
+    boundary = round((first_part[-1]['end'] + second_part[0]['start']) / 2, 2)
+    def spoken_line(rows_here, low, high, mods):
+        return f'> cam_01 {low:.2f}-{high:.2f} ' + ' '.join(row['text'] for row in rows_here) + f' {{{mods}}}\n'
+    film(spoken_line(first_part, first_part[0]['start'] - 0.05, boundary, 'sound mic_01')
+         + spoken_line(second_part, boundary, second_part[-1]['end'] + 0.05, 'sound mic_01'))
+    code, output = tool('cut.py', 'render', root)
+    version = sorted((root / 'cuts').glob('v[0-9]*'))[-1]
+    items = json.loads((version / 'edit.json').read_text(encoding='utf-8'))['audio']
+    record('speakers: two lines that carry on in one mic join without a fade, at the same sample',
+           code in (0, 1) and len(items) == 2 and abs(items[0]['out'] - items[1]['in']) < 1e-3
+           and items[0].get('fade_out_ms') == 0 and items[1].get('fade_in_ms') == 0, str(items)[:300])
+    film(spoken_line(first_part, first_part[0]['start'] - 0.05, boundary, 'sound mic_01')
+         + spoken_line(second_part, boundary, second_part[-1]['end'] + 0.05, 'sound mic_02'))
+    code, output = tool('cut.py', 'render', root)
+    version = sorted((root / 'cuts').glob('v[0-9]*'))[-1]
+    edit = json.loads((version / 'edit.json').read_text(encoding='utf-8'))
+    items = edit['audio']
+    joined = json.loads((version / 'lines.json').read_text(encoding='utf-8'))
+    record('speakers: a change of mic in mid-sentence keeps its fades, and the join report measures both mics',
+           code in (0, 1) and [item['src'] for item in items] == ['mic_01', 'mic_02']
+           and items[0].get('fade_out_ms') != 0 and items[1].get('fade_in_ms') != 0
+           and any(row['from']['source'] == 'mic_01' and row['to']['source'] == 'mic_02'
+                   for row in joined.get('joins', [])), str(joined.get('joins'))[:300])
+    apart = pick[6:10]
+    film(spoken_line(first_part, first_part[0]['start'] - 0.05, first_part[-1]['end'] + 0.05, 'sound mic_01, tail 0.3')
+         + spoken_line(apart, apart[0]['start'] - 0.05, apart[-1]['end'] + 0.05, 'sound mic_02, lead 0.2'))
+    code, output = tool('cut.py', 'render', root)
+    version = sorted((root / 'cuts').glob('v[0-9]*'))[-1]
+    items = json.loads((version / 'edit.json').read_text(encoding='utf-8'))['audio']
+    lines_here = json.loads((version / 'lines.json').read_text(encoding='utf-8'))['lines']
+    runs = [row['runs'][0] for row in lines_here if row['kind'] == 'spoken']
+    record('speakers: tail and lead carry each line\'s mic on that mic\'s own clock',
+           code in (0, 1) and abs(items[0]['out'] - (runs[0]['sound_out'] + 0.3)) < 2e-3
+           and abs(items[1]['in'] - (runs[1]['sound_in'] - 0.2)) < 2e-3 and items[1]['src'] == 'mic_02',
+           str(items)[:300] + ' ' + str(runs)[:200])
+    out = work / 'handoff-carry.xml'
+    code, output = tool('exchange.py', 'write', root, version.name, '--out', out)
+    record('speakers: the hand-off carries a mic\'s tail and lead too',
+           code == 0 and 'no matching audio item' not in output and 'J/L extensions' in output, output[-300:])
     # Every reader refuses a changed file, at the same size, for the sound and for the picture.
     for path, name in ((work / 'mic_a.wav', 'mic'), (work / 'cam_b.mp4', 'camera')):
         film(body)
