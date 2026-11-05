@@ -1,5 +1,7 @@
 # Evaluations
 
+The latest routing and triggering record is [results/2026-11-05-2.2](results/2026-11-05-2.2/README.md).
+
 ## Film-output evaluations for 2.0: experimental
 
 `tasks.json` defines 25 requests across quick edits, captions, interviews, shorts, tutorials, montages,

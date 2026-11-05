@@ -54,13 +54,33 @@ machine. It says nothing about the quality of a particular film.
   (41.3 to 42.6, n=3); a 3-minute 1080p60 preview from 330 s to 90 s (n=1 each); the example's first cut from 42.2 s to
   11.8 s (n=3). The footage is the example clip upscaled, which is soft. A 24 Mbit/s grainy source took 62 s for 30 s
   (n=2). Some earlier "before" runs had other jobs alongside. 4K was not re-measured.
-- **The scripts.** CI_COUNTS_PLACEHOLDER
+- **The scripts.** In CI on the 2.2.0 candidate, 2,348 self-test cases pass on Windows, 2,339 on Linux and 2,326 on Python 3.9 with
+  FFmpeg 5.1 (the oldest supported), with none failing. The rest are recorded as not run, with the reason: they need
+  faster-whisper, a browser, the network or fonts those machines lack. macOS runs the same self-test before a release.
 - **Review.** Each part was reviewed by a model of the other family from the one that wrote it (GPT-6.1 Terra and
   Claude). Each fix started from a case that failed.
 
 ## How agents route requests
 
-ROUTING_PLACEHOLDER
+On 2026-11-05, in fresh sessions without the user's instructions, memory or MCP servers, on a frozen scorer
+([the record](../evals/results/2026-11-05-2.2/README.md); [the earlier one](../evals/results/2026-11-02-clean-rerun/README.md)):
+
+- **Routing.** 14 of 15 prompts went to the right path on Claude (3 runs) and Codex (2 runs). The miss on both is a brand
+  film cut to music from supplied footage, which goes to cut where its sealed label says create.
+- **Loading the skill.** On 28 existing queries and 10 new ones naming subtitles, captions, podcasts, interviews, shorts
+  and pauses, 56 of 60 sessions that should load it did, and none of 54 that should not. On the new queries 2.1.0 scored
+  13 of 18 and 2.2 scored 17 of 18. Claude only.
+- **Stating the frame first is not reliable.** The frozen scorer passes 7 of 30 planning sessions on Claude and 2 of 20 on
+  Codex. A same-day control on released 2.1.0 scored the same as 2.2 on three prompts that had done better on Nov 2, so the
+  skill's text does not explain the drop on Claude, and nothing here shows what does.
+- **Reading before acting.** A median 2,368 words on Claude, under the 3,000 target, and 12,834 on Codex, far over it.
+- **Asking before spending.** Every session on the spending prompt asked first. Two then looked up vendor prices, which the
+  guard denied and the frozen rule counts as attempts. Nothing was generated or bought.
+- **Route checks.** Three of five pass on both hosts. The Tesseract hand-off fails: Claude names the hand-off but writes no
+  frame or plan within its turn limit. The fifth fails a frozen keyword check for the word "hint", though its answers do
+  call their findings measurements.
+
+These measure which guide an agent reads and what it does first, not whether a film is any good.
 
 ## Not yet measured
 

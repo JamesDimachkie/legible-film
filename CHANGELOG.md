@@ -56,7 +56,8 @@ add `--download` (about 460 MB). `setup.py` no longer installs into a shared Pyt
   wording corrected where a number could not be traced to a published record.
 - `paths/cut.md` skips story development when a request only shortens pauses. The skill's description names captions,
   subtitles, interviews and podcasts again. A new issue form asks how a film went or where you got stuck.
-- The routing evaluation's harness and results are published in `evals/`.
+- The routing evaluation's harness and results are published in `evals/`, for this release and for the 2.1 candidate. They
+  are not all good news: `docs/evidence.md` says what fails.
 
 ## 2.1.0 (2026-11-03)
 
