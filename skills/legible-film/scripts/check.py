@@ -2464,6 +2464,15 @@ def cue_related_inputs(root, folder):
     return [P.input_row(role, path, project_path(root, path)) for role, path in found]
 
 
+def hdr_items(manifest):
+    """A look for each version made from HDR sources: the tone map changes how highlights read."""
+    names = [row.get('alias', '?') for row in manifest.get('hdr_sources') or [] if isinstance(row, dict)]
+    if not names:
+        return []
+    return [item('hdr_source', 'HDR source converted to SDR', 'look',
+                 f"{', '.join(names)}: compare the highlights with the original")]
+
+
 def project_inputs(root, folder, video, digest, final, captions, speech, profile=None, manifest=None):
     """The inputs a project check depends on: the checked file, the captions checked, the version's lines.json,
     edit.json, film.md, declared.json, manifest.json and caption-burn.json (recorded as absent when missing, so adding
@@ -2645,6 +2654,7 @@ def check_project(root, version=None, final_file=None, speech=True, target=None,
         cold = preview_checks.get('cold_read') if isinstance(preview_checks, dict) else None
     checks['items'] += context_items(read_frame(frame_path), cold, digest)
     checks['items'].append(binding_item(manifest.get('identity')))
+    checks['items'] += hdr_items(manifest)
     sync_items, transcript = project_sync_items(folder, video, manifest,
                                                 required=project_path_name(frame_path) in ('create', 'insert', 'sound'))
     checks['items'] += sync_items

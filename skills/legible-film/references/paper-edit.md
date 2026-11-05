@@ -261,6 +261,12 @@ to review. Sampling
 does not guarantee the framing between samples:
 watch the rendered film, and cut between people, adjust the crop or letterbox where needed.
 
+Cover is the default, and it fills the frame by discarding whatever does not fit: a vertical clip in a landscape film
+keeps about a third of its height. When cover discards a third or more of a source's height or width, `check` and
+`render` warn, naming the first such line and these two options, and say so when OpenCV finds a face outside what is
+kept in a few sampled frames. The framing itself does not change, and a line that already says `crop auto` or
+`fit contain` gets no warning.
+
 ## 8. Timing rules
 
 - Lines that take time play one after another, in the order written. A spoken line lasts as long as its kept
@@ -432,7 +438,7 @@ music: -14dB, fade 2.0
 
 ```
 python cut.py check PROJECT [--json]          validate film.md against map/ without rendering
-python cut.py render PROJECT [--label TEXT] [--resolves n1,n2] [--final]
+python cut.py render PROJECT [--label TEXT] [--resolves n1,n2] [--final] [--every-frame]
 python cut.py diff PROJECT vA vB [--json]     what changed between two versions
 python cut.py draft PROJECT --select 'int_01:"we tried everything"' ... [--force]
 python cut.py tighten PROJECT ALIAS [--pause 0.35] [--fillers named|LIST] [--punch-in 1.1] [--music-bed]

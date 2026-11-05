@@ -1228,7 +1228,7 @@ def probe_video(ffprobe, path):
 
 def decoded_frame_count(ffprobe, path):
     """Count decoded input frames so overlay EOF cannot add or drop a frame."""
-    result = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-count_frames',
+    result = subprocess.run([ffprobe, '-v', 'error', '-threads', '8', '-select_streams', 'v:0', '-count_frames',
                              '-show_entries', 'stream=nb_read_frames', '-of', 'json', path],
                             capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode:

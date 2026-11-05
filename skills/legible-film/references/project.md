@@ -199,7 +199,9 @@ scorecard derived from them may be refreshed and replaced:
   "duration_s": 45.0, "size": [1080, 1920], "fps": "30", "film_md_sha256": "…", "files": {"preview.mp4": "<sha256>"},
   "notes_resolved": ["n4"], "sources": {"int_01": {"path": "…", "bytes": 1234, "sha256": "…", "video_stream": 0,
   "audio_stream": 1, "words_sha256": "…"}}}`. `sources` records every mapped source the version used as the map had
-  it at render time, so a later re-map or a replaced file is visible against the version.
+  it at render time, so a later re-map or a replaced file is visible against the version. `picture_path` says which way
+  the picture was drawn (`ffmpeg`, or `every-frame` with the reason; see [finishing](finishing.md#1-render-custody)), and
+  `hdr_sources` names any source converted from HDR, for which `check.py` asks for a look at the highlights.
 - `film.md` as compiled, `edit.json` (the timeline `assemble.py` renders), `lines.json` (each paper-edit line's place
   in edit time: `{"line": 12, "section": "Why", "kind": "spoken", "source": "int_01", "start": 6.0, "end": 10.6,
   "jump_cuts": [8.1], "words": [{"id": "int_01-w000412", "text": "So", "start": 6.02, "end": 6.18}]}`; a cutaway also

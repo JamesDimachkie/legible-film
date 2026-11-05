@@ -8,6 +8,7 @@ Shows sampled frames, measured audio and available caption and section timing. I
 Exit 0 on success, 2 on error.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 import io
 import math
@@ -118,6 +119,18 @@ def make(video, out, captions, lines):
     small = font(19)
     dummy = ImageDraw.Draw(Image.new('RGB', (1, 1)))
     images = []
+
+    def thumbnail(moment):
+        """One panel frame as JPEG bytes; each decode is short, so several run at once."""
+        seek = min(moment, max(0, picture_end - end_margin))
+        cmd = ['ffmpeg', '-v', 'error', '-ss', str(seek), '-i', str(video), '-frames:v', '1',
+               '-vf', f'scale=270:{frame_height}:force_original_aspect_ratio=decrease',
+               '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1']
+        return subprocess.run(cmd, capture_output=True, check=True).stdout
+
+    moments = range(0, math.ceil(duration), 2) if picture and picture_end > 0 else ()
+    with ThreadPoolExecutor(6) as pool:
+        thumbnails = dict(zip(moments, pool.map(thumbnail, moments)))
     for minute in range(math.ceil(duration / 60)):
         start = minute * 60
         end = min(duration, start + 60)
@@ -169,13 +182,8 @@ def make(video, out, captions, lines):
                     break
                 xx = 130 + n * 290
                 if picture and picture_end > 0:
-                    seek = min(t, max(0, picture_end - end_margin))
-                    cmd = ['ffmpeg', '-v', 'error', '-ss', str(seek), '-i', str(video), '-frames:v', '1',
-                           '-vf', f'scale=270:{frame_height}:force_original_aspect_ratio=decrease',
-                           '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1']
-                    result = subprocess.run(cmd, capture_output=True, check=True)
-                    if result.stdout:
-                        thumb = Image.open(io.BytesIO(result.stdout)).convert('RGB')
+                    if thumbnails[t]:
+                        thumb = Image.open(io.BytesIO(thumbnails[t])).convert('RGB')
                         image.paste(thumb, (xx, top + 42))
                     else:
                         draw.text((xx, top + 42), 'No picture', fill='black', font=normal)

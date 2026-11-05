@@ -10,9 +10,9 @@ import importlib.util
 import json
 import shutil
 import subprocess
+import sys
 from fractions import Fraction
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -21,6 +21,8 @@ WIDTH, HEIGHT = 320, 180
 BIT, FIRST = 18, 8
 # The two pictures differ by a resampler and by one RGB round trip: a whole-frame mean above this is another picture.
 SAME_PICTURE = 3.0
+BT709_ENCODE = ('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '10', '-pix_fmt', 'yuv420p', '-colorspace', 'bt709',
+                '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv')
 FRONT = ('---\ntitle: Speed\naudience: a test\ntakeaway: the paths agree\nstory: one cut, two paths\n'
          'size: {size}\nfps: {fps}\ncaptions: {captions}\n---\n')
 
@@ -75,10 +77,13 @@ def tone(seconds):
 def counted_source(scripts_dir, path, seconds=6, rate=30, picture='', encode=(), audio=()):
     """A counted source file: `picture` filters its frames, `encode` replaces its video encoder options."""
     count = int(seconds * rate)
+    # Unless `encode` says otherwise the file is tagged BT.709 throughout, the picture the plain path keeps in YUV.
     filters = 'scale=640:360:flags=neighbor' + (',' + picture if picture else '')
+    if not encode:
+        filters += ',scale=out_color_matrix=bt709:out_range=tv,format=yuv420p'
     ffmpeg('-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', f'{WIDTH}x{HEIGHT}', '-r', rate, '-i', 'pipe:0',
            *(audio or tone(seconds)), '-map', '0:v', '-map', '1:a', '-vf', filters,
-           *(encode or ('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '10', '-pix_fmt', 'yuv420p')),
+           *(encode or BT709_ENCODE),
            '-c:a', 'aac', '-b:a', '128k', '-shortest', path, data=counted_frames(scripts_dir, count, rate))
 
 
@@ -205,8 +210,8 @@ def check_eligibility(record, scripts_dir):
             'time_tick': 1e-5, 'speed': 1, 'background': 'black'}
     sources = {'a.mp4': {'field_order': 'progressive'}}
 
-    def reason(edit=None, clips=None, images=(), properties=None):
-        return assemble.plain_cut_reason(edit or plain, clips or [clip], images, properties or sources, 10)
+    def reason(edit=None, clips=None, properties=None):
+        return assemble.plain_cut_reason(edit or plain, clips or [clip], properties or sources, 10)
 
     record('speed: a plain cut can take FFmpeg picture', reason() == '', reason())
     record('speed: burned captions alone leave a cut plain', reason(dict(plain, overlays=[{'kind': 'captions'}])) == '')
@@ -230,6 +235,14 @@ def check_eligibility(record, scripts_dir):
     for name, case in stays.items():
         why = reason(**case)
         record(f'speed: {name} stays on the every-frame path', bool(why), why)
+    native = {'coded_width': 1920, 'coded_height': 1080, 'source_pixel_format': 'yuv420p', 'source_range': 'tv',
+              'source_matrix': 'bt709', 'source_transfer': 'bt709', 'source_primaries': 'bt709'}
+    others = {'BT.601': dict(source_matrix='smpte170m'), 'full range': dict(source_range='pc'),
+              '10-bit': dict(source_pixel_format='yuv420p10le'), 'HLG': dict(source_transfer='arib-std-b67'),
+              'a small untagged file, read as BT.601': dict(coded_width=640, coded_height=360, source_matrix='unknown')}
+    record('speed: only 8-bit limited-range BT.709 stays in YUV',
+           assemble.native_709(native) and assemble.native_709(dict(native, source_matrix='unknown'))
+           and not any(assemble.native_709(dict(native, **change)) for change in others.values()))
 
 
 def check_shared_encoder_default(record, scripts_dir):
@@ -328,8 +341,7 @@ def check_hard_sources(tool, record, j, scripts_dir, skip):
     vfr = Path(j('speed-vfr.mp4'))
     counted_source(scripts_dir, vfr, seconds=6, picture=r"setpts='(floor(N/3)*0.1+if(eq(mod(N,3),0),0,if(eq(mod(N,3),1),"
                    r"0.025,0.065)))/TB'",
-                   encode=('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '10', '-pix_fmt', 'yuv420p', '-fps_mode',
-                           'vfr', '-video_track_timescale', '90000'))
+                   encode=(*BT709_ENCODE, '-fps_mode', 'vfr', '-video_track_timescale', '90000'))
     pts = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time',
                           '-of', 'csv=p=0', str(vfr)], capture_output=True, text=True, check=True).stdout.split()
     times = sorted(float(value.strip(' ,')) for value in pts if value.strip(' ,'))
@@ -355,6 +367,93 @@ def check_hard_sources(tool, record, j, scripts_dir, skip):
     wide = Path(j('speed-anamorphic.mp4'))
     counted_source(scripts_dir, wide, seconds=4, picture='scale=480:360:flags=neighbor,setsar=4/3')
     compare_paths(tool, record, 'a non-square-pixel source', project(j('speed-anamorphic'), wide, film), on_grid)
+
+
+def small_edit(root, source):
+    """An edit.json for assemble.py: two lines of a counted source, the second from past its first second."""
+    edit = {'version': 1, 'size': [WIDTH, HEIGHT], 'fps': 30, 'sources': {'a': {'file': str(source)}},
+            'picture': [{'src': 'a', 'in': .5, 'out': 1.0}, {'src': 'a', 'in': 3.5, 'out': 4.0}]}
+    path = Path(root) / 'edit.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(edit), encoding='utf-8')
+    return edit, path
+
+
+def check_failures(record, j, scripts_dir):
+    """A seeked playback failure restarts linearly with the same frames, and a failed FFmpeg picture falls back."""
+    source = Path(j('speed-failures.mp4'))
+    counted_source(scripts_dir, source, seconds=5)
+    assemble = load(scripts_dir, 'assemble')
+    edit, path = small_edit(j('speed-failures'), source)
+    root = path.parent
+    notes = []
+    cache, properties, _ = assemble.conform('ffmpeg', 'ffprobe', edit, root, root, 1 << 30, notes)
+    clips = assemble.plan_picture(edit, root, cache, 'ffmpeg', 'ffprobe', root, notes)[0]
+    total = clips[-1]['at'] + clips[-1]['duration']
+    real_frames = assemble.Frames
+    failures = []
+
+    class FailPlaybackOnce(real_frames):
+        """The second clip's seeked playback stops after three frames, once."""
+
+        def __init__(self, ffmpeg_path, filename, vf, size, options=None, timestamps_only=False):
+            super().__init__(ffmpeg_path, filename, vf, size, options, timestamps_only)
+            self.fail = not timestamps_only and '-ss' in (options or []) and not failures
+
+        def __iter__(self):
+            for number, raw in enumerate(super().__iter__()):
+                if self.fail and number == 3:
+                    self.proc.kill()
+                    self.proc.stdout.close()
+                    self.proc.wait()
+                    self.reader.join()
+                    failures.append(True)
+                    return
+                yield raw
+
+        def times(self, count):
+            if failures and self.fail:
+                raise RuntimeError('injected seeked playback failure')
+            return super().times(count)
+
+    picture = root / 'retried.mp4'
+    assemble.Frames = FailPlaybackOnce
+    try:
+        count = assemble.render_plain_with_retry('ffmpeg', clips, WIDTH, HEIGHT, 30, total, str(picture))
+    finally:
+        assemble.Frames = real_frames
+    shown = counters(frames_of(picture))
+    expected = list(range(15, 30)) + list(range(105, 120))
+    record('speed: a failed seeked clip restarts linearly and shows the same frames',
+           len(failures) == 1 and count == 30 and shown == expected, f'{len(failures)} failures, shown {shown[:4]}')
+
+    def broken(*args, **kwargs):
+        raise RuntimeError('a filter this FFmpeg does not have')
+
+    edit, path = small_edit(j('speed-fallback'), source)
+    arguments, real_path = sys.argv, assemble.render_plain_with_retry
+    sys.argv = ['assemble.py', str(path), '--out', str(path.parent / 'picture.mp4')]
+    assemble.render_plain_with_retry = broken
+    try:
+        code = assemble.main()
+    finally:
+        sys.argv, assemble.render_plain_with_retry = arguments, real_path
+    report = json.loads((path.parent / 'assemble-report.json').read_text(encoding='utf-8'))
+    ran = report.get('picture_path') or {}
+    record('speed: a failed FFmpeg picture falls back to every frame and says why',
+           code in (0, 1) and ran.get('path') == 'every-frame' and 'does not have' in ran.get('reason', '')
+           and counters(frames_of(path.parent / 'picture.mp4')) == expected, str(ran))
+
+
+def check_pause_and_still(tool, record, j, scripts_dir):
+    """A pause and a freeze frame are generated clips, so they can be part of a plain cut."""
+    source = Path(j('speed-pause.mp4'))
+    counted_source(scripts_dir, source, seconds=4)
+    film = FRONT.format(size='320x180', fps=30, captions='none') + (
+        '- src_01 0:00.50-0:01.50 first {sound}\n- pause 0.5\n- still src_01 0:02.00 0.5 freeze\n'
+        '- src_01 0:02.50-0:03.00 last {sound}\n')
+    root = project(j('speed-pause'), source, film)
+    compare_paths(tool, record, 'a pause and a freeze', root, sound=True)
 
 
 def check_retime(tool, record, j, scripts_dir):
@@ -536,7 +635,9 @@ def run_speed_cases(tool, record, j, scripts_dir, skip):
     check_eligibility(record, scripts_dir)
     check_shared_encoder_default(record, scripts_dir)
     check_fixed_cost(record, j, scripts_dir)
+    check_failures(record, j, scripts_dir)
     check_plain_paths(tool, record, j, scripts_dir)
+    check_pause_and_still(tool, record, j, scripts_dir)
     check_hard_sources(tool, record, j, scripts_dir, skip)
     check_retime(tool, record, j, scripts_dir)
     check_colour(tool, record, j, scripts_dir, skip)

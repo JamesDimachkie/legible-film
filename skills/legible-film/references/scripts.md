@@ -23,7 +23,7 @@ report, 1 something to look at, 2 could not run).
 | `exchange.py` | Writes a version as Final Cut Pro 7 XML (xmeml) with captions and omissions; reads an editor's XML, places words and follows captions through revisions. |
 | `grade.py` | The scorecard: measured evidence and a reviewer packet for a version or file; merges cited scores; grades a paper edit; builds the cut review packet (`grade.py review`); lists opening lines; proposes covers; `grade.py cold` builds a cold-read packet of the first seconds (frames every half second through `frame_sheet.py`) and records a named reader's answer with `--record`. |
 | **Footage** | |
-| `assemble.py` | Renders an `edit.json` timeline frame-accurately (`cut.py` writes it): joins, retimes, crop paths, overlays, HDR to SDR. Streams picture frames after a timestamp pass; encoded picture and audio intermediates still require disk space. |
+| `assemble.py` | Renders an `edit.json` timeline frame-accurately (`cut.py` writes it): joins, retimes, crop paths, overlays, HDR to SDR. Streams picture frames after a timestamp pass; encoded picture and audio intermediates still require disk space. A plain cut has FFmpeg draw its picture and says which frame comes next ([finishing](finishing.md#1-render-custody)). |
 | `reframe.py` | Proposes a crop path for a tall or square frame that follows the largest frontal face (with OpenCV: `setup.py --install faces`) or else sustained motion and detail, or checks one, with a sheet of the crop to review. |
 | `transcript_cut.py` | Turns selects in a transcript into edit items, with cuts in the gaps between words. |
 | `track.py` | Follows a flat surface or a point through a shot (OpenCV) and writes a track layer: pin a graphic to it or blur it. |

@@ -224,7 +224,8 @@ def presentation_frame_before(ffprobe, filename, origin, moment, through=None, r
     """Find the covering frame, checking only selected frames for decoder error flags. A time past the last frame's
     display is covered by nothing, however many frames come before it."""
     limit = max(1.0, moment + 1.0, (through if through is not None else moment) + 1.0)
-    seek = max(0.0, moment - 5.0) if source_seek_safe(filename) else 0.0
+    # FFmpeg reads from the keyframe at or before the seek, and an earlier frame found here is what is wanted.
+    seek = max(0.0, moment - 2.5) if source_seek_safe(filename) else 0.0
     while True:
         interval = (f'{origin + seek:.9f}' if seek else '') + f'%{origin + limit:.9f}'
         command = [ffprobe, '-v', 'error', '-select_streams', 'v:0', '-read_intervals', interval,
@@ -509,7 +510,7 @@ class Encoder:
 
 
 def decoded_count(ffprobe, path):
-    r = subprocess.run([ffprobe, '-v', 'error', '-count_frames', '-select_streams', 'v:0',
+    r = subprocess.run([ffprobe, '-v', 'error', '-threads', '8', '-count_frames', '-select_streams', 'v:0',
                         '-show_entries', 'stream=nb_read_frames', '-of', 'json', str(path)], capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError('output could not be decoded: ' + r.stderr[-500:])

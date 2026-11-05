@@ -159,6 +159,8 @@ order of `picture`.
   method. With faces in at least two samples and at least half of all samples, the assembler attempts to match median
   face height between automatic crops of the same source, within the detected-face fit and 2x zoom limits. Sparse
   detections do not set a matching zoom. An explicit `zoom` takes precedence. `fit contain` keeps the whole picture.
+  The default cover framing warns when it discards a third or more of a source's height or width
+  ([paper edit](paper-edit.md#7-modifiers)).
 - Detection can miss profiles, small or occluded faces, and can produce false positives. It does not identify a
   person or the speaker. A missing detection is not evidence that nobody is there. When detected people cannot fit
   together, or the smoothed crop cuts a detected face, a timecoded note asks for review: cut between people, adjust
@@ -210,6 +212,12 @@ order of `picture`.
   `captions.py burn` performs the same source-aware SDR conversion before drawing captions and records the
   conversion and any assumptions about missing colour tags in its JSON report. Untagged SDR primaries or transfer
   are not converted; the source matrix uses the recorded fallback if missing. This path delivers SDR, not HDR.
+
+- A cut with an HDR source converts it the same way, with the Hable tone map. The render prints a note, the version's
+  `manifest.json` names the source (`hdr_sources`) and `check.py` shows a look: this source was HDR and was converted
+  to SDR, so compare the highlights with the original. The tone map itself is unchanged because nothing has yet shown
+  it should be: the one report against it (the result looked dimmer) came from SDR clips converted to HDR, not from
+  real phone footage. Treat what you see on real footage as the evidence.
 
 - Match shots to a reference shot in one working space, exposure and white balance first. Measure, then look: a
   waveform shows levels and clipping, a vectorscope shows casts and skin tones (skin falls near one line on the

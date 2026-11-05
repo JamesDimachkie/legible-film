@@ -1698,6 +1698,93 @@ def picture_past_end(plan, source_map, problems):
                            f'end the line by {fmt(stop)}, or cover the rest with a cutaway (~ line)')
 
 
+COVER_LOSS = 1 / 3  # cover framing that discards this share of a source's height or width says so
+COVER_NOTE = 'cover framing discards'
+COVER_FACE_SAMPLES = 3
+
+
+def faces_outside_crop(detect, samples, centre, size):
+    """The sample times at which a detected face's centre falls outside the kept part of the frame: `samples` is
+    [(time, RGB frame)], `centre` and `size` the crop as fractions of the frame, `detect` gives each frame's boxes."""
+    left, top = centre[0] - size[0] / 2, centre[1] - size[1] / 2
+    lost = []
+    for moment, frame in samples:
+        for box in detect(frame):
+            x, y = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+            if not (left <= x <= left + size[0] and top <= y <= top + size[1]):
+                lost.append(moment)
+                break
+    return lost
+
+
+def cover_faces(source_map, alias, segments, display, kept, ffmpeg):
+    """When OpenCV is installed: the source times, in a few sampled frames of these lines, where a face falls outside
+    what cover keeps. [] when it is not, when no face is lost, or when a frame cannot be read; the note stands anyway."""
+    if not ffmpeg:
+        return []
+    import numpy as np
+    detect, _ = load_sibling('reframe').make_face_detector()
+    if detect is None:
+        return []
+    width = 320
+    height = max(2, even(display[1] * width / display[0]))
+    found = []
+    for seg in segments[:COVER_FACE_SAMPLES]:
+        length = (seg['t1'] - seg['t0']) * seg['speed']
+        moments = [seg['s0'] + length * share for share in (.25, .75)]
+        samples = []
+        for moment in moments:
+            result = subprocess.run([ffmpeg, '-v', 'error', '-ss', f'{moment:.3f}', '-i', str(source_map.path(alias)),
+                                     '-frames:v', '1', '-vf', f'scale={width}:{height}', '-f', 'rawvideo',
+                                     '-pix_fmt', 'rgb24', '-'], stdin=subprocess.DEVNULL, capture_output=True)
+            if result.returncode or len(result.stdout) != width * height * 3:
+                continue
+            samples.append((moment, np.frombuffer(result.stdout, np.uint8).reshape(height, width, 3)))
+        crop = seg['frame']['crop'][0]
+        try:
+            found += faces_outside_crop(detect, samples, (crop[1], crop[2]), kept)
+        except ValueError:
+            return []
+    return found
+
+
+def cover_framing(plan, source_map, settings, problems, ffmpeg=None):
+    """Warn once per source when cover framing throws away a third or more of its height or width, naming the first
+    line and what would keep more of it. A line with fit contain or crop auto has already chosen; the framing stays as
+    it was asked for."""
+    if not settings.get('size'):
+        return
+    width, height = settings['size']
+    film = width / height
+    flagged = {}
+    for seg in plan['segments']:
+        alias, frame = seg['key'], seg['frame']
+        if (alias not in source_map.sources or not source_map.has_video(alias) or frame.get('fit') != 'cover'
+                or frame.get('crop') == 'auto'):
+            continue
+        try:
+            display = source_map.size(alias)
+        except ValueError:
+            continue
+        if display:
+            flagged.setdefault(alias, (display, []))[1].append(seg)
+    for alias, (display, segments) in flagged.items():
+        shape = display[0] / display[1]
+        kept = (min(1.0, film / shape), min(1.0, shape / film))
+        lost = 1 - min(kept)
+        if lost < COVER_LOSS - 1e-9:
+            continue
+        lines = sorted({seg['line'] for seg in segments})
+        side = 'height' if kept[1] < kept[0] else 'width'
+        more = f' (and {len(lines) - 1} more line{"s" if len(lines) > 2 else ""})' if len(lines) > 1 else ''
+        faces = cover_faces(source_map, alias, segments, display, kept, ffmpeg)
+        said = f"; OpenCV finds a face outside what it keeps at {alias} {fmt(faces[0])}" if faces else ''
+        problems.warn(lines[0], f"{COVER_NOTE} {round(lost * 100)}% of {alias}'s {side} on this line{more}: a "
+                      f'{display[0]}x{display[1]} clip in a {width}x{height} film{said}',
+                      '{crop auto} follows the largest face or the motion, and {fit contain} keeps the whole picture, '
+                      'letterboxed (references/paper-edit.md section 7)')
+
+
 def validate_over(entry, source_map, problems):
     """~ over needs a PNG or a video with transparency; remember the graphic's size and frame rate (read as the
     render reads them) for the compiler."""
@@ -3458,6 +3545,7 @@ def analyse(root, measure=True, verify_media=False):
         problems.note(1, 'FFmpeg not found: cuts are placed from transcript times without measuring pauses')
     plan = Compiler(settings, entries, source_map, envelopes, problems).run()
     picture_past_end(plan, source_map, problems)
+    cover_framing(plan, source_map, settings, problems, ffmpeg)
     join_report(plan, entries, source_map, ffmpeg, problems)
     pins = settings.get('caption_breaks') or []
     plan['caption_breaks'] = []
@@ -4514,7 +4602,7 @@ def mux_master(ffmpeg, picture, master, total, frames, out):
 
 def verify_mux_output(ffprobe, path, frames, duration, notes):
     """Verify decoded picture frames and the delivered audio stream's sample-clock duration."""
-    probe = run_command([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-count_frames',
+    probe = run_command([ffprobe, '-v', 'error', '-threads', '8', '-select_streams', 'v:0', '-count_frames',
                          '-show_entries', 'stream=nb_read_frames', '-of', 'json', str(path)], 'mux frame check')
     streams = json.loads(probe.stdout).get('streams') or []
     value = (streams[0] if streams else {}).get('nb_read_frames')
@@ -4707,7 +4795,8 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
     job.update(0.02, line=f'rendering {name}')
     notes = [f"film.md:{item['line']}: {item['message']} {item['suggestion']}".strip()
              for item in problems.items if item['severity'] == 'warning'
-             and ('transcript review' in item['message'] or 'transcript energy review' in item['message'])]
+             and ('transcript review' in item['message'] or 'transcript energy review' in item['message']
+                  or COVER_NOTE in item['message'])]
     began = time.time()
     try:
         captions_file = build_captions(plan, staging, work, notes, settings.get('size'), bool(settings['captions']))
@@ -4774,6 +4863,7 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
         assembled = project.load_json(work / 'assemble-report.json', {}) or {}
         frames_out = assembled.get('frames') or frames
         settings['_picture_path'] = assembled.get('picture_path')
+        settings['_hdr_sources'] = assembled.get('hdr_sources') or []
         length = frames_out / float(settings['fps'])
         end_captions_with_film(staging / 'captions', length, notes)
         stems = sorted(work.glob('*.wav'))
@@ -4945,6 +5035,8 @@ def write_manifest(staging, name, parent, args, settings, size, film_text, notes
         manifest['preferences'] = preference
     if settings.get('_layers'):
         manifest['layers'] = settings['_layers']
+    if settings.get('_hdr_sources'):
+        manifest['hdr_sources'] = [{'alias': alias} for alias in settings['_hdr_sources']]
     project.save_json(staging / 'manifest.json', manifest)
     return manifest
 

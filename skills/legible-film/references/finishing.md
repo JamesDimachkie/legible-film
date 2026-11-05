@@ -20,8 +20,8 @@ Contents: [1. Render custody](#1-render-custody) · [2. Frame rate and motion bl
 
 For footage edits, `assemble.py` first decodes each selected range to obtain its presentation times without writing
 raw frames, then decodes it again as the clip plays. It retains at most two source frames per active clip; a dissolve
-or dip can have two active readers. Each picture decoder uses one input thread to reduce concurrent decoder memory;
-this can slow decoding. Motion retimes also stream after a timestamp pass. Automatic crop analysis adds a
+or dip can have two active readers. On the every-frame path each picture decoder uses one input thread to reduce
+concurrent decoder memory; this can slow decoding. Motion retimes also stream after a timestamp pass. Automatic crop analysis adds a
 separate 320-pixel-wide decode and keeps its sampled analysis in memory, not a raw-frame disk spool. These passes cost
 time and their timestamp and crop-analysis metadata grow with the number of frames. The preflight schedule for spatial
 layers also grows with the output frames it covers. Encoded picture intermediates and audio files still need disk space
@@ -30,6 +30,28 @@ is accepted for compatibility and no longer sets a raw-picture disk limit.
 The assembly report retains the requested `spool_budget_bytes` for compatibility and marks `spool_limit_enforced`
 as false. If seeked playback fails, the picture is restarted with a linear decode only when its timestamps still
 match the original plan; a changed clock fails the render.
+
+**Two paths draw the picture.** On a plain cut FFmpeg decodes, frames and converts each clip and Python forwards the
+frames without touching a pixel; every other film passes every frame through Python, which is what spatial layers,
+overlays and dissolves need. `plain_cut_reason` in `assemble.py` is the one place that decides, and it allows only what
+has been compared with the every-frame path: straight cuts, fixed crops and zooms, a letterbox on black, nearest-frame
+speed changes and burned captions, on sources of any frame rate, rotation, pixel shape or colour except interlaced.
+Anything it does not recognise, a line type added later included, stays on the every-frame path. Both paths choose
+frames with the same function from the same timestamps, so they show the same source frames: the self-test reads a
+burned frame counter through both, on 29.97, 24 and 25 fps in MP4, WebM and MKV and on variable-rate, rotated,
+late-audio and non-square-pixel sources. Their pictures differ by a resampler and an RGB round trip, not a frame
+(about 49 dB between the two on one 1080p30 test film, and no shift in any colour channel); a source already in 8-bit
+BT.709 stays in YUV on the plain path. Sound is the same either way. The printed output, `assemble-report.json` and the
+version's `manifest.json` (`picture_path`) say which ran and why; `cut.py render --every-frame` forces the older path,
+to compare them.
+
+Burned captions are composited by FFmpeg on both paths. On the plain path the picture reaches that burn losslessly and
+is encoded for delivery once, after it.
+
+What a render costs, on a 16-core laptop with FFmpeg 9.0.2 (2026-11-05; other work was running, so these move):
+see the plain-cut timings in the release notes. Nearly all of it is the H.264 encode: at the delivery settings x264 ran
+at 12 frames a second on one thread and 54 on twelve, which is why `assemble.py` now gives it up to twelve. Film and
+motion renders, which run encoders side by side, keep one each.
 
 ## 2. Frame rate and motion blur
 

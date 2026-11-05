@@ -2326,7 +2326,8 @@ def decode_identity_video(path):
 
 
 def check_craft2_frame_identity(tool, record, j):
-    """Each counter is known before encoding, in both preview and final for nine source clocks."""
+    """Each counter is known before encoding, in preview and final for nine source clocks, through FFmpeg's picture
+    (a plain cut's path), and in final through every frame in Python."""
     selections = [(9, 41), (58, 86), (20, 48)]
     expected = [number for first, end in selections for number in range(first, end)]
     for rate in (Fraction(30000, 1001), Fraction(24), Fraction(25)):
@@ -2353,10 +2354,9 @@ def check_craft2_frame_identity(tool, record, j):
                 end_time = float(Fraction(end, 1) / rate)
                 lines.append(f'- broll_01 0:{start_time:09.6f}-0:{end_time:09.6f} counter')
             (root / 'film.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
-            for final in (False, True):
-                args = ('--final',) if final else ()
+            for number, (final, path) in enumerate(((False, 'ffmpeg'), (True, 'ffmpeg'), (True, 'every-frame')), 1):
+                args = (('--final',) if final else ()) + (('--every-frame',) if path == 'every-frame' else ())
                 code, output = tool('cut.py', 'render', root, *args)
-                number = 2 if final else 1
                 version = root / 'cuts' / f'v{number:03d}'
                 video = version / 'preview.mp4'
                 got = [read_counter(frame) for frame in decode_identity_video(video)] if video.is_file() else []
@@ -2364,10 +2364,11 @@ def check_craft2_frame_identity(tool, record, j):
                 manifest = json.loads(manifest_file.read_text(encoding='utf-8')) if manifest_file.is_file() else {}
                 proxy = final or 'broll_01' in manifest.get('proxies', [])
                 wrong = [(i, a, b) for i, (a, b) in enumerate(zip(got, expected)) if a != b]
-                ok = code in (0, 1) and proxy and got == expected
-                label = 'final' if final else 'preview proxy'
+                ran = (manifest.get('picture_path') or {}).get('path')
+                ok = code in (0, 1) and proxy and got == expected and ran == path
+                label = ('final' if final else 'preview proxy') + f' through {path}'
                 record(f'cut: every {container} frame at {rate} in {label}', ok,
-                       f'frames={len(got)}/{len(expected)} proxy={proxy} wrong={wrong[:4]} {output[-300:]}')
+                       f'frames={len(got)}/{len(expected)} proxy={proxy} path={ran} wrong={wrong[:4]} {output[-300:]}')
 
 
 def check_craft2_wide_master(record, j, scripts_dir):
