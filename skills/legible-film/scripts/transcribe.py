@@ -37,6 +37,8 @@ def other_streams_note(path, stream):
     result = subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(path)], capture_output=True,
                             text=True)
     streams = json.loads(result.stdout or '{}').get('streams', []) if not result.returncode else []
+    if sum(row.get('codec_type') == 'audio' for row in streams) < 2 or not shutil.which('ffmpeg'):
+        return ''
     levels = project.audio_stream_levels(path, streams)
     others = [f"stream {index} (peak {level['peak_db']:.1f} dB)" if level['peak_db'] is not None else f'stream {index}'
               for index, level in levels.items() if index != stream]

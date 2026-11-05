@@ -39,6 +39,11 @@ say, or moving an answer onto another question, is a claim the facts do not supp
   single-frame line, since the multi-frame line carries guesses across frames idet could not decide and called
   fine detail in progressive film interlaced). `assemble.py` reads
   presentation timestamps and converts deliberately; a conversion it cannot make is a reason to stop.
+- Several audio streams: `map.py run` prints each stream's level. A recorder can flag an empty track as the default, so
+  when the stream it would use is digitally silent and another has sound it uses the one with sound and prints the
+  `--stream` command that overrides it. `check.py --file` measures the stream a player plays by default and names the
+  others. A file that decodes short of its header (a partial download or copy) is named the same way:
+  `map.py run` warns and exits 1, and `cut.py check` refuses a line past where it really ends.
 - Mapping records coded dimensions, sample aspect ratio and rotation as well as the displayed square-pixel canvas.
   Rotation is applied by FFmpeg once before sizing a proxy, framing or burning captions; crop coordinates are
   fractions of that displayed canvas. Missing sample aspect ratio is assumed square and recorded. Reflections,

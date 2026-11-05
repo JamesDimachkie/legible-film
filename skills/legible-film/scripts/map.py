@@ -254,7 +254,7 @@ def picture_ends(path, facts, stream, decoded):
     except (ValueError, ZeroDivisionError):
         frame = 0.0
     ends = stream_end(facts, stream, decoded, frame)
-    if decoded is not None and ends['usable'] == decoded and ends['header'] is not None:
+    if decoded is not None and ends['usable'] == decoded:
         ends = stream_end(facts, stream, last_frame_end(path, facts, decoded), frame)
     return ends
 
@@ -1261,7 +1261,7 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                     chosen = next(s for s in facts['streams'] if s.get('index') == selected_audio['index'])
                     ends['sound'] = stream_end(facts, chosen, audio['decoded_end_s'])
                 if any(row['header'] and row['usable'] < row['header'] for row in ends.values()):
-                    source['duration_s'] = max(row['usable'] for row in ends.values())
+                    source['duration_s'] = max(row['usable'] for row in ends.values() if row['usable'])
                 source['ends'] = ends
                 with project.file_lock(index):
                     latest = project.load_json(index)

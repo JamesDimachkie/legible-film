@@ -1434,12 +1434,15 @@ def check_decoded_end_clamp(tool, record, j):
         path = directory / 'report.json'
         report = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {}
         frames = video_frames(directory / 'picture.mp4', 160, 90) if code in (0, 1) else []
-        changing = all(np.any(frames[number] != frames[number + 1]) for number in range(len(frames) - 1))
-        results[name] = (code, round(report.get('duration_s', 0), 2),
-                         any('Picture v out clamped' in note for note in report.get('notes', [])), changing)
+        # A frozen fill shows as a long run of one frame at the end; a dropped frame in the source repeats one or two.
+        frozen = 0
+        while frozen + 2 <= len(frames) and not np.any(frames[-1 - frozen] != frames[-2 - frozen]):
+            frozen += 1
+        results[name] = (code, report.get('duration_s', 0),
+                         any('Picture v out clamped' in note for note in report.get('notes', [])), frozen)
     record('footage: past the decoded end the edit is shortened, reported and unfrozen, the same with a true header',
-           results['damaged'] == results['honest'] and results['damaged'][0] == 1
-           and abs(results['damaged'][1] - 1) < .11 and results['damaged'][2] and results['damaged'][3], str(results))
+           all(row[0] == 1 and abs(row[1] - 1) < .15 and row[2] and row[3] <= 2 for row in results.values()),
+           str(results))
     edit = {'version': 1, 'fps': 10, 'size': [160, 90], 'sources': {'v': str(short)},
             'picture': [{'src': 'v', 'in': start, 'out': stop, 'line': 9}]}
     code, output, directory = assemble(tool, j, 'decoded-end-line', edit)

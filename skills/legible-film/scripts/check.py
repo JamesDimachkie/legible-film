@@ -834,7 +834,7 @@ def measured_sound(fresh):
     if not isinstance(loudness, dict) or loudness.get('error'):
         return True, None
     level = number(loudness.get('integrated_lufs'))
-    return level is not None and level > SILENCE_LUFS, level
+    return level is None or level > SILENCE_LUFS, level
 
 
 def rules_item(srt, fresh, profile=None, sound=False, required=None):
