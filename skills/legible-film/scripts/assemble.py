@@ -21,8 +21,11 @@ or follow}) or drawn behind a matte's foreground ("behind": {"layer"}), and a "b
 region ("region": {"layer"}). Layer frames follow the renderer's own frame choice and framing, and are drawn only
 over a single shot of the source they were made from; where they are not drawn, the notes say why, and the report's
 "layers" counts frames drawn and not drawn. A blur that cannot cover a frame where its source is on screen stops the
-render before encoding. A drawn blur is not anonymisation: a person checks every frame. Exit 0 on
-completion, 1 when review notes remain, 2 on error.
+render before encoding. A drawn blur is not anonymisation: a person checks every frame. A picture item past where
+its source's frames really end is shortened to that end and reported, whatever the file's header claims, and is never
+filled with a frozen frame; an item carrying the film.md line it came from ("line", as cut.py render adds) is refused
+naming that line instead, since shortening one line slides every later line against its sound. Exit 0 on completion,
+1 when review notes remain, 2 on error.
 """
 import argparse
 import bisect
@@ -49,7 +52,7 @@ except ImportError as missing:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from motion_scan import Frames
 from render_common import Encoder, decoded_count, display_geometry, exact_rate, find_tool, h264_args, overlay_probe
-from render_common import presentation_frame_before
+from render_common import decoded_short, picture_goes_on, presentation_frame_before
 from reframe import (analyse, bounds, consistent_zooms, face_review, face_targets, method_spans, position, probe,
                      propose, validate_path)
 
@@ -63,6 +66,8 @@ cue_list = importlib.util.module_from_spec(_cue_spec)
 _cue_spec.loader.exec_module(cue_list)
 # Audio fade shapes an edit.json audio item may ask for (FFmpeg afade curves): tri is linear, qsin equal power.
 FADE_CURVES = ('tri', 'qsin')
+# cut.py check lets a range run this far past its source; the render shortens it without refusing the line.
+RANGE_SLACK_S = 0.05
 
 def run(command, seconds=1800):
     """Run a process with a time limit and raise a useful error on failure or timeout."""
@@ -332,6 +337,24 @@ class FrameWindow:
         self.frames.clear()
 
 
+def picture_line(item):
+    """Where an error about a picture item points a person: its film.md line, when cut.py rendered it."""
+    return f"film.md line {item['line']}: " if item.get('line') is not None else ''
+
+
+def shorten_picture(item, requested, available, notes):
+    """An out-point past the picture's end: shortened and reported, or for a line of a paper edit, refused."""
+    if item.get('line') is not None and requested - available > RANGE_SLACK_S:
+        raise ValueError(f"{picture_line(item)}{item['src']}'s picture ends at {available:.3f} s and this line needs it "
+                         f'to {requested:.3f} s, so nothing was rendered. End the line by then, or hold its last frame '
+                         f"with a pause hold line; map.py run PROJECT --alias {item['src']} --rebuild lets cut.py check "
+                         'report this before a render.')
+    item['out'] = available
+    notes.append(f"Picture {item['src']} out clamped from {requested:.6f} to {available:.6f} s; "
+                 'review the shortened edit.')
+    return available
+
+
 def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
     """Plan each range with a null-output decode, retaining timestamps rather than picture bytes."""
     cache = {}
@@ -374,13 +397,13 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
         original_stop = requested_stop
         if requested_stop > source_duration + .001:
             if requested_start >= source_duration:
-                raise ValueError('picture in-point is at or beyond the source end: ' + filename)
-            requested_stop = source_duration
-            item['out'] = requested_stop
-            notes.append(f'Picture {item["src"]} out clamped from {original_stop:.6f} to {requested_stop:.6f} s; '
-                         'review the shortened edit.')
-        start, seek = presentation_frame_before(ffprobe, filename, origin, requested_start, requested_stop,
-                                                return_seek=True)
+                raise ValueError(picture_line(item) + 'picture in-point is at or beyond the source end: ' + filename)
+            requested_stop = shorten_picture(item, requested_stop, source_duration, notes)
+        try:
+            start, seek = presentation_frame_before(ffprobe, filename, origin, requested_start, requested_stop,
+                                                    return_seek=True)
+        except ValueError as error:
+            raise ValueError(picture_line(item) + str(error)) from error
         stop = float(item['out']) + 1.0
         if stop <= start:
             raise ValueError('invalid picture range')
@@ -410,8 +433,12 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
             raise ValueError('picture presentation timestamps are not strictly increasing; '
                              'normalize the source before editing')
         end = reader.end()
-        end = max(end, requested_stop)
         intervals = np.diff(times)
+        # The header is not the picture: a file cut short still claims every second it once had.
+        if (decoded_short(requested_stop, end, float(np.median(intervals)) if len(intervals) else 0.0)
+                and not picture_goes_on(ffprobe, filename, origin, requested_stop)):
+            requested_stop = shorten_picture(item, requested_stop, end, notes)
+        end = max(end, requested_stop)
         variable = bool(len(intervals) > 1 and np.max(intervals) - np.min(intervals) > .0001)
         rotation = float(stream.get('tags', {}).get('rotate', 0))
         for side_data in stream.get('side_data_list', []):
@@ -729,6 +756,13 @@ def render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, output_dir, no
             run(command)
             use_rubberband = False
             notes.append(f'Audio {name}: rubberband could not run; used atempo. Inspect retimed sync and sound.')
+        if speed == 1.0:
+            # The stem is padded to the film: only the part says that the sound stopped before the item did.
+            measured = run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', part])
+            part_end = float(json.loads(measured.stdout)['format'].get('duration') or 0) - max(0.0, at)
+            if duration + min(0.0, at) - part_end > RANGE_SLACK_S:
+                notes.append(f'Audio {name} decodes only to {start + part_end - min(0.0, at):.3f} s of the '
+                             f'{end:.3f} s this item asks for; the rest of it is silent.')
         if speed != 1.0:
             # The padded track length hides time-stretcher shortfalls; measure the part before mixing.
             measured = run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', part])

@@ -409,8 +409,9 @@ def audio_streams_item(qc):
     if P.stream_is_silent(played) and sounding:
         return item('audio_streams', f"Players use sound stream {played['index']} by default, and it is silent", 'look',
                     f'also in the file: {named}. The sound checks here read the default stream; a player plays it. '
-                    'Flag the stream with the sound as the default (ffmpeg -i IN -map 0 -c copy -disposition:a:0 0 '
-                    '-disposition:a:1 default OUT), or remove the silent one')
+                    f'Flag the stream with the sound as the default (ffmpeg -i IN -map 0 -c copy -disposition:a:'
+                    f'{rows.index(played)} 0 -disposition:a:{rows.index(sounding[0])} default OUT), or remove the '
+                    'silent one')
     return item('audio_streams', f"Sound measured on stream {played['index']}, which players use by default", 'pass',
                 f'{described(played)}; also in the file, not measured by the sound checks here: {named}')
 

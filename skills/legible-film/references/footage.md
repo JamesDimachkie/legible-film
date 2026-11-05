@@ -123,8 +123,8 @@ order of `picture`.
   frame already showing at each output time; it does not move a speech boundary to the nearest source frame.
   The report records each boundary and the covering source PTS. A picture cut can appear up to one output frame
   after a sub-frame edit boundary. If the first picture frame starts up to 0.5 seconds after an in-point, it is held
-  back to cover the gap and the report notes the hold. An out-point past the picture's end is clamped and reported
-  for review. `fit` is `cover` (default) or `contain` (with a `background` colour); contain
+  back to cover the gap and the report notes the hold. An out-point past the picture's end, by its header or by where
+  its frames really stop, is clamped and reported for review, and never filled with a frozen frame. `fit` is `cover` (default) or `contain` (with a `background` colour); contain
   enlarges smaller footage to fit. `retime` is `nearest` (default), `blend` or `motion`.
 - **`join`** describes the join into an item: `cut` (default), `dissolve` or `dip` (to `color`), with `dur`. A
   dissolve keeps the outgoing shot opaque while the incoming one fades over it. Three-way overlaps are refused.

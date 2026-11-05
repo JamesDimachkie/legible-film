@@ -102,6 +102,11 @@ may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
   whether a transcript is present, not whether it is accurate. `map.py run PROJECT` rehashes the source. Complete
   pre-versioned v1 maps are reused and labeled; `--rebuild` regenerates map outputs. Transcripts remain protected
   unless explicitly retranscribed.
+- A source's `ends` records, for `picture` and `sound`, what the stream's own header claims (`header`), how far it
+  really decodes (`decoded`, from the decodes mapping does anyway) and the end a line may use (`usable`: the header's,
+  unless decoding stopped more than 0.1 s and two and a half frames before it). A file cut short keeps its header, so
+  `map.py run` warns on every run and exits 1, `duration_s` becomes the usable length, and `cut.py check` refuses a line
+  past it. A map without `ends` keeps working, and `--rebuild` adds them.
 - A source's `audio` records the chosen stream: its absolute index, language, layout and start. Mapping,
   transcription, cutting and checks all use that stream; choosing another (`--stream`) for a source that already
   has a transcript needs `--retranscribe`. With several sound streams, `map.py run` measures each, prints its level

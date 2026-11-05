@@ -90,8 +90,10 @@ def probe_audio(path, requested=None, ffprobe='ffprobe'):
     return chosen
 
 
-def audio_window_command(path, stream, start, end, rate=16000, sample_format='f32le', channels=1, ffmpeg='ffmpeg'):
-    """Decode a source-clock window, inserting silence when the selected stream starts late."""
+def audio_window_command(path, stream, start, end, rate=16000, sample_format='f32le', channels=1, ffmpeg='ffmpeg',
+                         pad=True):
+    """Decode a source-clock window, inserting silence when the selected stream starts late. It also pads to the
+    window's end; with pad=False the output stops where the sound does, so its length measures the stream's real end."""
     if not (math.isfinite(start) and math.isfinite(end) and 0 <= start < end and rate > 0):
         raise ValueError('invalid audio window')
     info = probe_audio(path, stream)
@@ -101,8 +103,9 @@ def audio_window_command(path, stream, start, end, rate=16000, sample_format='f3
     offset = info['origin_s']
     first = round(start * rate)
     filters = (f'asetpts=PTS-({offset:.9f})/TB,aresample={rate}:async=1:first_pts=0,'
-               f'atrim=start_sample={first}:end_sample={first + length},asetpts=PTS-STARTPTS,'
-               f'apad=whole_len={length},atrim=end_sample={length}')
+               f'atrim=start_sample={first}:end_sample={first + length},asetpts=PTS-STARTPTS')
+    if pad:
+        filters += f',apad=whole_len={length},atrim=end_sample={length}'
     options = ['-copyts']
     try:
         tick = Fraction(str(info['time_base']))

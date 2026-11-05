@@ -195,14 +195,41 @@ def source_seek_safe(filename):
         return False
 
 
+# A stream's header and its decoded frames differ by a frame or two in a healthy file: decoding has stopped short only
+# when it falls more than this, and more than two and a half frames, before where it was expected to end.
+END_SLACK_S = 0.1
+
+
+def decoded_short(expected, decoded, frame=0.0):
+    """Whether decoding stopped measurably before `expected`."""
+    return expected - decoded > max(END_SLACK_S, 2.5 * frame)
+
+
+def picture_goes_on(ffprobe, filename, origin, moment):
+    """Whether the video stream still has a packet after a source time. A gap in a variable-rate source goes on; the
+    end of the picture does not. Reads packets, not frames, so a long source costs a demux and no decode."""
+    command = [ffprobe, '-v', 'quiet', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time', '-of', 'csv=p=0']
+    if source_seek_safe(filename):
+        command[3:3] = ['-read_intervals', f'{origin + moment:.9f}']
+    try:
+        result = subprocess.run(command + [str(filename)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=1800)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError('packet scan did not finish within 1800 seconds') from error
+    values = (line.strip(' ,') for line in result.stdout.splitlines())
+    return any(value.replace('.', '', 1).isdigit() and float(value) - origin > moment + 1e-6 for value in values)
+
+
 def presentation_frame_before(ffprobe, filename, origin, moment, through=None, return_seek=False):
-    """Find the covering frame, checking only selected frames for decoder error flags."""
+    """Find the covering frame, checking only selected frames for decoder error flags. A time past the last frame's
+    display is covered by nothing, however many frames come before it."""
     limit = max(1.0, moment + 1.0, (through if through is not None else moment) + 1.0)
     seek = max(0.0, moment - 5.0) if source_seek_safe(filename) else 0.0
     while True:
         interval = (f'{origin + seek:.9f}' if seek else '') + f'%{origin + limit:.9f}'
         command = [ffprobe, '-v', 'error', '-select_streams', 'v:0', '-read_intervals', interval,
-                   '-show_frames', '-show_entries', 'frame=best_effort_timestamp_time,decode_error_flags',
+                   '-show_frames', '-show_entries',
+                   'frame=best_effort_timestamp_time,decode_error_flags,duration_time,pkt_duration_time',
                    '-of', 'json', str(filename)]
         try:
             result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
@@ -213,9 +240,10 @@ def presentation_frame_before(ffprobe, filename, origin, moment, through=None, r
             raise ValueError('video decoder failed while resolving presentation frames: '
                              + result.stderr.strip()[-500:])
         try:
+            rows = [frame for frame in json.loads(result.stdout).get('frames', [])
+                    if 'best_effort_timestamp_time' in frame]
             frames = [(float(frame['best_effort_timestamp_time']) - origin, int(frame.get('decode_error_flags', 0)))
-                      for frame in json.loads(result.stdout).get('frames', [])
-                      if 'best_effort_timestamp_time' in frame]
+                      for frame in rows]
         except (ValueError, TypeError, json.JSONDecodeError) as error:
             raise ValueError('invalid frame timestamp or decoder error flags') from error
         frames = [(time, flags) for time, flags in frames if math.isfinite(time)]
@@ -225,6 +253,16 @@ def presentation_frame_before(ffprobe, filename, origin, moment, through=None, r
             continue
         if earlier:
             selected = max(earlier)
+            if selected == frames[-1][0]:
+                last = rows[-1]
+                try:
+                    held = float(last.get('duration_time', last.get('pkt_duration_time', 0)))
+                except (TypeError, ValueError):
+                    held = 0.0
+                reach = selected + max(held, selected - frames[-2][0] if len(frames) > 1 else 0.0)
+                if moment >= reach - 1e-6 and not picture_goes_on(ffprobe, filename, origin, moment):
+                    raise ValueError(f'no picture frame covers source time {moment:.6f} in {filename}: the picture '
+                                     f'ends at {reach:.6f} s; choose an earlier in-point')
         elif frames and 0 <= frames[0][0] - moment <= .5 + 1e-6:
             selected = frames[0][0]
         else:

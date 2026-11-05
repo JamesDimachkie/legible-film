@@ -343,15 +343,22 @@ film.md:9: error: unknown source alias broll_14
   suggestion: known aliases near it: broll_04, broll_01
 film.md:12: error: range ends at 31:10.00 but int_02 lasts 30:58.21
   suggestion: end the range by 30:58.21
+film.md:14: error: the range ends at 0:19.50 but src_01's picture ends at 0:18.71 (decoded; the file's header says 0:23.25)
+  suggestion: end the range by 0:18.71, or hold its last frame with a pause hold line
 film.md:15: warning: cutaway runs 1.20 s past its line; it will be trimmed
 ```
 
 Errors stop a render: bad grammar, unknown aliases, ranges outside a source, unmatched or out-of-order words, a
 picture line on a source with no picture, and any line that would last longer than four times `target` (three hours
 without one), which is almost always a mistyped range or speed. A blocked render exits 2, since nothing was made to
-look at (`check` exits 1 for the same errors; `render --json` says `"status": "blocked"`). Warnings describe something that will
+look at (`check` exits 1 for the same errors; `render --json` says `"status": "blocked"`). "Outside a source" means
+where it really ends: a source's duration can be its header's claim, so a range is checked against the map's decoded end
+of picture and sound, and a picture range against the picture's end even when the sound goes on. A map made before
+this has the header of the video stream to go on, and a render that finds less picture than that refuses the line; `map.py
+run PROJECT --alias ALIAS --rebuild` measures it. The renderer never fills a range with a frozen frame: a hold is a
+line you write (`pause N hold`, `still ALIAS TIME N`). Warnings describe something that will
 render but deserves a look: a duration far from `target`, a tight cut, a trimmed cutaway, uncovered audio-only picture,
-an abrupt sound change at a join, busy cutting, a flash frame (under half a second of a picture: a source's shot
+sound that ends before its picture does, an abrupt sound change at a join, busy cutting, a flash frame (under half a second of a picture: a source's shot
 change just inside a range, or a moment of a line's own picture left between two cutaways), an interview line said
 more than 30 s before the line it follows, burned captions on a landscape frame whose audience is a phone feed,
 a film whose first word may continue a sentence, a question or exclamation answered with under 0.5 s where the

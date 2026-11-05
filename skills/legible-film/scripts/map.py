@@ -23,8 +23,12 @@ side. FFmpeg's fixed -40 dB silence threshold is shown only where it found quiet
 room tone sits above it. Maps made before voice activity was recorded, or without faster-whisper, show levels only.
 Maps are drafts and detected cuts and silences need inspection. Shot-change candidates within 1 s of each other
 that return to the same picture (a flash or effect inside one shot) are recorded in shots.json as effects, not shot
-changes; maps made before this keep their shots until --rebuild. Exit 0 on success, 1 for an incomplete --check or
-when a transcript is stale (its warning names both remedies), 2 on error.
+changes; maps made before this keep their shots until --rebuild. Mapping decodes the picture and the sound once each
+anyway, and records where each really ends (sources.json "ends"), since a header can claim seconds a file no longer
+holds; a source that decodes short of its header gets a warning on every run and its usable length as duration_s, and
+cut.py check refuses a line past that end. Maps made before this have no "ends" until --rebuild. Exit 0 on success, 1
+for an incomplete --check, when a transcript is stale (its warning names both remedies) or when a source decodes short
+of its header, 2 on error.
 --words auto (the default) transcribes speech roles only: music and sfx sources skip words, so mapping a music bed
 never waits on transcription. --words all transcribes every role, lyrics included.
 Uncached transcription weights download only with --download or with setup.py --install transcription and consent.
@@ -47,6 +51,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from fractions import Fraction
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
@@ -202,13 +207,73 @@ def _add(root, name, role, copy, target, stream=None):
             installed.unlink(missing_ok=True)
 
 
-def shots(path, end):
-    """Find scene cut candidates with FFmpeg scdet: (shots, effects), where candidates that return to the same
-    picture within EFFECT_S seconds are one effect inside a shot, not shot changes."""
+def scan_picture(path):
+    """Decode the picture once with FFmpeg scdet: (scene cut candidates, where the decoded frames end or None)."""
     import re
     run = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-i', str(path), '-vf', 'scdet=threshold=10',
-                          '-an', '-f', 'null', '-'], capture_output=True, text=True, check=True)
+                          '-an', '-progress', 'pipe:1', '-f', 'null', '-'], capture_output=True, text=True, check=True)
     times = [float(x) for x in re.findall(r'lavfi\.scd\.time:\s*([\d.]+)', run.stderr)]
+    ends = re.findall(r'out_time_us=(\d+)', run.stdout)
+    return times, (int(ends[-1]) / 1e6 if ends and int(ends[-1]) else None)
+
+
+def last_frame_end(path, facts, decoded):
+    """Where the last frame stops showing, read again from just before it: FFmpeg's progress can stop at that frame's
+    start (FFmpeg 5.1), and a last frame can hold for seconds. The figure itself when nothing more can be read."""
+    try:
+        origin = float((facts.get('format') or {}).get('start_time') or 0)
+        result = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', 'v:0', '-read_intervals',
+                                 f'{origin + max(0.0, decoded - 2.0):.6f}', '-show_entries',
+                                 'frame=best_effort_timestamp_time,duration_time,pkt_duration_time', '-of', 'json',
+                                 str(path)], capture_output=True, text=True, timeout=600)
+        rows = [row for row in json.loads(result.stdout or '{}').get('frames', [])
+                if 'best_effort_timestamp_time' in row]
+        last = rows[-1]
+        held = float(last.get('duration_time', last.get('pkt_duration_time', 0)))
+        return max(decoded, float(last['best_effort_timestamp_time']) - origin + held)
+    except (IndexError, TypeError, ValueError, subprocess.TimeoutExpired):
+        return decoded
+
+
+def stream_end(facts, stream, decoded, frame=0.0):
+    """One stream's ends: what its own header claims (None when it claims nothing of its own), what decoding reached,
+    and the end a line may use: the header's, unless decoding stopped measurably before it."""
+    container = {key: value for key, value in (facts.get('format') or {}).items() if key != 'duration'}
+    try:
+        header = transcribe.presentation_duration({'format': container, 'streams': [stream]})
+    except (TypeError, ValueError):
+        header = None
+    short = header is not None and decoded is not None and render_common.decoded_short(header, decoded, frame)
+    return {'header': header, 'decoded': decoded, 'usable': decoded if short or header is None else header}
+
+
+def picture_ends(path, facts, stream, decoded):
+    """The video stream's stream_end, reading its last frame again only when decoding looks short of the header."""
+    try:
+        frame = float(1 / Fraction(stream.get('avg_frame_rate', '0/1')))
+    except (ValueError, ZeroDivisionError):
+        frame = 0.0
+    ends = stream_end(facts, stream, decoded, frame)
+    if decoded is not None and ends['usable'] == decoded and ends['header'] is not None:
+        ends = stream_end(facts, stream, last_frame_end(path, facts, decoded), frame)
+    return ends
+
+
+def warn_short(alias, ends):
+    """Say plainly when a source decodes short of its header; such a source makes the command exit 1."""
+    short = {name: row for name, row in (ends or {}).items() if row.get('header') is not None
+             and row.get('usable') is not None and row['usable'] < row['header']}
+    if short:
+        SHORT.append(alias)
+        reached = ' and '.join(f"the {name} only to {row['usable']:.2f} s" for name, row in short.items())
+        print(f"warning: {alias}: the file's header says {max(row['header'] for row in short.values()):.2f} s, but it "
+              f'decodes {reached}: the file is cut short or damaged. cut.py check refuses a line past that end; use a '
+              'complete copy for the rest.', file=sys.stderr)
+
+
+def shots(path, times, end):
+    """Shots and effects from scene cut candidates: candidates that return to the same picture within EFFECT_S seconds
+    are one effect inside a shot, not shot changes."""
     cuts, effects = split_effects(path, [t for t in times if 0 < t < end])
     boundaries = [0.0] + cuts + [end]
     return [{'start': a, 'end': b} for a, b in zip(boundaries, boundaries[1:])], effects
@@ -249,17 +314,20 @@ def audio_map(path, has_audio, length, stream=None):
     """Measure quarter-second RMS and FFmpeg loudness and silence events."""
     import re
     result = {'integrated_lufs': None, 'levels_db': {'step_s': 0.25, 'values': []},
-              'speech_band_db': {'step_s': 0.25, 'values': []}, 'silences': []}
+              'speech_band_db': {'step_s': 0.25, 'values': []}, 'silences': [], 'decoded_end_s': None}
     if not has_audio:
         return result
     require_tool('ffmpeg')
     info = transcribe.probe_audio(path, stream)
-    cmd = transcribe.audio_window_command(path, info['index'], 0.0, length, rate=8000)
+    # Unpadded, so the bytes read are how far the sound really decodes; the levels are filled to the length after it.
+    cmd = transcribe.audio_window_command(path, info['index'], 0.0, length, rate=8000, pad=False)
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+    decoded = 0
     while True:
         raw = proc.stdout.read(8000)
         if not raw:
             break
+        decoded += len(raw) // 4
         samples = np.frombuffer(raw[:len(raw) // 4 * 4], dtype='<f4')
         rms = math.sqrt(float(np.mean(samples * samples))) if len(samples) else 0
         result['levels_db']['values'].append(round(20 * math.log10(rms), 2) if rms > 1e-10 else -200.0)
@@ -275,6 +343,10 @@ def audio_map(path, has_audio, length, stream=None):
                                                   if speech_rms > 1e-10 else -200.0)
     if proc.wait():
         raise ValueError('audio decode failed')
+    result['decoded_end_s'] = round(decoded / 8000, 6)
+    missing = math.ceil(round(length * 8000) / 2000) - len(result['levels_db']['values'])
+    for track in ('levels_db', 'speech_band_db'):
+        result[track]['values'].extend([-200.0] * max(0, missing))
     clock = f"asetpts=PTS-({info['origin_s']:.9f})/TB,aresample=async=1:first_pts=0"
     run = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-copyts', '-i', str(path),
                           '-map', f"0:{info['index']}",
@@ -412,6 +484,7 @@ def source_at_file(root, source):
 
 WORDLESS_ROLES = ('music', 'sfx')   # --words auto skips these roles; --words all keeps lyrics
 STALE = []
+SHORT = []
 
 
 class NotTranscribed(ValueError):
@@ -507,6 +580,7 @@ def confirm_words(root, alias, note, by='agent', stream_index=None):
             if actual != source.get('sha256') or stream != source.get('audio'):
                 source.update(sha256=actual, bytes=size, audio=stream,
                               duration_s=mapped_duration(facts, source['role']))
+                source.pop('ends', None)
                 video = next((row for row in facts['streams'] if row['codec_type'] == 'video'
                               and not row.get('disposition', {}).get('attached_pic')), None)
                 source['video'] = ({**render_common.display_geometry(video), 'fps': video['avg_frame_rate']}
@@ -1141,11 +1215,23 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 print(f'{alias}: cached ({detail})')
                 if detail == 'legacy v1 outputs':
                     print(f'{alias}: reusing pre-versioned v1 outputs; --rebuild regenerates them')
+                if 'ends' not in source and source.get('duration_s'):
+                    print(f'{alias}: this map does not record where picture and sound really end; '
+                          f'map.py run "{root}" --alias {alias} --rebuild measures it')
             else:
                 source['sha256'] = actual
                 source['bytes'] = path.stat().st_size
                 source['duration_s'] = mapped_duration(facts, source['role'])
-                found, effects = shots(path, source['duration_s']) if source.get('video') else ([], [])
+                ends = {}
+                found, effects = [], []
+                if source.get('video'):
+                    times, decoded = scan_picture(path)
+                    last_shot = source['duration_s']
+                    if current_video and source['duration_s']:
+                        ends['picture'] = picture_ends(path, facts, current_video, decoded)
+                        if ends['picture']['header'] and ends['picture']['usable'] < ends['picture']['header']:
+                            last_shot = ends['picture']['usable']
+                    found, effects = shots(path, times, last_shot)
                 sampled = len(found) > 600
                 indices = sheet_indices(len(found))
                 for page in range(0, len(indices), 60):
@@ -1171,10 +1257,16 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                 audio['stream_index'] = selected_audio['index'] if selected_audio else None
                 project.save_json(folder / 'audio.json', {'version': 1, 'source': alias, **audio})
                 source['mapped'].update({'shots': True, 'audio': True})
+                if selected_audio and source['duration_s']:
+                    chosen = next(s for s in facts['streams'] if s.get('index') == selected_audio['index'])
+                    ends['sound'] = stream_end(facts, chosen, audio['decoded_end_s'])
+                if any(row['header'] and row['usable'] < row['header'] for row in ends.values()):
+                    source['duration_s'] = max(row['usable'] for row in ends.values())
+                source['ends'] = ends
                 with project.file_lock(index):
                     latest = project.load_json(index)
                     target = next(s for s in latest['sources'] if s['alias'] == alias)
-                    target.update({key: source[key] for key in ('sha256', 'bytes', 'duration_s', 'video')})
+                    target.update({key: source[key] for key in ('sha256', 'bytes', 'duration_s', 'video', 'ends')})
                     target.setdefault('mapped', {}).update({'shots': True, 'audio': True})
                     project.save_json(index, latest)
                     data = latest
@@ -1269,6 +1361,7 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
             silence = project.load_json(folder / 'audio.json', {}).get('silences', [])
             print(f"{alias} {source['role']} {source['duration_s']:.2f}s "
                   f'{len(shot_data)} shots {len(word_data)} words {len(silence)} silences')
+            warn_short(alias, source.get('ends'))
         with project.file_lock(root / 'status.json'):
             status = project.read_status(root)
             fields = {'running': [job for job in status.get('running', [])
@@ -1384,7 +1477,7 @@ def main():
                 raise ValueError('--words must be auto, all, skip or import:FILE')
             run(args.project, args.alias, args.words, args.ggml_model, args.engine, args.quality, args.retranscribe,
                 args.stream, args.prompt, args.rebuild, args.download)
-        return 1 if STALE else 0
+        return 1 if STALE or SHORT else 0
     except Exception as error:
         print('cannot run: ' + str(error), file=sys.stderr)
         return 2

@@ -569,6 +569,8 @@ def run_cut_cases(tool, record, j, scripts_dir):
     make_source(media, 'broll_01', 6.0, PATCHES['broll'], audio=False)
     check_sound_past_picture(tool, record, j, media)
     check_caption_ends_with_film(tool, record, j, media)
+    check_range_past_decoded_end(tool, record, j)
+    check_range_past_picture_end(tool, record, j)
     root = make_project(j('cut-project'), media)
     (root / 'film.md').write_text(FILM, encoding='utf-8')
     paper_code, _ = tool('grade.py', 'paper', root)
@@ -1149,6 +1151,131 @@ def check_sound_past_picture(tool, record, j, media):
            and 'whole number of frames' in short.get('suggestion', ''), str(found))
     record('cut: a whole-frame film, or one that fades out with its picture, gets no such warning',
            not found['whole'] and not found['faded'], str(found))
+
+
+def film_problems(tool, root, body, size='320x180'):
+    """film.md with `body` from line 7, and what cut.py check says: (exit code, error rows, warning rows)."""
+    (Path(root) / 'film.md').write_text(f'---\ntitle: T\nsize: {size}\nfps: 10\ncaptions: none\n---\n{body}',
+                                        encoding='utf-8')
+    code, output = tool('cut.py', 'check', root, '--json')
+    try:
+        problems = json.loads(output[output.index('{'):]).get('problems', [])
+    except ValueError:
+        problems = []
+    return (code, [row for row in problems if row['severity'] == 'error'],
+            [row for row in problems if row['severity'] == 'warning'])
+
+
+def check_range_past_decoded_end(tool, record, j):
+    """A range past where a source really decodes is a line-numbered error before anything renders, and the renderer
+    never fills it with a frozen last frame, on any path; a declared hold still works."""
+    folder = Path(j('cut-decoded-end'))
+    folder.mkdir(parents=True, exist_ok=True)
+    whole = folder / 'whole.mp4'
+    ffmpeg('-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=10:d=8', '-f', 'lavfi', '-i',
+           'sine=frequency=440:sample_rate=48000:duration=8', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-g', '10',
+           '-c:a', 'aac', '-movflags', '+faststart', whole)
+    short = folder / 'short.mp4'
+    data = whole.read_bytes()
+    short.write_bytes(data[:int(len(data) * .6)])
+    root = folder / 'project'
+    tool('map.py', 'add', root, short, '--role', 'other')
+    tool('map.py', 'run', root, '--alias', 'src_01', '--words', 'skip')
+    index = root / 'map' / 'sources.json'
+    row = json.loads(index.read_text(encoding='utf-8'))['sources'][0]
+    end = row['ends']['picture']['decoded']
+    past = f'- src_01 0:0{end - 1:.2f}-0:0{end + 1:.2f} sound Past the end.\n'
+    code, errors, _ = film_problems(tool, root, past)
+    message = errors[0]['message'] if errors else ''
+    record('cut: check gives a line-numbered error for a range past the decoded end, naming that end and the header',
+           code == 1 and [item['line'] for item in errors] == [7] and f'0:0{end:.2f}'[:6] in message
+           and 'decoded' in message and '0:08' in message, str(errors))
+    code, output = tool('cut.py', 'render', root)
+    json_code, json_output = tool('cut.py', 'render', root, '--json')
+    record('cut: render is blocked with exit 2 for a range past the decoded end, and nothing is rendered',
+           code == 2 and json_code == 2 and '"blocked"' in json_output and not (root / 'cuts' / 'v001').exists(),
+           output[-300:])
+    code, errors, _ = film_problems(tool, root, f'- still src_01 0:0{end + 1:.2f} 1.0 A frame that is not there\n')
+    record('cut: a freeze past the decoded end is an error on its line',
+           code == 1 and [item['line'] for item in errors] == [7] and 'freeze' in errors[0]['message'], str(errors))
+    inside = (f'- src_01 0:01.00-0:02.00 sound Inside\n- pause 1 hold\n- still src_01 0:0{end - 1:.2f} 1.0 A freeze\n')
+    code, errors, _ = film_problems(tool, root, inside)
+    render_code, output = tool('cut.py', 'render', root, '--label', 'held')
+    manifest = root / 'cuts' / 'v001' / 'manifest.json'
+    length = json.loads(manifest.read_text(encoding='utf-8')).get('duration_s') if manifest.is_file() else None
+    declared = root / 'cuts' / 'v001' / 'declared.json'
+    holds = json.loads(declared.read_text(encoding='utf-8')) if declared.is_file() else {}
+    record('cut: a range inside what decodes renders, and a declared hold and freeze still work',
+           not errors and render_code in (0, 1) and length is not None and abs(length - 3.0) < .15
+           and holds.get('holds'), f'{errors}; {length}; {holds}; {output[-300:]}')
+
+    data = json.loads(index.read_text(encoding='utf-8'))
+    data['sources'][0].pop('ends', None)
+    data['sources'][0]['duration_s'] = 8.0
+    index.write_text(json.dumps(data), encoding='utf-8')
+    code, errors, _ = film_problems(tool, root, past, size='160x90')
+    record('cut: check on a map without the decoded end does not crash', code in (0, 1) and not errors, str(errors))
+    outcomes = {}
+    for name, options in (('proxied preview', ()), ('final', ('--final',))):
+        code, output = tool('cut.py', 'render', root, *options)
+        outcomes[name] = (code, 'film.md line 7' in output, sum(path.name.startswith('v')
+                                                                for path in (root / 'cuts').iterdir()))
+    record('cut: with no decoded end in the map, every render path refuses the same line and makes no version',
+           outcomes == {'proxied preview': (2, True, 1), 'final': (2, True, 1)}, str(outcomes))
+
+
+def check_range_past_picture_end(tool, record, j):
+    """When picture ends before sound, a range is checked against the picture's own end and names its line, a spoken
+    line included, on a new map and an old one; sound that ends before its picture stays a warning."""
+    folder = Path(j('cut-picture-short'))
+    folder.mkdir(parents=True, exist_ok=True)
+    source = folder / 'picture-short.mp4'
+    ffmpeg('-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=10:d=2', '-f', 'lavfi', '-i',
+           'sine=frequency=440:sample_rate=48000:duration=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+           source)
+    words = folder / 'words.json'
+    words.write_text(json.dumps({'words': [{'word': 'early', 'start': .5, 'end': 1.0},
+                                           {'word': 'late', 'start': 2.6, 'end': 3.2}]}), encoding='utf-8')
+    root = folder / 'project'
+    tool('map.py', 'add', root, source, '--role', 'other')
+    tool('map.py', 'run', root, '--alias', 'src_01', '--words', 'import:' + str(words))
+    code, errors, _ = film_problems(tool, root, '- src_01 0:01.00-0:03.00 Past the picture\n')
+    record('cut: a picture line past the picture\'s end errors on its line though the sound goes on',
+           code == 1 and [item['line'] for item in errors] == [7] and 'picture ends' in errors[0]['message'],
+           str(errors))
+    render_code, output = tool('cut.py', 'render', root)
+    record('cut: and the render it blocks exits 2 and names the line', render_code == 2 and 'film.md:7' in output,
+           output[-300:])
+    code, errors, _ = film_problems(tool, root, '> src_01 0:02.50-0:03.30 late\n')
+    record('cut: a spoken line past the picture\'s end errors on its line',
+           code == 1 and [item['line'] for item in errors] == [7] and 'picture ends' in errors[0]['message'],
+           str(errors))
+    code, errors, warnings = film_problems(tool, root, '> src_01 0:02.50-0:03.30 late\n'
+                                                       '  ~ src_01 0:00.00-0:01.20 +0 covered by a cutaway\n')
+    record('cut: a spoken line whose picture a cutaway covers needs no picture of its own',
+           not errors, str(errors))
+    code, errors, _ = film_problems(tool, root, '- src_01 0:01.00-0:02.00 sound Up to the end of the picture\n')
+    record('cut: a range up to the picture\'s end is fine', not errors, str(errors))
+    index = root / 'map' / 'sources.json'
+    data = json.loads(index.read_text(encoding='utf-8'))
+    data['sources'][0].pop('ends', None)
+    index.write_text(json.dumps(data), encoding='utf-8')
+    code, errors, _ = film_problems(tool, root, '- src_01 0:01.00-0:03.00 Past the picture\n')
+    record('cut: an older map is checked against the video stream\'s own end',
+           code == 1 and [item['line'] for item in errors] == [7] and 'picture ends' in errors[0]['message'],
+           str(errors))
+
+    sound_short = folder / 'sound-short.mp4'
+    ffmpeg('-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=10:d=4', '-f', 'lavfi', '-i',
+           'sine=frequency=440:sample_rate=48000:duration=2', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
+           sound_short)
+    other = folder / 'project-sound'
+    tool('map.py', 'add', other, sound_short, '--role', 'other')
+    tool('map.py', 'run', other, '--alias', 'src_01', '--words', 'skip')
+    code, errors, warnings = film_problems(tool, other, '- src_01 0:01.00-0:03.00 sound The tone stops first\n')
+    named = [item for item in warnings if item['line'] == 7 and 'sound ends' in item['message']]
+    record('cut: a sound that really is shorter than its picture is a warning on the line, not an error',
+           not errors and len(named) == 1, str(errors) + str(warnings))
 
 
 def check_caption_ends_with_film(tool, record, j, media):

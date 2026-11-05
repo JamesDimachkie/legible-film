@@ -337,6 +337,73 @@ def check_transcript_unavailable(tool, record, j):
            + str(status.get('line')))
 
 
+def cut_short_source(path, seconds=8, keep=.6):
+    """A complete MP4 with its index at the front, cut short by bytes: its header still claims every second."""
+    whole = Path(path).with_name(Path(path).stem + '-whole.mp4')
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', f'testsrc2=s=320x180:r=10:d={seconds}',
+                    '-f', 'lavfi', '-i', f'sine=frequency=440:sample_rate=48000:duration={seconds}', '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p', '-g', '10', '-c:a', 'aac', '-movflags', '+faststart', str(whole)],
+                   check=True, capture_output=True)
+    data = whole.read_bytes()
+    Path(path).write_bytes(data[:int(len(data) * keep)])
+    return whole
+
+
+def last_frame_end(path, selector, frame):
+    """Where a stream's decoded frames really end, read frame by frame, for the known answer."""
+    result = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', selector, '-show_entries',
+                             'frame=best_effort_timestamp_time', '-of', 'csv=p=0', str(path)],
+                            capture_output=True, text=True)
+    return float(result.stdout.split()[-1].strip(',')) + frame
+
+
+def check_decoded_end(tool, record, j):
+    """map.py records where picture and sound really end and says plainly when that differs from the header; a whole
+    file is unchanged, and a map made before this keeps working."""
+    folder = Path(j('map-decoded-end'))
+    folder.mkdir(parents=True, exist_ok=True)
+    short = folder / 'short.mp4'
+    whole = cut_short_source(short)
+    picture, sound = last_frame_end(short, 'v:0', .1), last_frame_end(short, 'a:0', 1024 / 48000)
+    damaged = folder / 'damaged'
+    tool('map.py', 'add', damaged, short, '--role', 'other')
+    code, output = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip')
+    index = damaged / 'map' / 'sources.json'
+    row = json.loads(index.read_text(encoding='utf-8'))['sources'][0]
+    ends = row.get('ends') or {}
+    measured = (ends.get('picture') or {}).get('decoded') or 0, (ends.get('sound') or {}).get('decoded') or 0
+    record('map: the real decoded end of picture and sound is recorded from the map\'s own decode',
+           2 < picture < 7 and abs(measured[0] - picture) < .11 and abs(measured[1] - sound) < .05
+           and (ends.get('picture') or {}).get('header', 0) > 7.9, f'known {picture}, {sound}; recorded {ends}')
+    record('map: a source that decodes short of its header says so plainly, exits 1 and maps what is there',
+           code == 1 and 'header' in output and f'{measured[0]:.2f}' in output and 'decodes' in output
+           and abs(row.get('duration_s', 0) - max(measured)) < .05, output[-400:])
+    shots = json.loads((damaged / 'map' / 'src_01' / 'shots.json').read_text(encoding='utf-8'))['shots']
+    record('map: the last shot ends where the picture does', abs(shots[-1]['end'] - measured[0]) < .11, str(shots[-1]))
+    code, again = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip')
+    record('map: running again from the cache still says the source decodes short',
+           code == 1 and 'cached' in again and 'decodes' in again, again[-300:])
+
+    healthy = folder / 'healthy'
+    tool('map.py', 'add', healthy, whole, '--role', 'other')
+    code, output = tool('map.py', 'run', healthy, '--alias', 'src_01', '--words', 'skip')
+    row = json.loads((healthy / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources'][0]
+    record('map: a whole file keeps its header length, with both ends recorded and nothing to report',
+           code == 0 and 'decodes' not in output and abs(row['duration_s'] - 8) < .05
+           and abs(row['ends']['picture']['decoded'] - 8) < .11 and abs(row['ends']['sound']['decoded'] - 8) < .05
+           and row['ends']['picture']['usable'] == row['ends']['picture']['header'], str(row.get('ends')) + output[-200:])
+
+    data = json.loads(index.read_text(encoding='utf-8'))
+    data['sources'][0].pop('ends', None)
+    index.write_text(json.dumps(data), encoding='utf-8')
+    code, output = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip')
+    record('map: a map made before the decoded end was recorded still runs, and says how to measure it',
+           code == 0 and 'cached' in output and '--rebuild' in output, output[-300:])
+    code, output = tool('map.py', 'run', damaged, '--alias', 'src_01', '--words', 'skip', '--rebuild')
+    row = json.loads(index.read_text(encoding='utf-8'))['sources'][0]
+    record('map: --rebuild measures the decoded end of an older map', code == 1 and 'ends' in row, output[-300:])
+
+
 def silent_default_source(path, first_default=True):
     """Picture with two sound streams, 1 digitally silent and 2 a tone; the default flag on 1, or on 2."""
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10:d=3',
@@ -414,6 +481,7 @@ def run_map_cases(tool, record, j, scripts_dir):
     """Check transcripts, source privacy, caching, scene and silence timing, and strips."""
     check_transcript_unavailable(tool, record, j)
     check_silent_default_stream(tool, record, j)
+    check_decoded_end(tool, record, j)
     check_transcript_media_identity(tool, record, j)
     check_confirm_changed_stream(tool, record, j)
     polish_map_cases(tool, record, j)

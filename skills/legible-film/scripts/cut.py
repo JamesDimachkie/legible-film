@@ -75,6 +75,12 @@ What this does not prove: that a cut sounds or looks right. Quiet audio is not a
 be quiet for a moment), transcripts are drafts, and the preview is a review copy. Watch and listen to every version.
 Needs numpy, Pillow and FFmpeg; check runs without FFmpeg from transcript timings alone.
 
+A range is checked against where its source really ends: the map's decoded end of picture and sound (sources.json
+"ends"), or for a map made before that the video stream's own header. A range past the picture is an error on its line
+even when the sound goes on; a line whose sound ends early is an error when decoding stopped short of the header, and a
+warning when the sound really is that short. The renderer never fills a range with a frozen frame: a hold is declared
+(pause N hold, still ALIAS TIME N).
+
 Exit codes: 0 nothing to report; 1 something to inspect (check found errors in film.md; a render with review notes;
 phrases not found); 2 could not run, which includes a render blocked by errors in film.md, since nothing was rendered.
 render --json says which with "status": "rendered" (and the version) or "blocked" (and the problems).
@@ -99,6 +105,8 @@ from fractions import Fraction
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+# A range may run this far past its source: a header and its last frame or sample can differ by about this much.
+RANGE_SLACK = 0.05
 
 
 def load_sibling(name):
@@ -947,6 +955,7 @@ class SourceMap:
         self.stale_cache = {}
         self.media_cache = {}
         self.media_stats = {}
+        self.picture_ends = {}
         self.verify_media = False
 
     def path(self, alias):
@@ -957,6 +966,47 @@ class SourceMap:
     def duration(self, alias):
         """The source's duration in seconds (0 when unknown)."""
         return float(self.sources[alias].get('duration_s') or 0)
+
+    def stream_ends(self, alias, name):
+        """The map's record of where one stream ends ({'header', 'decoded', 'usable'}), {} for a map without one."""
+        ends = self.sources[alias].get('ends')
+        row = ends.get(name) if isinstance(ends, dict) else None
+        return row if isinstance(row, dict) else {}
+
+    def short_note(self, alias, name):
+        """What to say after a stream's end when it decodes short of its header, else nothing."""
+        row = self.stream_ends(alias, name)
+        if row.get('header') and row.get('usable') and row['usable'] < row['header']:
+            return f" (decoded; the file's header says {fmt(row['header'])})"
+        return ''
+
+    def picture_end(self, alias):
+        """Where the source's picture ends: the map's decoded end; for a map made before it recorded one, the video
+        stream's own header (a source's duration is its longest stream's, and sound can run on past the picture); the
+        duration when neither can be read."""
+        usable = self.stream_ends(alias, 'picture').get('usable')
+        if usable:
+            return float(usable)
+        if alias not in self.picture_ends:
+            self.picture_ends[alias] = self.duration(alias)
+            ffprobe = find_tool('ffprobe')
+            if ffprobe and self.has_video(alias) and self.has_audio(alias) and self.path(alias).is_file():
+                result = subprocess.run([ffprobe, '-v', 'error', '-show_streams', '-show_format', '-of', 'json',
+                                         str(self.path(alias))], capture_output=True, text=True, encoding='utf-8',
+                                        errors='replace')
+                try:
+                    facts = json.loads(result.stdout)
+                    video = next(row for row in facts['streams'] if row.get('codec_type') == 'video'
+                                 and not (row.get('disposition') or {}).get('attached_pic'))
+                    self.picture_ends[alias] = load_sibling('transcribe').presentation_duration(
+                        {'format': facts.get('format', {}), 'streams': [video]})
+                except (KeyError, StopIteration, TypeError, ValueError):
+                    pass
+        return self.picture_ends[alias]
+
+    def sound_end(self, alias):
+        """Where the source's sound ends: the map's decoded end, else the source's duration."""
+        return float(self.stream_ends(alias, 'sound').get('usable') or self.duration(alias))
 
     def is_image(self, alias):
         """Whether the source is a still image."""
@@ -1572,10 +1622,7 @@ def validate_entry(entry, source_map, problems):
         validate_over(entry, source_map, problems)
         return
     duration = source_map.duration(alias)
-    if duration and entry['end'] > duration + 0.05:
-        problems.error(line, f'the range ends at {fmt(entry["end"])} but {alias} lasts {fmt(duration)}',
-                       f'end the range by {fmt(duration)}')
-        entry['bad'] = True
+    range_past_end(entry, source_map, problems)
     if duration and entry['start'] >= duration:
         entry['bad'] = True
     if kind in ('picture', 'cutaway') and not source_map.has_video(alias):
@@ -1600,6 +1647,55 @@ def validate_entry(entry, source_map, problems):
                        f'--retranscribe {alias}) or, after checking it, confirm it (map.py confirm-words PROJECT '
                        f'{alias} --note TEXT)')
         entry['bad'] = True
+
+
+def range_past_end(entry, source_map, problems):
+    """Check a range against where its source really ends. Picture needs picture, so a range past it is an error though
+    the sound goes on. Sound that stops short of its header is an error; sound that is simply shorter than its picture
+    is a warning, since a camera file's often is, and the render carries on with the rest of the line silent."""
+    alias, line, end = entry['alias'], entry['line'], entry['end']
+    duration = source_map.duration(alias)
+    stop = source_map.picture_end(alias)
+    why = source_map.short_note(alias, 'picture')
+    if (entry['kind'] in ('picture', 'cutaway') and source_map.has_video(alias) and stop and end > stop + RANGE_SLACK
+            and (why or stop < duration - RANGE_SLACK)):
+        problems.error(line, f"the range ends at {fmt(end)} but {alias}'s picture ends at {fmt(stop)}{why}",
+                       f'end the range by {fmt(stop)}, or hold its last frame with a pause hold line')
+        entry['bad'] = True
+        return
+    if duration and end > duration + RANGE_SLACK:
+        problems.error(line, f'the range ends at {fmt(end)} but {alias} lasts {fmt(duration)}'
+                       + (why or source_map.short_note(alias, 'sound')), f'end the range by {fmt(duration)}')
+        entry['bad'] = True
+        return
+    stop = source_map.sound_end(alias)
+    if ((entry['kind'] in ('music', 'spoken') or 'sound' in entry['mods']) and source_map.has_audio(alias) and stop
+            and end > stop + RANGE_SLACK):
+        why = source_map.short_note(alias, 'sound')
+        message = f"the range ends at {fmt(end)} but {alias}'s sound ends at {fmt(stop)}{why}"
+        if why:
+            problems.error(line, message, f'end the range by {fmt(stop)}, or remove its sound')
+            entry['bad'] = True
+        else:
+            problems.warn(line, message + '; the rest of this line is silent', f'end the range by {fmt(stop)}, or '
+                          'lay other sound under the rest')
+
+
+def picture_past_end(plan, source_map, problems):
+    """A line's own picture past where its source's picture ends. A spoken line is checked here, not by its range, once
+    cutaways have taken what they cover: a cutaway may cover the part with no picture of its own."""
+    named = set()
+    for seg in plan['segments']:
+        alias = seg['key']
+        if alias not in source_map.sources or not source_map.has_video(alias) or seg['line'] in named:
+            continue
+        stop = source_map.picture_end(alias)
+        out = seg['s0'] + (seg['t1'] - seg['t0']) * seg['speed']
+        if stop and out > stop + RANGE_SLACK:
+            named.add(seg['line'])
+            problems.error(seg['line'], f"this line plays {alias} to {fmt(out)} but {alias}'s picture ends at "
+                           f"{fmt(stop)}{source_map.short_note(alias, 'picture')}",
+                           f'end the line by {fmt(stop)}, or cover the rest with a cutaway (~ line)')
 
 
 def validate_over(entry, source_map, problems):
@@ -1656,9 +1752,10 @@ def validate_still(entry, source_map, problems):
                        f'write it like: still {alias} 0:12.40 {entry["seconds"]:g}')
         entry['bad'] = True
         return
-    if source_map.duration(alias) and entry['freeze'] >= source_map.duration(alias):
-        problems.error(line, f'the freeze time {fmt(entry["freeze"])} is past the end of {alias} '
-                       f'({fmt(source_map.duration(alias))})')
+    stop = source_map.picture_end(alias)
+    if stop and entry['freeze'] >= stop:
+        problems.error(line, f'the freeze time {fmt(entry["freeze"])} is past the end of {alias}\'s picture, '
+                       f"{fmt(stop)}{source_map.short_note(alias, 'picture')}")
         entry['bad'] = True
 
 
@@ -1990,7 +2087,7 @@ class Compiler:
             length = run['out'] - run['in']
             key = alias if has_picture else self.need_background()
             s0 = run['in'] if has_picture else 0.0
-            limit = self.map.duration(alias) if has_picture else None
+            limit = self.map.picture_end(alias) if has_picture else None
             join = self.join_of(entry) if number == 0 else None
             segments.append(segment(at, at + length, key, s0, 1.0, join, frame,
                                     self.grid(alias) if has_picture else (self.rate, 0.0), limit, entry['line']))
@@ -2084,7 +2181,7 @@ class Compiler:
         start = self.cursor
         length = (entry['end'] - entry['start']) / speed
         seg = segment(start, start + length, alias, entry['start'], speed, self.join_of(entry),
-                      framing(entry, self.settings), self.grid(alias), self.map.duration(alias), entry['line'])
+                      framing(entry, self.settings), self.grid(alias), self.map.picture_end(alias), entry['line'])
         self.check_carry(entry, speed)
         item = None
         if 'sound' in entry['mods']:
@@ -2393,7 +2490,7 @@ class Compiler:
             speed = over['mods'].get('speed', 1.0)
             length = (over['end'] - over['start']) / speed
             key, s0, grid, limit = over['alias'], over['start'], self.grid(over['alias']), \
-                self.map.duration(over['alias'])
+                self.map.picture_end(over['alias'])
         end = start + length
         if end > built['end'] + 1e-6:
             excess = end - built['end']
@@ -2455,7 +2552,7 @@ class Compiler:
 
     def sound_after(self, piece):
         """Seconds of source sound after a piece's out point (unbounded when the source length is unknown)."""
-        duration = self.map.duration(piece['alias'])
+        duration = self.map.sound_end(piece['alias'])
         return max(0.0, duration - piece['out']) if duration else float('inf')
 
     def carry_tail(self, out_piece, in_piece, seconds, total):
@@ -3360,6 +3457,7 @@ def analyse(root, measure=True, verify_media=False):
     if measure and not ffmpeg:
         problems.note(1, 'FFmpeg not found: cuts are placed from transcript times without measuring pauses')
     plan = Compiler(settings, entries, source_map, envelopes, problems).run()
+    picture_past_end(plan, source_map, problems)
     join_report(plan, entries, source_map, ffmpeg, problems)
     pins = settings.get('caption_breaks') or []
     plan['caption_breaks'] = []
@@ -4628,6 +4726,10 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
         size = render_size(settings['size'], args.final)
         render_edit = json.loads(json.dumps(edit))
         render_edit['size'] = list(size)
+        # A range the map could not know is short (a map without decoded ends) is refused by assemble.py, naming its line.
+        for item, seg in zip(render_edit['picture'], plan['segments']):
+            if seg['key'] in source_map.sources:
+                item['line'] = seg['line']
         for overlay in render_edit.get('overlays', []):
             if overlay.get('kind') == 'image' and overlay.get('src') == 'gen-fade':
                 overlay['role'] = CUT_FADE_CUE_ROLE
