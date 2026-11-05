@@ -1,7 +1,9 @@
 name: upstream
 
 # The newest releases of everything setup.py pins, with no pins, so a break upstream shows here before any pin moves.
-# Nothing else depends on this workflow, and it runs only on its schedule or by hand, so it blocks nothing.
+# Nothing else depends on this workflow, and it runs only on its schedule or by hand, so it blocks nothing. A new release
+# that does not work yet is what this is here to find, and the pins keep users on tested versions, so it is not a failure
+# of this repository: the run stays green, and a red step inside it says what broke.
 on:
   schedule:
     - cron: "17 6 * * 1"
@@ -15,6 +17,7 @@ jobs:
     name: newest releases
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
@@ -24,7 +27,7 @@ jobs:
         with:
           node-version: "22"
       - name: Install FFmpeg
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg libgl1
+        run: sh .github/scripts/apt_install.sh ffmpeg libgl1
       - name: Newest Python packages, then the quick checks
         run: python .github/scripts/extras_check.py --newest
       - name: Newest playwright-core, then Chromium
