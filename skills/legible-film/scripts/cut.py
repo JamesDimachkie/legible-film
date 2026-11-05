@@ -30,6 +30,12 @@ and is listed as a tight cut to listen to. When a line's audio cannot be measure
 that will not decode, or sound that never drops far below the speech), its cuts fall back to transcript times and
 each one is listed as tight and unmeasured (lines' unmeasured_cuts), with a warning that says why.
 
+Several recordings of one conversation, once map.py sync has lined them up: ~ ALIAS sync shows another camera over a
+line at the same moment, with no times to retype, and follows every cut inside the line; {sound ALIAS} takes a line's
+sound from a lined-up mic, and the line's cuts are measured in that sound. A stale or low-confidence line-up, a source
+that does not cover the moment and a camera or mic that was not rolling yet are errors on their line. Each stretch uses
+the offset at its own place in the recording, so a drifting source stays in step line by line.
+
 Sound across a join: {tail N} runs a line's own sound on N seconds under the next line, fading out; {lead N} starts
 it N seconds before its picture, fading in; {dissolve N} between two lines also crossfades their sound (equal
 power), kept clear of both lines' words. The extra sound comes from the source around the written range and is
@@ -151,9 +157,10 @@ NUMBER = re.compile(r'^(\d+(?:\.\d+)?|\.\d+)s?$')
 SPEED = re.compile(r'^(?:x(\d+(?:\.\d+)?|\.\d+)|(\d+(?:\.\d+)?|\.\d+)x)$', re.IGNORECASE)
 OFFSET = re.compile(r'^\+(\d+(?:\.\d+)?|\.\d+)s?$')
 ALLOWED = {
-    'spoken': {'fit', 'zoom', 'crop', 'join', 'fade_in', 'fade_out', 'sound', 'tail', 'lead'},
-    'picture': {'speed', 'fit', 'zoom', 'crop', 'join', 'fade_in', 'fade_out', 'sound', 'tail', 'lead'},
+    'spoken': {'fit', 'zoom', 'crop', 'join', 'fade_in', 'fade_out', 'sound', 'sound_from', 'tail', 'lead'},
+    'picture': {'speed', 'fit', 'zoom', 'crop', 'join', 'fade_in', 'fade_out', 'sound', 'sound_from', 'tail', 'lead'},
     'cutaway': {'speed', 'fit', 'zoom', 'crop', 'join', 'sound', 'offset'},
+    'synced': {'fit', 'zoom', 'crop', 'join', 'offset'},
     'still': {'fit', 'zoom', 'crop', 'join', 'fade_in', 'fade_out'},
     'still_over': {'fit', 'zoom', 'crop', 'join', 'offset', 'pin', 'behind'},
     'title': {'position', 'card', 'offset', 'at', 'fade', 'join', 'fade_in', 'fade_out', 'pin', 'behind'},
@@ -531,6 +538,10 @@ def take_modifier(tokens, index):
         if seconds_value(following) is not None:
             return 'fade', seconds_value(following), index + 2
     if low == 'sound':
+        if ALIAS_SHAPE.match(following):
+            # sound mic_01, or sound mic_01 -3dB: the line's sound from a lined-up source, at this gain.
+            third = GAIN.match(tokens[index + 2]) if index + 2 < len(tokens) else None
+            return 'sound_from', (following, float(third.group(1)) if third else 0.0), index + (3 if third else 2)
         sound_gain = GAIN.match(following)
         return ('sound', float(sound_gain.group(1)), index + 2) if sound_gain else ('sound', 0.0, index + 1)
     if low == 'at' and time_value(following) is not None:
@@ -546,9 +557,21 @@ def take_modifier(tokens, index):
 def store_modifier(mods, name, value, allowed, kind, line, problems):
     """Add one modifier to a line's modifiers, refusing ones the line kind does not take."""
     if name not in allowed:
-        label = {'join': 'dissolve/dip', 'fade_in': 'fade in', 'fade_out': 'fade out'}.get(name, name)
+        label = {'join': 'dissolve/dip', 'fade_in': 'fade in', 'fade_out': 'fade out',
+                 'sound_from': 'sound from another source', 'speed': 'speed'}.get(name, name)
+        if kind == 'synced':
+            problems.error(line, f'{label} does not apply to a ~ sync line: it shows the same moment as the line above '
+                           'at the same speed, under that line\'s sound',
+                           'remove it, or write the range of a separate cutaway')
+            return
         problems.error(line, f'{label} does not apply to a {kind.replace("_over", "")} line',
                        'see references/paper-edit.md section 7 for which modifiers each line takes')
+        return
+    if name == 'sound_from':
+        if 'sound_from' in mods or 'sound' in mods:
+            problems.error(line, 'sound is given twice', 'keep one')
+            return
+        mods['sound_from'], mods['sound'] = value
         return
     if name in mods:
         problems.error(line, f'{name.replace("_", " ")} is given twice', 'keep one')
@@ -589,6 +612,14 @@ def greedy_mods(tokens, allowed, kind, line, problems, mods):
         if tokens[index] == '|':
             return ' '.join(tokens[index + 1:])
         name, value, after = take_modifier(tokens, index)
+        if kind == 'synced' and name in ('speed', 'sound', 'sound_from'):
+            store_modifier(mods, name, value, allowed, kind, line, problems)
+            index = after
+            continue
+        if name == 'sound_from' and name not in allowed:
+            store_modifier(mods, name, value, allowed, kind, line, problems)
+            index = after
+            continue
         if name is None or name not in allowed:
             if tokens[index].lower() in ('zoom', 'crop', 'fit', 'dissolve', 'dip', 'fade') and name is None:
                 problems.warn(line, f'"{" ".join(tokens[index:index + 2])}" is read as the description',
@@ -816,6 +847,9 @@ def parse_picture(body, line, section, over, problems, braces):
         problems.error(line, f'a {kind} line needs a source range after the alias', f'write it like: {usage}')
         entry['bad'] = True
         return entry
+    first = parts[1].split()[0].lower()
+    if first == 'sync':
+        return parse_synced(entry, parts[1].split()[1:], line, over, problems, braces)
     found = read_range(parts[1], line, problems, usage)
     if found is None:
         entry['bad'] = True
@@ -824,6 +858,28 @@ def parse_picture(body, line, section, over, problems, braces):
     entry['text'] = greedy_mods(rest.split(), ALLOWED[kind], kind, line, problems, entry['mods'])
     if braces is not None:
         parse_brace_mods(braces, ALLOWED[kind], kind, line, problems, entry['mods'])
+    return entry
+
+
+def parse_synced(entry, tokens, line, over, problems, braces):
+    """~ ALIAS sync [SECONDS] [+N] [modifiers] [description]: the same moment as the line above, from a lined-up source,
+    so no times are retyped. Its source times come from the line above and the saved line-up when it is compiled."""
+    entry['sync'] = True
+    if not over:
+        problems.error(line, 'sync shows the same moment as the line above, so it sits over a line',
+                       f'indent it under that line: ~ {entry["alias"]} sync')
+        entry['bad'] = True
+        return entry
+    entry['seconds'] = None
+    if tokens and seconds_value(tokens[0]) is not None:
+        entry['seconds'] = seconds_value(tokens[0])
+        tokens = tokens[1:]
+    entry['text'] = greedy_mods(tokens, ALLOWED['synced'], 'synced', line, problems, entry['mods'])
+    if braces is not None:
+        parse_brace_mods(braces, ALLOWED['synced'], 'synced', line, problems, entry['mods'])
+    if entry['seconds'] is not None and entry['seconds'] <= 0:
+        problems.error(line, 'a ~ sync line must last more than 0 seconds')
+        entry['bad'] = True
     return entry
 
 
@@ -962,6 +1018,21 @@ class SourceMap:
         self.media_stats = {}
         self.picture_ends = {}
         self.verify_media = False
+        self.saved_lineup = None
+        self.lineup_used = set()
+
+    def lineup(self):
+        """The saved line-up (lineup.py): loaded for a film that uses one, so a one-source film never reads it."""
+        if self.saved_lineup is None:
+            self.saved_lineup = load_sibling('lineup').Lineup(self.root, self.sources)
+        return self.saved_lineup
+
+    def lineup_problem(self, first, second):
+        """Why two sources cannot be mapped onto each other ('' when they can); both are recorded as used."""
+        reason = self.lineup().usable(first, second)
+        if not reason:
+            self.lineup_used.update((first, second))
+        return reason
 
     def path(self, alias):
         """The source file's path."""
@@ -1152,6 +1223,13 @@ class Envelope:
         self.reliable = peak - floor >= 15
         self.threshold = min(max(floor + 9, peak - 45), peak - 15)
 
+    def on_clock(self, shift):
+        """The same measurements with its times read on another source's clock, `shift` seconds earlier than its own."""
+        moved = object.__new__(Envelope)
+        moved.__dict__.update(self.__dict__)
+        moved.times = self.times - shift
+        return moved
+
     def index(self, moment):
         """The envelope step nearest a time."""
         import numpy as np
@@ -1208,6 +1286,18 @@ class Envelopes:
         if key not in self.cache:
             self.cache[key] = self.decode(alias, start, end)
         return self.cache[key]
+
+    def from_source(self, alias, start, end, shift):
+        """The level of another source's sound over a stretch of a line's own clock, `shift` seconds later on its own,
+        with its times on the line's clock: where a line's cuts are measured when its sound comes from there."""
+        low = max(0.0, start + shift)
+        high = end + shift
+        if self.map.duration(alias):
+            high = min(high, self.map.duration(alias))
+        if high <= low:
+            return None
+        found = self.get(alias, low, high)
+        return found.on_clock(shift) if found is not None and len(found.times) else found
 
     def decode(self, alias, start, end):
         """Decode mono 16 kHz audio and measure it."""
@@ -1609,6 +1699,12 @@ def validate_entry(entry, source_map, problems):
         entry['bad'] = True
         return
     kind = entry['kind']
+    if entry.get('sync'):
+        validate_synced(entry, source_map, problems)
+        return
+    if 'sound_from' in entry['mods'] and not validate_sound_from(entry, source_map, problems):
+        entry['bad'] = True
+        return
     # Spoken lines report a changed file through their transcript (stale_transcript); every other use of a source
     # (picture, cutaway, still, music) needs the file the map measured too: its duration, shots and geometry.
     # A changed file still compiles, so the lines over it (a layer made from the old file) report their own problems
@@ -1635,10 +1731,11 @@ def validate_entry(entry, source_map, problems):
         problems.error(line, f'{alias} {what.split(";")[0]}', what.split('; ')[1] if ';' in what else
                        'use it in a music line or under a line with ~ music, or as a spoken line covered by cutaways')
         entry['bad'] = True
-    if kind in ('music', 'spoken') and not source_map.has_audio(alias):
+    if kind in ('music', 'spoken') and not source_map.has_audio(alias) and 'sound_from' not in entry['mods']:
         problems.error(line, f'{alias} has no sound', 'use a picture line for a silent source')
         entry['bad'] = True
-    if 'sound' in entry['mods'] and kind != 'spoken' and not source_map.has_audio(alias):
+    if 'sound' in entry['mods'] and kind != 'spoken' and not source_map.has_audio(alias) \
+            and 'sound_from' not in entry['mods']:
         problems.error(line, f'{alias} has no sound to use', 'remove sound')
         entry['bad'] = True
     if kind == 'spoken' and source_map.words(alias) is None:
@@ -1652,6 +1749,53 @@ def validate_entry(entry, source_map, problems):
                        f'--retranscribe {alias}) or, after checking it, confirm it (map.py confirm-words PROJECT '
                        f'{alias} --note TEXT)')
         entry['bad'] = True
+
+
+def validate_synced(entry, source_map, problems):
+    """A ~ ALIAS sync line: a registered source with picture, unchanged since it was mapped. Its line-up and what it
+    covers are checked when it is compiled, since they depend on the line above."""
+    alias, line = entry['alias'], entry['line']
+    problem = source_map.media_problem(alias)
+    if problem:
+        problems.error(line, f'{alias}: {problem}',
+                       'restore the file, or map it again (map.py run PROJECT) and line it up again (map.py sync)')
+        entry['bad'] = True
+    elif not source_map.has_video(alias):
+        problems.error(line, f'{alias} has no picture to show', 'name a lined-up camera; {sound ' + alias + '} on the '
+                       'line above takes its sound')
+        entry['bad'] = True
+
+
+def lineup_suggestion(alias):
+    """How to get past a line-up that cannot be used."""
+    return (f'run map.py sync PROJECT and read what it says about {alias}; a look stays a look until someone listens, '
+            'then map.py sync PROJECT --set ALIAS=SECONDS --note TEXT')
+
+
+def validate_sound_from(entry, source_map, problems):
+    """{sound ALIAS} on a line: a registered, unchanged source with sound, lined up with the line's own source."""
+    alias, line, sound = entry['alias'], entry['line'], entry['mods']['sound_from']
+    if sound not in source_map.sources:
+        close = difflib.get_close_matches(sound, list(source_map.sources), 3, 0.5)
+        problems.error(line, f'unknown source alias {sound} in sound', ('known aliases near it: ' + ', '.join(close))
+                       if close else 'known aliases: ' + ', '.join(sorted(source_map.sources)[:12]))
+        return False
+    if sound == alias:
+        problems.error(line, f'{sound} is this line\'s own source', 'write sound, or sound -3dB, for its own sound')
+        return False
+    problem = source_map.media_problem(sound)
+    if problem:
+        problems.error(line, f'{sound}: {problem}',
+                       'restore the file, or map it again (map.py run PROJECT) and line it up again (map.py sync)')
+        return False
+    if not source_map.has_audio(sound):
+        problems.error(line, f'{sound} has no sound to take', 'name a lined-up source with sound')
+        return False
+    reason = source_map.lineup_problem(alias, sound)
+    if reason:
+        problems.error(line, f'{alias} and {sound} are not lined up: {reason}', lineup_suggestion(sound))
+        return False
+    return True
 
 
 def range_past_end(entry, source_map, problems):
@@ -1675,7 +1819,7 @@ def range_past_end(entry, source_map, problems):
         return
     stop = source_map.sound_end(alias)
     if ((entry['kind'] in ('music', 'spoken') or 'sound' in entry['mods']) and source_map.has_audio(alias) and stop
-            and end > stop + RANGE_SLACK):
+            and end > stop + RANGE_SLACK and 'sound_from' not in entry['mods']):
         why = source_map.short_note(alias, 'sound')
         message = f"the range ends at {fmt(end)} but {alias}'s sound ends at {fmt(stop)}{why}"
         if why:
@@ -1986,6 +2130,17 @@ class Compiler:
         self.line_pieces = []
         self.spans = {}
         self.layer_uses = []
+        self.attached = {}
+        self.drift_said = set()
+
+    def say_drift(self, alias, line):
+        """Say once when a source used here drifts past a frame: each stretch is right at its own place, and a long
+        unbroken take moves against it."""
+        note = self.map.lineup().drift_note(alias) if alias not in self.drift_said else ''
+        self.drift_said.add(alias)
+        if note:
+            self.problems.warn(line, note + '; each stretch uses the offset at its own place in the recording',
+                               'look at the long takes: the longer the unbroken stretch, the further its end moves')
 
     def grid(self, alias):
         """The frame grid used to predict assemble.py's snapping: (rate, offset)."""
@@ -2014,6 +2169,7 @@ class Compiler:
             if entry['kind'] in ('music', 'title'):
                 continue
             parent = entry
+        self.attached = attached
         for entry in self.entries:
             validate_entry(entry, self.map, self.problems)
             check_length(entry, self.settings, self.problems)
@@ -2122,10 +2278,19 @@ class Compiler:
             entry['bad'] = True
             return None
         envelope = None
-        if self.envelopes is not None:
+        sound_alias = entry['mods'].get('sound_from')
+        lineup = self.map.lineup() if sound_alias else None
+        if self.envelopes is not None and sound_alias:
+            shift = lineup.map_time(alias, sound_alias, entry['start']) - entry['start']
+            envelope = self.envelopes.from_source(sound_alias, entry['start'] - 2.5, entry['end'] + 2.5, shift)
+        elif self.envelopes is not None:
             envelope = self.envelopes.get(alias, entry['start'] - 2.5, entry['end'] + 2.5)
-        unmeasured_why = self.unmeasured_reason(alias, envelope)
+        unmeasured_why = self.unmeasured_reason(sound_alias or alias, envelope)
         runs = spoken_runs(entry, words, kept, envelope, self.settings, self.problems)
+        if sound_alias and not self.sound_covers(entry, sound_alias, [(run['in'], run['out']) for run in runs]):
+            entry['bad'] = True
+            self.last_spoken = None
+            return None
         previous = self.last_spoken
         continuous = False
         if (previous and previous['alias'] == alias and runs and
@@ -2149,16 +2314,24 @@ class Compiler:
                          and previous['word'] + 1 == runs[0]['words'][0]
                          and abs(previous['out'] - runs[0]['in']) < 1e-6
                          and previous['gain'] == entry['mods'].get('sound', 0.0) and not self.join_of(entry))
+        if same_boundary and previous.get('sound') != sound_alias:
+            same_boundary = False
+        if same_boundary and sound_alias:
+            # A drifting source's offset moves between lines: only the same sample carries on without a fade.
+            carried = lineup.map_time(alias, sound_alias, runs[0]['in'])
+            same_boundary = abs(previous['audio']['out'] - carried) < 1e-4
         if same_boundary:
             continuous = True
             for key in ('tight_cuts', 'unmeasured_cuts'):
                 old = previous['record'].get(key, [])
                 previous['record'][key] = [at for at in old if abs(at - self.cursor) > .00011]
             runs[0]['tight'][0] = False
+        same_sound = not previous or previous.get('sound') == sound_alias
         self.last_spoken = ({'alias': alias, 'word': runs[-1]['words'][-1], 'out': runs[-1]['out'],
                              'range_end': entry['end'], 'last_in_range': bool(indices)
                              and indices[-1] == runs[-1]['words'][-1], 'record': None,
-                             'gain': entry['mods'].get('sound', 0.0), 'audio': None} if runs else None)
+                             'gain': entry['mods'].get('sound', 0.0), 'audio': None, 'sound': sound_alias}
+                            if runs else None)
         review = self.map.transcript_review(alias)
         if review.get('energy_check', '').startswith('unavailable') and alias not in self.energy_review_reported:
             self.problems.warn(entry['line'], f'{alias} transcript energy review is unavailable',
@@ -2184,8 +2357,11 @@ class Compiler:
             join = self.join_of(entry) if number == 0 else None
             segments.append(segment(at, at + length, key, s0, 1.0, join, frame,
                                     self.grid(alias) if has_picture else (self.rate, 0.0), limit, entry['line']))
-            item = {'track': 'dialogue', 'src': alias, 'in': round(run['in'], 6), 'out': round(run['out'], 6),
-                    'at': round(at, 6), 'fade_ms': AUDIO_FADE_MS, **({'gain_db': gain} if gain else {})}
+            shift = lineup.map_time(alias, sound_alias, run['in']) - run['in'] if sound_alias else 0.0
+            sound_in, sound_out = run['in'] + shift, run['out'] + shift
+            item = {'track': 'dialogue', 'src': sound_alias or alias, 'in': round(sound_in, 6),
+                    'out': round(sound_out, 6), 'at': round(at, 6), 'fade_ms': AUDIO_FADE_MS,
+                    **({'gain_db': gain} if gain else {})}
             if same_boundary and number == 0:
                 previous['audio']['fade_out_ms'] = 0
                 item['fade_in_ms'] = 0
@@ -2193,8 +2369,9 @@ class Compiler:
             self.last_spoken['audio'] = item
             first, last = words[run['words'][0]], words[run['words'][-1]]
             spoken = (at + max(0.0, first['start'] - run['in']), at + min(run['out'], last['end']) - run['in'])
-            pieces.append(self.piece(entry, alias, run['in'], run['out'], at, at + length, item, spoken))
-            pieces[-1]['continuous'] = continuous and number == 0
+            pieces.append(self.piece(entry, sound_alias or alias, sound_in, sound_out, at, at + length, item, spoken))
+            pieces[-1]['continuous'] = continuous and number == 0 and same_sound
+            pieces[-1].update(clock_alias=alias, clock_in=run['in'])
             if number:
                 cuts.append(round(at, 4))
             if run['tight'][0] and number == 0:
@@ -2207,7 +2384,9 @@ class Compiler:
                 word = words[index]
                 kept_words.append(self.edit_word(word, run, at))
             self.cursor = at + length
-        if not has_picture:
+        covered = any(over.get('sync') and not over['bad'] and over.get('seconds') is None
+                      and 'offset' not in over['mods'] for over in self.attached.get(entry['line'], []))
+        if not has_picture and not covered:
             self.problems.warn(entry['line'], f'{alias} has no picture; uncovered parts of this line show the '
                                'background colour', 'cover it with cutaways (~ lines)')
         removed = [words[index] for index in range_words(words, entry['start'], entry['end'])
@@ -2219,16 +2398,41 @@ class Compiler:
             unmeasured = sorted(set(cuts + ([] if continuous else [round(start, 4)]) + [round(self.cursor, 4)]))
             tight = sorted(set(tight) | set(unmeasured))
             extra = {'unmeasured_cuts': unmeasured, 'unmeasured_why': unmeasured_why}
+        run_rows = [{'in': round(run['in'], 4), 'out': round(run['out'], 4), 'at': round(segments[number]['t0'], 4)}
+                    for number, run in enumerate(runs)]
+        if sound_alias:
+            extra['sound_source'] = sound_alias
+            for row, piece in zip(run_rows, pieces):
+                row.update(sound_src=sound_alias, sound_in=round(piece['in'], 6), sound_out=round(piece['out'], 6))
+            self.say_drift(sound_alias, entry['line'])
         record = self.record(entry, 'spoken', start, self.cursor, words=kept_words,
                              cut_words=[{'id': word.get('id'), 'text': word['text']} for word in removed],
-                             runs=[{'in': round(run['in'], 4), 'out': round(run['out'], 4),
-                                    'at': round(segments[number]['t0'], 4)} for number, run in enumerate(runs)],
+                             runs=run_rows,
                              audio_cuts=cuts, jump_cuts=list(cuts) if has_picture else [], tight_cuts=tight,
                              **extra)
         if self.last_spoken is not None:
             self.last_spoken['record'] = record
         return {'entry': entry, 'start': start, 'end': self.cursor, 'segments': segments, 'record': record,
                 'spans': [], 'pieces': pieces}
+
+    def sound_covers(self, entry, sound, spans):
+        """Whether a lined-up source has sound for every stretch of a line, given on the line's own clock; an error on
+        its line, saying what it does cover, when it does not."""
+        lineup = self.map.lineup()
+        alias = entry['alias']
+        stop = self.map.sound_end(sound)
+        for low, high in spans:
+            first = lineup.map_time(alias, sound, low)
+            last = first + high - low
+            if first < -RANGE_SLACK or (stop and last > stop + RANGE_SLACK):
+                begin = lineup.map_time(sound, alias, 0.0)
+                finish = lineup.map_time(sound, alias, stop) if stop else None
+                covers = f'{fmt(max(0.0, begin))}-{fmt(finish)}' if finish is not None else f'from {fmt(max(0.0, begin))}'
+                self.problems.error(entry['line'], f"{sound} has no sound for {fmt(low)}-{fmt(high)} of {alias}: on "
+                                    f"{alias}'s clock it runs {covers}",
+                                    f'keep this line inside that stretch, or take its sound from another source')
+                return False
+        return True
 
     def piece(self, entry, alias, source_in, source_out, start, end, item=None, spoken=(None, None)):
         """One stretch of a line on the edit clock and its own sound item (None when silent): the unit that joins
@@ -2239,7 +2443,7 @@ class Compiler:
         return {'line': entry['line'], 'entry': entry, 'alias': alias, 'in': source_in, 'out': source_out,
                 'at': start, 'end': end, 'item': item, 'gain': (item or {}).get('gain_db', 0.0),
                 'speed': entry['mods'].get('speed', 1.0), 'first_word': spoken[0], 'last_word': spoken[1],
-                'continuous': False, 'carry': {}}
+                'continuous': False, 'carry': {}, 'clock_alias': alias, 'clock_in': source_in}
 
     def unmeasured_reason(self, alias, envelope):
         """Why a spoken line's cuts could not be measured in its audio, or None when they were."""
@@ -2262,6 +2466,8 @@ class Compiler:
                   'end': round(max(end, start + 0.01), 4)}
         if word.get('estimated'):
             result['estimated'] = True
+        if word.get('speaker') is not None:
+            result['speaker'] = word['speaker']
         return result
 
     def build_picture(self, entry):
@@ -2277,13 +2483,28 @@ class Compiler:
                       framing(entry, self.settings), self.grid(alias), self.map.picture_end(alias), entry['line'])
         self.check_carry(entry, speed)
         item = None
+        sound_alias = entry['mods'].get('sound_from')
+        sound_in, sound_out = entry['start'], entry['end']
+        extra = {}
+        if sound_alias:
+            if speed != 1:
+                self.problems.error(entry['line'], f'sound from {sound_alias} cannot play at x{speed:g}: it would slip '
+                                    'off the picture it is lined up with', 'remove the speed, or the sound')
+                return None
+            if not self.sound_covers(entry, sound_alias, [(entry['start'], entry['end'])]):
+                return None
+            shift = self.map.lineup().map_time(alias, sound_alias, entry['start']) - entry['start']
+            sound_in, sound_out = round(entry['start'] + shift, 6), round(entry['end'] + shift, 6)
+            extra['sound_source'] = sound_alias
+            self.say_drift(sound_alias, entry['line'])
         if 'sound' in entry['mods']:
-            item = {'track': 'nat', 'src': alias, 'in': entry['start'], 'out': entry['end'], 'at': round(start, 6),
-                    'fade_ms': 15, 'gain_db': entry['mods']['sound']}
+            item = {'track': 'nat', 'src': sound_alias or alias, 'in': sound_in, 'out': sound_out,
+                    'at': round(start, 6), 'fade_ms': 15, 'gain_db': entry['mods']['sound']}
             self.audio.append(item)
         self.cursor = start + length
-        record = self.record(entry, 'picture', start, self.cursor, speed=speed)
-        piece = self.piece(entry, alias, entry['start'], entry['end'], start, self.cursor, item)
+        record = self.record(entry, 'picture', start, self.cursor, speed=speed, **extra)
+        piece = self.piece(entry, sound_alias or alias, sound_in, sound_out, start, self.cursor, item)
+        piece.update(clock_alias=alias, clock_in=entry['start'])
         return {'entry': entry, 'start': start, 'end': self.cursor, 'segments': [seg], 'record': record, 'spans': [],
                 'pieces': [piece]}
 
@@ -2564,6 +2785,9 @@ class Compiler:
         if over['kind'] == 'over':
             self.add_moving_overlay(over, parent, built)
             return
+        if over.get('sync'):
+            self.add_synced(over, parent, built)
+            return
         line = over['line']
         cursor = built['spans'][-1][1] if built['spans'] else built['start']
         start = built['start'] + over['mods']['offset'] if 'offset' in over['mods'] else cursor
@@ -2604,6 +2828,72 @@ class Compiler:
         if over['kind'] == 'still':
             record['still'] = True
         self.lines.append(record)
+
+    def add_synced(self, over, parent, built):
+        """~ ALIAS sync: another camera's picture of the same moment over the line above, one stretch per piece of the
+        line, so a cut inside the line cuts this picture too and every frame stays at the offset. It takes the place of
+        a cutaway: it starts with the line, where the previous one ended, or +N in, and lasts the seconds given or the
+        rest of the line."""
+        line, alias = over['line'], over['alias']
+        if parent['kind'] not in ('spoken', 'picture'):
+            self.problems.error(line, f'~ {alias} sync needs a spoken or picture line above it to take its moment from; '
+                                f'a {parent["kind"]} has no source clock',
+                                'put it under a spoken or picture line, or write a cutaway with its own range')
+            return
+        reason = self.map.lineup_problem(parent['alias'], alias)
+        if reason:
+            self.problems.error(line, f"{alias} and {parent['alias']} are not lined up: {reason}",
+                                lineup_suggestion(alias))
+            return
+        cursor = built['spans'][-1][1] if built['spans'] else built['start']
+        start = built['start'] + over['mods']['offset'] if 'offset' in over['mods'] else cursor
+        if built['spans'] and start < built['spans'][-1][1] - 1e-6:
+            self.problems.error(line, 'this cutaway starts before the previous one ends',
+                                'remove its +offset, or make it larger')
+            return
+        if start >= built['end'] - 1e-6:
+            self.problems.error(line, f'this cutaway starts at or after the end of its line ({fmt(built["end"])})',
+                                'reduce its +offset')
+            return
+        end = built['end'] if over['seconds'] is None else start + over['seconds']
+        if end > built['end'] + 1e-6:
+            report = self.problems.warn if end - built['end'] > 0.5 else self.problems.note
+            report(line, f'the cutaway runs {end - built["end"]:.2f} s past its line; it is trimmed')
+            end = built['end']
+        lineup = self.map.lineup()
+        stop = self.map.picture_end(alias)
+        frame = framing(over, self.settings)
+        join = self.join_of(over)
+        made = []
+        for piece in built['pieces']:
+            low, high = max(start, piece['at']), min(end, piece['end'])
+            if high <= low + 1e-9:
+                continue
+            speed = piece['speed']
+            moment = piece['clock_in'] + (low - piece['at']) * speed
+            first = lineup.map_time(piece['clock_alias'], alias, moment)
+            last = first + (high - low) * speed
+            if first < -RANGE_SLACK or (stop and last > stop + RANGE_SLACK):
+                begin = lineup.map_time(alias, piece['clock_alias'], 0.0)
+                finish = lineup.map_time(alias, piece['clock_alias'], stop) if stop else None
+                covers = f'{fmt(max(0.0, begin))}-{fmt(finish)}' if finish is not None else f'from {fmt(max(0.0, begin))}'
+                self.problems.error(line, f"{alias} has no picture for this moment ({fmt(moment)} of "
+                                    f"{piece['clock_alias']}): on {piece['clock_alias']}'s clock it runs {covers}",
+                                    'start it later with +N, end it sooner with SECONDS, or show another camera')
+                return
+            seg = segment(low, high, alias, max(0.0, first), speed, None if made else join, frame, self.grid(alias),
+                          stop, line)
+            seg['synced'] = True
+            made.append((low, high, seg))
+        if not made:
+            return
+        made[-1][2]['return_join'] = join
+        built['spans'].extend(made)
+        for low, high, seg in made:
+            self.lines.append(self.record(over, 'cutaway', low, high, over=parent['line'], sync=True,
+                                          range=[round(seg['s0'], 4),
+                                                 round(seg['s0'] + (high - low) * seg['speed'], 4)]))
+        self.say_drift(alias, line)
 
     def carry_sound(self, total):
         """Carry sound across the joins between lines: a line's tail, the next line's lead, and the sound of a
@@ -2760,8 +3050,10 @@ class Compiler:
 
     def report_carried_words(self, piece, low, high, what):
         """Say when carried sound holds transcript words the film does not keep (heard, but never captioned)."""
-        words = self.map.words(piece['alias']) or []
-        heard = [word['text'] for word in words if low < (word['start'] + word['end']) / 2 < high]
+        # Sound from a lined-up mic is heard against the words of the line's own source, on that source's clock.
+        words = self.map.words(piece['clock_alias'] or piece['alias']) or []
+        shift = piece['in'] - piece['clock_in'] if piece['in'] is not None else 0.0
+        heard = [word['text'] for word in words if low - shift < (word['start'] + word['end']) / 2 < high - shift]
         if heard:
             shown = ' '.join(heard[:6]) + (' ...' if len(heard) > 6 else '')
             self.problems.warn(piece['line'], f'the {what} carries {len(heard)} word(s) of {piece["alias"]} that the '
@@ -2781,7 +3073,8 @@ class Compiler:
                 piece = dict(seg, t0=a, t1=b, s0=seg['s0'] + (a - seg['t0']) * seg['speed'])
                 if a > seg['t0'] + 1e-9:
                     returning = [span for span in built['spans'] if abs(span[1] - a) < 1e-6]
-                    piece['join'] = returning[0][2]['join'] if returning else None
+                    piece['join'] = (returning[0][2].get('return_join', returning[0][2]['join'])
+                                     if returning else None)
                 pieces.append(piece)
         pieces.extend(span[2] for span in built['spans'])
         pieces.sort(key=lambda item: item['t0'])
@@ -2800,8 +3093,9 @@ class Compiler:
         built['segments'] = merged
         record = built['record']
         if record.get('jump_cuts'):
-            covered = [t for t in record['jump_cuts'] if any(c0 - 1e-3 <= t <= c1 + 1e-3
-                                                             for c0, c1, _ in built['spans'])]
+            # A camera lined up with the line jumps with it, so only a cutaway with its own range hides a jump.
+            hiding = [(c0, c1) for c0, c1, seg in built['spans'] if not seg.get('synced')]
+            covered = [t for t in record['jump_cuts'] if any(c0 - 1e-3 <= t <= c1 + 1e-3 for c0, c1 in hiding)]
             record['jump_cuts'] = [t for t in record['jump_cuts'] if t not in covered]
 
 
@@ -4242,22 +4536,29 @@ def sanitized_words(words):
         start = max(word['start'], previous_end)
         end = max(word['end'], start + 0.02)
         result.append({'id': word.get('id'), 'text': word['text'], 'start': round(start, 4), 'end': round(end, 4),
-                       **({'estimated': True} if word.get('estimated') else {})})
+                       **({'estimated': True} if word.get('estimated') else {}),
+                       **({'speaker': word['speaker']} if word.get('speaker') is not None else {})})
         previous_end = end
     return result
 
 
 def caption_groups(words, pinned=()):
-    """Kept words split where a caption must not run on: a change of source (another speaker or recording) or a
-    pause of CAPTION_BREAK seconds or more."""
+    """Kept words split where a caption must not run on: a change of source (another speaker or recording), a change of
+    labelled speaker (an unlabelled word between two speakers belongs to neither) or a pause of CAPTION_BREAK seconds or
+    more."""
     groups = []
+    speaker = None
     for word in words:
         source = str(word.get('id') or '').rsplit('-w', 1)[0]
+        said = word.get('speaker')
         if (groups and word.get('id') not in pinned and source == groups[-1][0]
-                and word['start'] - groups[-1][1][-1]['end'] < CAPTION_BREAK):
+                and word['start'] - groups[-1][1][-1]['end'] < CAPTION_BREAK
+                and (said is None or speaker is None or said == speaker)):
             groups[-1][1].append(word)
+            speaker = said if said is not None else speaker
         else:
             groups.append((source, [word]))
+            speaker = said
     return [group for _, group in groups]
 
 
@@ -4933,6 +5234,12 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
             raise RuntimeError(', '.join(changed) + ' changed while this version rendered, so it may mix two files; '
                                'nothing was published. Map it again if the change is intended, then render again.')
         sources = source_identities(source_map, edit['sources'])
+        if source_map.lineup_used:
+            # The offsets are part of what the picture was cut from: a new line-up is a new paper identity.
+            settings['_lineup'] = source_map.lineup().used_record(source_map.lineup_used)
+            for alias, row in settings['_lineup']['sources'].items():
+                if alias in sources:
+                    sources[alias]['lined_up'] = {key: row.get(key) for key in ('offset_s', 'drift_per_s')}
         identity = version_identity(cue_list, staging, film_text, sources)
         manifest = write_manifest(staging, name, parent, args, settings, size, film_text, notes, offset,
                                   sorted(proxies), time.time() - began, root, length, frames_out, sources, identity)
@@ -5041,6 +5348,8 @@ def write_manifest(staging, name, parent, args, settings, size, film_text, notes
         manifest['preferences'] = preference
     if settings.get('_layers'):
         manifest['layers'] = settings['_layers']
+    if settings.get('_lineup'):
+        manifest['lineup'] = settings['_lineup']
     if settings.get('_hdr_sources'):
         manifest['hdr_sources'] = [{'alias': alias} for alias in settings['_hdr_sources']]
     project.save_json(staging / 'manifest.json', manifest)

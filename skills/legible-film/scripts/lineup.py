@@ -87,7 +87,7 @@ MIN_AGREED = 2
 MIN_DRIFT_SPAN_S = 60.0  # shorter overlaps cannot tell a drift from the windows' own scatter
 DRIFT_LIMIT = 0.002  # 2000 parts per million: more than this between two recordings is not drift
 SAME_OFFSET_S = 0.05
-QUIET_DB = 6.0  # a window this close to its source's quietest second holds nothing to compare
+QUIET_DB = 40.0  # a window this far below its source's loudest second holds nothing to compare
 # Speakers.
 LEVEL_RATE = 16000
 LEVEL_HOP_S = 0.01
@@ -258,8 +258,8 @@ def test_windows(reference, source, reference_levels, source_levels, choice):
     # Windows that do not overlap: one stretch that happens to match must not count three times.
     slots = int(min(WINDOWS_MAX, max(3, (high - low) // 20)))
     width = min(WINDOW_S, (high - low) / slots)
-    source_floor = float(np.percentile(source_levels, 10)) if len(source_levels) else 0.0
-    reference_floor = float(np.percentile(reference_levels, 10)) if len(reference_levels) else 0.0
+    source_top = float(source_levels.max()) if len(source_levels) else 0.0
+    reference_top = float(reference_levels.max()) if len(reference_levels) else 0.0
     rows, quiet = [], 0
     size = int(width * RATE)
     reach = int(WINDOW_REACH * RATE)
@@ -277,10 +277,8 @@ def test_windows(reference, source, reference_levels, source_levels, choice):
             continue
         source_level = 10 * math.log10(float(np.mean(piece ** 2)) + 1e-6)
         reference_level = 10 * math.log10(float(np.mean(region ** 2)) + 1e-6)
-        if source_level < source_floor + QUIET_DB and reference_level < reference_floor + QUIET_DB:
-            quiet += 1
-            continue
-        if not piece.any() or not region.any():
+        if (source_level < source_top - QUIET_DB or reference_level < reference_top - QUIET_DB
+                or not piece.any() or not region.any()):
             quiet += 1
             continue
         corr = gcc(np.fft.rfft(piece - piece.mean(), count), np.fft.rfft(region - region.mean(), count), count, mask)
