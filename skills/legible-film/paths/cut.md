@@ -102,8 +102,8 @@ Two people, a mic each and two or three cameras; [footage](../references/footage
    moment, with its line. Its join report measures each change of mic; a background that changes at a join gets a `tail`
    or `lead`, or a bed. Every tight cut gets a listen, in the mic it plays.
 7. **Render and watch.** `cut.py render PROJECT`; watch every camera change, since a line-up says the sound agrees and
-only a person sees that a mouth does. Read each caption, since a wrong label moves its break. `exchange.py write` hands
-the cut on with each clip at its own in-point and says what the XML does not carry. Then the shared last steps.
+   only a person sees that a mouth does. Read each caption, since a wrong label moves its break. `exchange.py write`
+   hands the cut on with each clip at its own in-point and says what the XML does not carry. Then the shared last steps.
 
 ## First question
 

@@ -2130,7 +2130,6 @@ class Compiler:
         self.line_pieces = []
         self.spans = {}
         self.layer_uses = []
-        self.attached = {}
         self.drift_said = set()
 
     def say_drift(self, alias, line):
@@ -2169,7 +2168,6 @@ class Compiler:
             if entry['kind'] in ('music', 'title'):
                 continue
             parent = entry
-        self.attached = attached
         for entry in self.entries:
             validate_entry(entry, self.map, self.problems)
             check_length(entry, self.settings, self.problems)
@@ -2194,6 +2192,8 @@ class Compiler:
             for over in attached.get(entry['line'], []):
                 if not over['bad']:
                     self.build_over(over, entry, built)
+            if built.get('no_picture'):
+                self.warn_no_picture(entry, built)
             self.lay_cutaways(built)
             self.segments.extend(built['segments'])
             self.lines.append(built['record'])
@@ -2386,11 +2386,6 @@ class Compiler:
                 word = words[index]
                 kept_words.append(self.edit_word(word, run, at))
             self.cursor = at + length
-        covered = any(over.get('sync') and not over['bad'] and over.get('seconds') is None
-                      and 'offset' not in over['mods'] for over in self.attached.get(entry['line'], []))
-        if not has_picture and not covered:
-            self.problems.warn(entry['line'], f'{alias} has no picture; uncovered parts of this line show the '
-                               'background colour', 'cover it with cutaways (~ lines)')
         removed = [words[index] for index in range_words(words, entry['start'], entry['end'])
                    if index not in set(kept)]
         self.words.extend(kept_words)
@@ -2415,7 +2410,19 @@ class Compiler:
         if self.last_spoken is not None:
             self.last_spoken['record'] = record
         return {'entry': entry, 'start': start, 'end': self.cursor, 'segments': segments, 'record': record,
-                'spans': [], 'pieces': pieces}
+                'spans': [], 'pieces': pieces, 'no_picture': not has_picture}
+
+    def warn_no_picture(self, entry, built):
+        """Say that an audio-only line shows the background colour, unless lined-up cameras cover all of it."""
+        reach = built['start']
+        for low, high, _ in sorted(built['spans'], key=lambda span: span[0]):
+            if low > reach + 1e-3:
+                break
+            reach = max(reach, high)
+        if reach >= built['end'] - 1e-3 and any(span[2].get('synced') for span in built['spans']):
+            return
+        self.problems.warn(entry['line'], f"{entry['alias']} has no picture; uncovered parts of this line show the "
+                           'background colour', 'cover it with cutaways (~ lines)')
 
     def sound_covers(self, entry, sound, spans):
         """Whether a lined-up source has sound for every stretch of a line, given on the line's own clock; an error on

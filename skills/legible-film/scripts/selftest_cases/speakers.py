@@ -510,6 +510,29 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
         hit = message(found, 'has no picture')
         record('speakers: a mic-only line wholly under a synced camera is not warned as uncovered',
                hit is None and not [item for item in found if item['severity'] == 'error'], str(found)[-300:])
+        words_only = ' '.join(row['text'] for row in thom)
+        span = f"{thom[0]['start'] - 0.05:.2f}-{thom[-1]['end'] + 0.05:.2f}"
+        film(f'> mic_02 {span} {words_only}\n  ~ cam_01 sync 0.4 Wide\n  ~ cam_02 sync 0.3 Close\n'
+             '  ~ cam_01 sync Wide again\n')
+        code, found = problems()
+        record('speakers: cameras in turn that cover a mic-only line get no warning either',
+               message(found, 'has no picture') is None and not [
+                   item for item in found if item['severity'] == 'error'], str(found)[-300:])
+        film(f'> mic_02 {span} {words_only}\n  ~ cam_01 sync 0.4 +0.2 Wide\n')
+        code, found = problems()
+        record('speakers: a camera that leaves part of a mic-only line uncovered still warns',
+               message(found, 'has no picture') is not None, str(found)[-300:])
+        film(f'> mic_02 {span} {words_only}\n  ~ cam_02 sync 0.4 +0.2 Close\n')
+        _, output = tool('cut.py', 'check', root, '--json')
+        rows_here = json.loads(output[output.index('{'):])['lines']
+        spoken_here = next(row for row in rows_here if row['kind'] == 'spoken')
+        shown = next(row for row in rows_here if row.get('sync'))
+        run = spoken_here['runs'][0]
+        wanted = run['in'] + 0.2 + data['mic_02']['offset_s'] - data['cam_02']['offset_s']
+        record('speakers: +N and SECONDS place a synced camera in its line, at the moment it covers',
+               abs(shown['start'] - (spoken_here['start'] + 0.2)) < 1e-3
+               and abs(shown['end'] - (spoken_here['start'] + 0.6)) < 1e-3 and abs(shown['range'][0] - wanted) < 2e-3,
+               f'{shown} against {wanted}')
     # Two cameras in turn over one line, and a picture line with a mic's sound.
     half = (pick[0]['start'] + pick[5]['end']) / 2
     film(f"> cam_01 {start:.2f}-{pick[5]['end'] + 0.05:.2f} " + ' '.join(row['text'] for row in pick[:6])

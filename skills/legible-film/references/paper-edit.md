@@ -184,12 +184,13 @@ no time of its own.
   against the sound; because it jumps with the line it does not hide a jump cut, and `check` still lists one. It takes
   `fit`, `zoom`, `crop`, a dissolve and `+N`, and runs at the line's speed. It takes no sound, since it would double the
   line's, and no speed of its own. A range is needed only for a shot of another moment, which is an ordinary cutaway.
-  An audio-only line wholly under `~ ALIAS sync` gets no warning about uncovered picture.
+  An audio-only line wholly covered by `~ ALIAS sync` lines gets no warning about uncovered picture.
 
   ```markdown
   > mic_01 14:20.00-14:24.60 So we built the tool we needed, in six weeks.
-    ~ cam_01 sync Wide
-    ~ cam_02 sync 1.5 +2.0 Ben reacts
+    ~ cam_01 sync 2.0 Wide
+    ~ cam_02 sync 1.5 Ben reacts
+    ~ cam_01 sync Wide again
   ```
 - **Stills** (`~ still ALIAS SECONDS`) work the same way: they replace the picture, and an image's clear areas show
   the background colour.
