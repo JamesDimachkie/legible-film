@@ -54,9 +54,9 @@ Route checks 16-20 (each required; passed per run):
 - R20: passed, passed, passed
 
 Infrastructure errors:
-- claude/new/R16/r1: RuntimeError: Tesseract is installed (%LOCALAPPDATA%\Tesseract\bin\tsrct.cmd); route check 16 needs an environment without it
-- claude/new/R16/r2: RuntimeError: Tesseract is installed (%LOCALAPPDATA%\Tesseract\bin\tsrct.cmd); route check 16 needs an environment without it
-- claude/new/R16/r3: RuntimeError: Tesseract is installed (%LOCALAPPDATA%\Tesseract\bin\tsrct.cmd); route check 16 needs an environment without it
+- claude/new/R16/r1: RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it
+- claude/new/R16/r2: RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it
+- claude/new/R16/r3: RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it
 
 Unscored sessions:
 - claude/new/R19/r1: the skill loaded but no path-mapped file was read or run
@@ -117,8 +117,8 @@ Route checks 16-20 (each required; passed per run):
 - R20: passed, passed
 
 Infrastructure errors:
-- codex/new/R16/r1: RuntimeError: Tesseract is installed (%LOCALAPPDATA%\Tesseract\bin\tsrct.cmd); route check 16 needs an environment without it
-- codex/new/R16/r2: RuntimeError: Tesseract is installed (%LOCALAPPDATA%\Tesseract\bin\tsrct.cmd); route check 16 needs an environment without it
+- codex/new/R16/r1: RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it
+- codex/new/R16/r2: RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it
 
 Unscored sessions:
 - none

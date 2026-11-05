@@ -677,15 +677,15 @@
         "errors": [
           {
             "key": "claude/new/R16/r1",
-            "error": "RuntimeError: Tesseract is installed (C:\\Users\\james\\AppData\\Local\\Tesseract\\bin\\tsrct.cmd); route check 16 needs an environment without it"
+            "error": "RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it"
           },
           {
             "key": "claude/new/R16/r2",
-            "error": "RuntimeError: Tesseract is installed (C:\\Users\\james\\AppData\\Local\\Tesseract\\bin\\tsrct.cmd); route check 16 needs an environment without it"
+            "error": "RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it"
           },
           {
             "key": "claude/new/R16/r3",
-            "error": "RuntimeError: Tesseract is installed (C:\\Users\\james\\AppData\\Local\\Tesseract\\bin\\tsrct.cmd); route check 16 needs an environment without it"
+            "error": "RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it"
           }
         ],
         "unscored": [
@@ -1351,11 +1351,11 @@
         "errors": [
           {
             "key": "codex/new/R16/r1",
-            "error": "RuntimeError: Tesseract is installed (C:\\Users\\james\\AppData\\Local\\Tesseract\\bin\\tsrct.cmd); route check 16 needs an environment without it"
+            "error": "RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it"
           },
           {
             "key": "codex/new/R16/r2",
-            "error": "RuntimeError: Tesseract is installed (C:\\Users\\james\\AppData\\Local\\Tesseract\\bin\\tsrct.cmd); route check 16 needs an environment without it"
+            "error": "RuntimeError: Tesseract is installed (tsrct.cmd); route check 16 needs an environment without it"
           }
         ],
         "unscored": [],
