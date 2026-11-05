@@ -3002,6 +3002,13 @@ def frame_seconds(data):
         return None
 
 
+def audio_position(data):
+    """Which of a probed file's audio streams a player plays by default, counted among its audio streams."""
+    rows = [row for row in data.get('streams', []) if row.get('codec_type') == 'audio']
+    played = P.default_audio_stream(rows)
+    return rows.index(played) if played else 0
+
+
 def frame_shape(data):
     """A probed file's first video stream as width over height, or None."""
     video = next((row for row in data.get('streams', []) if row.get('codec_type') == 'video'), {})
@@ -3208,8 +3215,7 @@ def trim_audio_content_items(reference, output, bounds, source, destination):
         return result('skip', 'FFmpeg is required')
     with tempfile.TemporaryDirectory(prefix='lf-trim-audio-') as temp:
         clipped, report_path = Path(temp) / 'reference.wav', Path(temp) / 'sync.json'
-        played = P.default_audio_stream(source.get('streams', []))
-        selector = f"0:{played['index']}" if played else '0:a:0'
+        selector = f"0:a:{audio_position(source)}"
         command = [ffmpeg, '-v', 'error', '-nostdin', '-i', str(reference), '-ss', str(bounds[0]),
                    '-t', str(duration), '-map', selector, '-ac', '2', '-ar', '48000',
                    '-c:a', 'pcm_s16le', str(clipped)]
