@@ -1,0 +1,16 @@
+{
+  "skill_name": "legible-film",
+  "source": "SPEC section 13 extends the trigger set with Opus's four should-trigger and four should-not queries (council round 1, Opus, section 4 item 5). Kept apart from trigger-queries.json so its 20 queries stay comparable across runs.",
+  "should_trigger": [
+    "sound design for this silent clip",
+    "animate our logo reveal",
+    "a 15 s square launch post",
+    "make the drop land on the reveal"
+  ],
+  "should_not_trigger": [
+    "generate an image for my landing page",
+    "write lyrics for a jingle",
+    "make a slide deck",
+    "edit this photo"
+  ]
+}

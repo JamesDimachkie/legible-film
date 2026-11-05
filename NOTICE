@@ -22,3 +22,10 @@ copyright (c) 2026 Christopher Langton, MIT licence).
 The sound measurements in skills/legible-film/scripts/listen.py follow the shape of earshot's reports, and
 its launch-film reference ranges (PROFILE) are the 10th to 90th percentiles from earshot's launch profile.
 earshot: https://github.com/Leonxlnx/earshot, copyright (c) 2026 Leon Lin, MIT licence.
+
+map.py speakers --shared can download, only with --download, an ONNX conversion of SpeechBrain's ECAPA-TDNN speaker
+embedding model (speechbrain/spkrec-ecapa-voxceleb, Apache-2.0, trained on VoxCeleb1 and VoxCeleb2), published as
+vedk00/ecapa-voxceleb-speaker-embedding-onnx (Apache-2.0) and pinned to a revision and SHA-256. It is not bundled.
+
+The line-up and speaker figures in docs/evidence.md were measured on excerpts of the AMI Meeting Corpus (CC BY 4.0,
+https://groups.inf.ed.ac.uk/ami/corpus/). No AMI media is in this repository.

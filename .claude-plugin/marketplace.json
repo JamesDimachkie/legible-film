@@ -9,7 +9,7 @@
     {
       "name": "legible-film",
       "description": "Edit, caption, score, check and revise video with a coding agent: the film as editable text, versions that never change, plain checks and a Screening Room to watch, note and approve.",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "source": "./",
       "category": "media",
       "author": {

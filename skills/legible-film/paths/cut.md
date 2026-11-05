@@ -18,7 +18,8 @@ into a new version; nothing else holds the cut.
    audio streams, poor dialogue), read [footage](../references/footage.md). A transcript is never replaced once
    written; `map.py fix` corrects a word and records it, and `map.py words PROJECT ALIAS --from A --to B` lists word
    times and pauses. Done when every source has the map its role allows, or a reason.
-3. **Plan.** Read [finding-the-story](../references/finding-the-story.md) before you choose a line, and
+3. **Plan.** A request only to shorten pauses or remove fillers, keeping the words, changes no story: after the frame, go
+   straight to Tightening under By kind, with no spines and no comparison. Otherwise, read [finding-the-story](../references/finding-the-story.md) before you choose a line, and
    [paper-edit](../references/paper-edit.md) before you write the edit. `audience`, `takeaway` (one sentence starting
    "They") and `story` (the spine, with a turn in it) join the frame atop `film.md`. For a recording, read everything,
    write three spines that are three different films, have a reviewer compare them, and build the strongest from its

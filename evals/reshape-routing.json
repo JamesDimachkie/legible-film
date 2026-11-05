@@ -1,7 +1,7 @@
 {
   "version": 1,
   "frozen": "2026-11-01",
-  "source": "Legible Film 2.1 reshape spec, section 13 (Evals) and the U0 row of section 14. In this public copy, product, client and community names in the prompts are neutral labels (project A, B and C; an open-source AI community), the demo fixture is product-demo.mp4 and the held-out path is generic; the recorded sessions ran on the original wording",
+  "source": "Legible Film 2.1 reshape spec, section 13 (Evals) and the U0 row of section 14",
   "how_to_run": "python evals/trigger_run.py routing --cases evals/reshape-routing.json --variant old=BASELINE_SKILL_DIR [--variant new=CANDIDATE_SKILL_DIR] --reps 3 --host claude --out OUT --work SCRATCH",
   "routing_ask": "\n\n(As soon as you have chosen how to approach this, tell me in one line which guide section or recipe you are following, if any, and the first script or command you will run.)",
   "turn_limit": 8,
@@ -143,7 +143,7 @@
   },
   "money_words": ["cost", "budget", "paid", "pay for", "spend", "credits", "price", "subscription", "charge", "money", "cap "],
   "fixtures": {
-    "product-demo.mp4": {"kind": "av", "seconds": 30, "size": "1280x720", "note": "stands in for a screen recording of the product"},
+    "skipwatch-demo.mp4": {"kind": "av", "seconds": 30, "size": "1280x720", "note": "stands in for a screen recording of the product"},
     "founder.mp4": {"kind": "av", "seconds": 75, "size": "640x360"},
     "recording.mp4": {"kind": "av", "seconds": 2400, "size": "160x90", "fps": 5, "gaps": true, "note": "40 minutes; tone with regular silences"},
     "animation.mp4": {"kind": "video", "seconds": 30, "size": "1280x720"},
@@ -160,7 +160,7 @@
     "talk.mp4": {"kind": "av", "seconds": 60, "size": "1280x720"}
   },
   "heldout": {
-    "path_from_repository": "../heldout/heldout.json",
+    "path_from_repository": "../legible-film-levelup/v2/reshape/heldout/heldout.json",
     "sha256_file": "evals/heldout.sha256",
     "note": "Written blind by another model; kept outside the repository and never copied into it; the harness reads it at run time with --heldout PATH (default: the path above, relative to the repository's folder) and refuses it when its SHA-256 differs from evals/heldout.sha256. Their transcripts stay outside the repository too.",
     "cases": [
@@ -180,22 +180,22 @@
   "cases": [
     {
       "id": "P01", "n": 1, "set": "dev", "expected": "create", "frame": "written-not-reasked",
-      "prompt": "Make a 60-second type-led launch film for project A, to post on X. Audience: AI builders and an open-source AI community on X, scrolling the feed with sound off at first. Takeaway: every decision a model makes is visible as a fork you can follow, and they should want to try it. Facts it may state: models compete on decisions; every fork is shown; the results are public. 1920x1080, music and sound only, no voice-over.",
+      "prompt": "Make a 60-second type-led launch film for Decision Models, to post on X. Audience: AI builders and the Bittensor community on X, scrolling the feed with sound off at first. Takeaway: every decision a model makes is visible as a fork you can follow, and they should want to try it. Facts it may state: models compete on decisions; every fork is shown; the results are public. 1920x1080, music and sound only, no voice-over.",
       "reply": "You have what I know. Carry on.",
       "fixtures": [],
       "forbidden": [{"run": "map.py"}, {"run": "grade.py", "sub": "hooks"}, {"run": "transcribe.py"}]
     },
     {
       "id": "P02", "n": 2, "set": "dev", "expected": "create", "frame": "asked-then-written",
-      "prompt": "Make a 45-second launch film for project B: an animated fighting figure (bow, horse stance, a punch from the hip, a forearm block and a counter), then the product demo from product-demo.mp4, with music and sound effects.",
-      "reply": "It's for X: people who train martial arts and watch long fight videos. They should leave knowing project B jumps straight to the action, and want to try it. It plays in the feed, muted until they tap. 16:9.",
-      "fixtures": ["product-demo.mp4"],
+      "prompt": "Make a 45-second launch film for SkipWatch: an animated fighting figure (bow, horse stance, a punch from the hip, a forearm block and a counter), then the product demo from skipwatch-demo.mp4, with music and sound effects.",
+      "reply": "It's for X: people who train martial arts and watch long fight videos. They should leave knowing SkipWatch jumps straight to the action, and want to try it. It plays in the feed, muted until they tap. 16:9.",
+      "fixtures": ["skipwatch-demo.mp4"],
       "forbidden": [{"run": "map.py"}, {"read": "references/paper-edit.md", "before_frame": true}]
     },
     {
       "id": "P03", "n": 3, "set": "dev", "expected": "create", "frame": "asked",
-      "prompt": "Make three square 20-second posts for project C, with one visual and sonic identity across them. They have to work silent first in the feed.",
-      "reply": "Developers and model trainers on X. One idea per post: the network is served by the people; can your small model beat ours; the project C engine. Clean, minimal text, high contrast.",
+      "prompt": "Make three square 20-second posts for REAX, with one visual and sonic identity across them. They have to work silent first in the feed.",
+      "reply": "Developers and model trainers on X. One idea per post: the network is served by the people; can your small model beat ours; the REAX engine. Clean, minimal text, high contrast.",
       "fixtures": [],
       "forbidden": [{"run": "cut.py", "sub": "draft"}]
     },

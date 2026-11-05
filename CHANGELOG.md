@@ -1,12 +1,62 @@
 # Changelog
 
-## Unreleased
+## 2.2.0 (2026-11-05)
 
-- **OpenCV stays below 5 everywhere.** 2.1.0 pinned `opencv-python>=4.8,<5` in `setup.py`, because OpenCV 5.0 ships
-  no `cv2.data.haarcascades` and `crop auto` and the scorecard then lose face detection without saying so. The install
-  hints in `grade.py`, `reframe.py` and `check.py` now give the same pin, and CI installs
-  `opencv-python-headless>=4.8,<5`, so the tracking cases run on the same OpenCV major version users get.
-- The self-test's measured CI time reads 16 to 32 minutes in the README and `selftest.py --help`.
+**Upgrading from 2.1.** A blocked render now exits 2 instead of 1. `--install transcription` no longer downloads a model:
+add `--download` (about 460 MB). `setup.py` no longer installs into a shared Python. Every 2.1 command still works.
+
+**Several recordings of one conversation**
+
+- `map.py sync` lines up cameras and mics from their sound, with no clap, and reports confidence and drift. The result is
+  bound to each source's SHA-256; low confidence or no overlap is a look and is never applied silently.
+- `~ ALIAS sync` shows a lined-up camera at the same moment, and `{sound ALIAS}` takes a line's sound from a lined-up mic.
+  New roles `camera` and `mic`. Cuts land in pauses measured in the sound actually used.
+- Speaker labels: `map.py speakers` from per-person mics, from an imported transcript, or (`--shared --download`) from an
+  optional local model on one track; `map.py fix --speaker` corrects them, and captions break where the speaker changes.
+  Labels are drafts until a person reads them. `references/footage.md` has the steps for a two-person, multi-camera
+  podcast.
+
+**Faster renders**
+
+- Plain cuts render about four times faster: FFmpeg draws the picture and the same rule chooses the frames. A 30 s 1080p30
+  final went from 125 s to 29 s on soft footage (62 s on grainy footage), and the example's first cut from 42 s to 12 s.
+  `--every-frame` opts out, and the render and its manifest say which path ran. Dissolves, overlays, layers and moving
+  crops stay on the every-frame path.
+
+**Checks that no longer pass the wrong file**
+
+- Sources are checked to where they really decode: `map.py` records it and warns, `cut.py check` gives a line-numbered
+  error for a range past it, and nothing is freeze-filled without being declared. Before this, a file cut short could
+  render and check clean with a frozen, silent ending.
+- An empty caption file on a film with sound is a look or a fail, and a wordless transcript of measurable sound is not
+  assessed; before, both read as ok.
+- Quick edits compare pictures and sound with the source, so a wrong recording or a wrong trim now fails. What is not
+  compared says "Not assessed: content".
+- A blocked render exits 2, so it can no longer be read as a render with notes.
+- `map.py` and `check.py` measure every sound stream. A silent default track gives way to one with sound and says so, with
+  the `--stream` command to override, and `check.py` reads the stream a player plays.
+- "moov atom not found" no longer claims FFmpeg is missing, and captions end with the film.
+
+**Phone footage**
+
+- HDR sources get a note at render and a look in `check.py`; the tone map is unchanged. A cover framing that discards a
+  third or more of a source warns, names the line and offers the options that keep more of it.
+
+**Installs**
+
+- What you install is what was tested: `scripts/constraints.txt` pins every pip package per Python from 3.9, wheels only,
+  and playwright-core is exact. CI installs the same, and a weekly `upstream` workflow tries the newest releases, so a
+  breaking upstream change is seen before the pins move. This also keeps OpenCV below 5, whose missing face cascade cost
+  `crop auto` and the scorecard their face detection without saying so.
+- `setup.py` installs into the active virtual environment, otherwise a per-user one, and never a shared Python.
+
+**The front page and the evidence**
+
+- The README is about 40% shorter, with more of it folded, and opens on the launch film. The full tables moved to `docs/evidence.md`, with
+  wording corrected where a number could not be traced to a published record.
+- `paths/cut.md` skips story development when a request only shortens pauses. The skill's description names captions,
+  subtitles, interviews and podcasts again. A new issue form asks how a film went or where you got stuck.
+- The routing evaluation's harness and results are published in `evals/`.
 
 ## 2.1.0 (2026-11-03)
 

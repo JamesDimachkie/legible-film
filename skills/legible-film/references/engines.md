@@ -139,7 +139,7 @@ dithered images when a soft ramp bands.
 
 ## 4. HyperFrames
 
-HeyGen's HTML-to-video framework (Apache-2.0; release 0.8.223 was the latest when checked on 2026-10-31; pre-1.0,
+HeyGen's HTML-to-video framework (Apache-2.0; release 0.9.14 was the latest when checked on 2026-11-04; pre-1.0,
 with releases most days; Node 22+ and FFmpeg required). Pin a version per project.
 
 - **Loop:** `npx hyperframes init <dir> --non-interactive`, author, `lint`, `check --json` (the browser gate: console

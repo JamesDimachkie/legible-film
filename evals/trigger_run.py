@@ -12,8 +12,9 @@
 
 trigger: for every query in evals/trigger-queries.json, each variant and each repetition, starts a fresh
 `claude -p` session in a temporary project whose only skill is the variant under .claude/skills/legible-film/
-(its SKILL.md and references/), with project settings only, no MCP servers, read-only tools (Skill, Read, Glob,
-Grep), at most three turns and no saved session. A query counts as loaded when the session's stream JSON shows a
+(its SKILL.md and references/), with project settings only, the user's CLAUDE.md files, rules and auto memory kept
+out (as in routing), no MCP servers, read-only tools (Skill, Read, Glob, Grep), at most three turns and no saved
+session. A query counts as loaded when the session's stream JSON shows a
 Skill tool call for legible-film or a Read of its SKILL.md; the session is stopped (by its own PID) as soon as it
 does. Every stream is kept under OUT/runs/trigger/. Pass: the last variant loads at least as often as the first
 on should-trigger queries and no more often on should-not-trigger ones.
@@ -31,10 +32,13 @@ skill files read before the first action and their words, the first question and
 reads and runs, and attempts. Route checks 16-20 (--sets route) run on a candidate only (a skill with paths/): their
 project fixtures are built in the scratch project with the variant's own scripts, and evals/route_checks.py scores
 what section 13 states for each, beside the frozen scorer. Claude runs through `claude -p` with project settings
-only, no MCP servers and a
-PreToolUse guard hook in the project. Codex runs through `codex exec --json` on the person's normal Codex home and
-login, isolated only by per-run `-c` overrides (plugins, apps, memories, MCP servers and every installed user skill
-disabled; the variant staged in the project's .agents/skills); Codex has no per-tool deny hook, so attempts are read
+only, the user's CLAUDE.md files, rules and auto memory kept out (CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 and
+CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, for the session's process only), no MCP servers and a
+PreToolUse guard hook in the project. Every routing session's process tree ends with it (a Windows job object;
+a process group elsewhere), and the row lists what was still running then (ended_with_session). Codex runs through `codex exec --json` on the person's normal Codex home and
+login, isolated only by per-run `-c` overrides (plugins, apps, memories and every installed user skill disabled, and
+every configured MCP server disabled by name and checked with `codex mcp list`; the variant staged in the project's
+.agents/skills); Codex has no per-tool deny hook, so attempts are read
 from the trace's command events and the session is stopped at the first build, spend or heavy attempt. Held-out prompts
 are read at run time from outside the repository and refused unless their SHA-256 matches evals/heldout.sha256;
 the rows and summaries keep no prompt or answer text, only the raw transcripts under OUT do.
@@ -58,6 +62,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -151,8 +156,10 @@ def run_session(project, prompt, tools, raw_path, stop_on_load):
     cmd = [exe, '-p', prompt, '--output-format', 'stream-json', '--verbose', '--setting-sources', 'project',
            '--strict-mcp-config', '--max-turns', '3', '--tools', tools, '--no-session-persistence']
     started = time.time()
-    proc = subprocess.Popen(cmd, cwd=project, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                            stdin=subprocess.DEVNULL, text=True, encoding='utf-8', errors='replace')
+    tree = SessionTree(cmd, cwd=project, env=claude_routing_env(), stdout=subprocess.PIPE,
+                       stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL, text=True, encoding='utf-8',
+                       errors='replace')
+    proc = tree.proc
     timer = threading.Timer(TIMEOUT, proc.kill)
     timer.start()
     loaded = False
@@ -177,7 +184,7 @@ def run_session(project, prompt, tools, raw_path, stop_on_load):
                     break
     finally:
         timer.cancel()
-        proc.wait()
+        tree.reap()
     raw_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path.write_text(scrub(''.join(lines), project), encoding='utf-8', newline='\n')
     timed_out = time.time() - started >= TIMEOUT and not loaded
@@ -199,9 +206,9 @@ def done_keys(path):
     return {json.loads(line)['key'] for line in path.read_text(encoding='utf-8').splitlines() if line.strip()}
 
 
-def trigger_jobs(variants, reps):
+def trigger_jobs(variants, reps, queries=QUERIES):
     """Every (variant, kind, index, query, rep) to run for triggering."""
-    spec = json.loads(QUERIES.read_text(encoding='utf-8'))
+    spec = json.loads(Path(queries).read_text(encoding='utf-8'))
     jobs = []
     for rep in range(1, reps + 1):
         for name, _ in variants:
@@ -235,7 +242,7 @@ def run_trigger(args, variants):
         return row
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers or 3) as pool:
-        list(pool.map(one, trigger_jobs(variants, args.reps)))
+        list(pool.map(one, trigger_jobs(variants, args.reps, args.queries or QUERIES)))
 
 
 # ================================================================ routing: cases, held-outs, fixtures
@@ -248,6 +255,10 @@ def load_cases(path, heldout_path, sets, only):
         cases += spec['cases']
     if 'heldout' in sets:
         cases += heldout_cases(spec, heldout_path)
+    if 'heldout-v2' in sets:
+        # The second acceptance's held-outs: definitions beside the frozen cases file, ids suffixed v2.
+        info = json.loads((HERE / 'reshape-heldout-v2.json').read_text(encoding='utf-8'))
+        cases += heldout_cases({'heldout': info}, None, info.get('id_suffix', 'v2'))
     if 'route' in sets:
         cases += spec['route_checks']
     if only:
@@ -256,8 +267,9 @@ def load_cases(path, heldout_path, sets, only):
     return spec, cases
 
 
-def heldout_cases(spec, heldout_path):
-    """Held-out cases with their prompts, refused unless the file's SHA-256 matches the sealed hash."""
+def heldout_cases(spec, heldout_path, suffix=''):
+    """Held-out cases with their prompts, refused unless the file's SHA-256 matches the sealed hash; a suffix keeps a
+    later set's ids (H1v2) apart from the first set's (H1)."""
     info = spec['heldout']
     path = Path(heldout_path) if heldout_path else (HERE.parent / info['path_from_repository']).resolve()
     if not path.is_file():
@@ -271,7 +283,8 @@ def heldout_cases(spec, heldout_path):
     for case in info['cases']:
         if case['id'] not in prompts:
             raise ValueError(f"the held-out file has no {case['id']}")
-        out.append(dict(case, set='heldout', prompt=prompts[case['id']], reply=info['reply'], fixtures=[]))
+        out.append(dict(case, id=case['id'] + suffix, set='heldout', prompt=prompts[case['id']], reply=info['reply'],
+                        fixtures=[]))
     return out
 
 
@@ -481,6 +494,159 @@ def stage_session(project, host, skill_dir, fixtures, spec, cache, guard_cmd=Non
     return skills_root / SKILL_NAME
 
 
+# ================================================================ routing: clean sessions and their process trees
+
+CLAUDE_CLEAN_ENV = {'CLAUDE_CODE_DISABLE_CLAUDE_MDS': '1', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY': '1'}
+
+
+def claude_routing_env(base=None):
+    """The environment for a Claude routing session: the caller's, with the user's CLAUDE.md files, rules and auto
+    memory kept out. Project-only setting sources alone still load ~/.claude/CLAUDE.md and ~/.claude/rules (a probe on
+    2026-11-02); these two variables apply to the session's process only and change no settings file."""
+    env = dict(os.environ if base is None else base)
+    env.update(CLAUDE_CLEAN_ENV)
+    return env
+
+
+if os.name == 'nt':
+    import ctypes
+    from ctypes import wintypes
+
+    _KERNEL32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    _NTDLL = ctypes.WinDLL('ntdll')
+    _KERNEL32.CreateJobObjectW.restype = wintypes.HANDLE
+    _KERNEL32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+    _KERNEL32.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD)
+    _KERNEL32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    _KERNEL32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+    _KERNEL32.QueryInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+                                                    wintypes.LPDWORD)
+    _KERNEL32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _KERNEL32.OpenProcess.restype = wintypes.HANDLE
+    _KERNEL32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _KERNEL32.QueryFullProcessImageNameW.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR,
+                                                     wintypes.LPDWORD)
+    _KERNEL32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    _NTDLL.NtResumeProcess.argtypes = (wintypes.HANDLE,)
+
+    class _BasicLimits(ctypes.Structure):
+        _fields_ = [('PerProcessUserTimeLimit', ctypes.c_int64), ('PerJobUserTimeLimit', ctypes.c_int64),
+                    ('LimitFlags', wintypes.DWORD), ('MinimumWorkingSetSize', ctypes.c_size_t),
+                    ('MaximumWorkingSetSize', ctypes.c_size_t), ('ActiveProcessLimit', wintypes.DWORD),
+                    ('Affinity', ctypes.c_size_t), ('PriorityClass', wintypes.DWORD),
+                    ('SchedulingClass', wintypes.DWORD)]
+
+    class _IoCounters(ctypes.Structure):
+        _fields_ = [(k, ctypes.c_uint64) for k in ('ReadOperationCount', 'WriteOperationCount', 'OtherOperationCount',
+                                                    'ReadTransferCount', 'WriteTransferCount', 'OtherTransferCount')]
+
+    class _ExtendedLimits(ctypes.Structure):
+        _fields_ = [('BasicLimitInformation', _BasicLimits), ('IoInfo', _IoCounters),
+                    ('ProcessMemoryLimit', ctypes.c_size_t), ('JobMemoryLimit', ctypes.c_size_t),
+                    ('PeakProcessMemoryUsed', ctypes.c_size_t), ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+    class _ProcessIds(ctypes.Structure):
+        _fields_ = [('Assigned', wintypes.DWORD), ('Listed', wintypes.DWORD), ('Ids', ctypes.c_size_t * 1024)]
+
+
+def _win_job(proc):
+    """Put a process started suspended into a new job that ends every member when it closes, then resume it."""
+    job = _KERNEL32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    limits = _ExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not (_KERNEL32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)) and
+            _KERNEL32.AssignProcessToJobObject(job, int(proc._handle))):
+        error = ctypes.get_last_error()
+        _KERNEL32.CloseHandle(job)
+        raise ctypes.WinError(error)
+    if _NTDLL.NtResumeProcess(int(proc._handle)) != 0:
+        _KERNEL32.CloseHandle(job)
+        raise OSError('could not resume the session process')
+    return job
+
+
+def _win_job_processes(job):
+    """(pid, image name) for every process still in the job."""
+    ids = _ProcessIds()
+    if not _KERNEL32.QueryInformationJobObject(job, 3, ctypes.byref(ids), ctypes.sizeof(ids), None):
+        return [(None, 'unlisted')]
+    out = []
+    for pid in ids.Ids[:ids.Listed]:
+        name = '?'
+        handle = _KERNEL32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if handle:
+            buffer, size = ctypes.create_unicode_buffer(1024), wintypes.DWORD(1024)
+            if _KERNEL32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                name = Path(buffer.value).name
+            _KERNEL32.CloseHandle(handle)
+        out.append((int(pid), name))
+    return out
+
+
+def process_alive(pid):
+    """Whether a process id is still running (for the self-test)."""
+    if os.name == 'nt':
+        handle = _KERNEL32.OpenProcess(0x100000 | 0x1000, False, pid)  # SYNCHRONIZE | QUERY_LIMITED
+        if not handle:
+            return False
+        try:
+            return _KERNEL32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT: still running
+        finally:
+            _KERNEL32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, PermissionError):
+        return False
+
+
+class SessionTree:
+    """An agent CLI and every process it starts, ended together when the session ends.
+
+    On Windows the CLI starts suspended, joins a new job object and then resumes, so every process it or its children
+    start belongs to the job however it was launched (a server left running in the background, say); ending the job
+    ends them all. Elsewhere the CLI leads a new process group. A session once left `screen.py serve` running for
+    hours, holding its folder; the next run of that session failed on it."""
+
+    def __init__(self, cmd, **kwargs):
+        self.job = None
+        if os.name == 'nt':
+            kwargs['creationflags'] = kwargs.get('creationflags', 0) | 0x4  # CREATE_SUSPENDED
+            self.proc = subprocess.Popen(cmd, **kwargs)
+            try:
+                self.job = _win_job(self.proc)
+            except OSError:
+                self.proc.kill()
+                self.proc.wait()
+                raise
+        else:
+            kwargs['start_new_session'] = True
+            self.proc = subprocess.Popen(cmd, **kwargs)
+
+    def reap(self):
+        """End the CLI and everything still running in its tree. Returns the image names of the processes other than
+        the CLI that were still running (empty off Windows, where the group is ended without a listing)."""
+        left = []
+        if self.job is not None:
+            left = sorted(name for pid, name in _win_job_processes(self.job) if pid != self.proc.pid)
+            _KERNEL32.TerminateJobObject(self.job, 1)
+            _KERNEL32.CloseHandle(self.job)
+            self.job = None
+        elif os.name != 'nt':
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        try:
+            self.proc.kill()
+        except OSError:
+            pass
+        self.proc.wait()
+        return left
+
+
 def user_message(text):
     """One stream-json user message for `claude -p --input-format stream-json`."""
     return json.dumps({'type': 'user', 'message': {'role': 'user', 'content': text}}) + '\n'
@@ -496,9 +662,11 @@ def run_claude_plan(project, prompt, reply, turn_limit, timeout):
            TOOLS_PLAN, '--allowedTools', TOOLS_PLAN, '--permission-mode', 'acceptEdits',
            '--no-session-persistence']
     err = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
-    proc = subprocess.Popen(cmd, cwd=project, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                            stderr=err, text=True, encoding='utf-8', errors='replace')
-    notes = {'stopped': None, 'model': None, 'version': None, 'stderr': ''}
+    tree = SessionTree(cmd, cwd=project, env=claude_routing_env(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                       stderr=err, text=True, encoding='utf-8', errors='replace')
+    proc = tree.proc
+    notes = {'stopped': None, 'model': None, 'version': None, 'stderr': '',
+             'clean_env': sorted(CLAUDE_CLEAN_ENV)}
     timer = threading.Timer(timeout, lambda: (notes.update(stopped='timeout'), proc.kill()))
     timer.start()
     lines, ids, results, last_text = [], [], 0, ''
@@ -544,11 +712,7 @@ def run_claude_plan(project, prompt, reply, turn_limit, timeout):
         notes['stopped'] = notes['stopped'] or f'pipe: {exc}'
     finally:
         timer.cancel()
-        try:
-            proc.kill()
-        except OSError:
-            pass
-        proc.wait()
+        notes['ended_with_session'] = tree.reap()
         err.seek(0)
         notes['stderr'] = err.read()[-2000:]
         err.close()
@@ -587,21 +751,54 @@ def codex_overrides():
     args = []
     for item in over:
         args += ['-c', item]
-    return args, len(skills)
+    return args + mcp_servers_off(args), len(skills)
+
+
+_MCP_OFF = {}
+
+
+def mcp_servers_off(args):
+    """`-c` overrides that disable every MCP server the run would still start. `mcp_servers={}` merges into the
+    user's [mcp_servers.*] tables and leaves each one enabled (codex-cli 0.160: Playwright, a paid generation
+    service and others stayed live, and 17 routing sessions called them); each is disabled by name, then the list
+    is read again and the run refused if any is still enabled. Cached per process."""
+    key = tuple(args)
+    if key in _MCP_OFF:
+        return _MCP_OFF[key]
+
+    def enabled(extra):
+        out = subprocess.run(codex_command() + ['mcp', 'list', '--json'] + args + extra, capture_output=True,
+                             text=True, encoding='utf-8', errors='replace', timeout=120)
+        if out.returncode != 0:
+            raise RuntimeError(f'codex mcp list failed: {out.stderr[-300:]}')
+        return sorted(s['name'] for s in json.loads(out.stdout or '[]') if s.get('enabled'))
+
+    extra = []
+    for name in enabled([]):
+        key_name = name if re.fullmatch(r'[A-Za-z0-9_-]+', name) else json.dumps(name)
+        extra += ['-c', f'mcp_servers.{key_name}.enabled=false']
+    left = enabled(extra)
+    if left:
+        raise RuntimeError(f'MCP servers still enabled under the run overrides: {left}')
+    _MCP_OFF[key] = extra
+    return extra
 
 
 def run_codex_plan(project, prompt, reply, turn_limit, timeout, classes, failing):
     """One Codex session through `codex exec --json`, then at most one scripted reply through `exec resume`."""
     base = codex_command()
     overrides, disabled = codex_overrides()
-    notes = {'stopped': None, 'model': None, 'skills_disabled': disabled, 'stderr': ''}
+    notes = {'stopped': None, 'model': None, 'skills_disabled': disabled, 'stderr': '', 'ended_with_session': [],
+             'mcp_disabled': sorted(re.sub(r'^mcp_servers\.|\.enabled=false$', '', x) for x in overrides
+                                    if x.startswith('mcp_servers.'))}
     lines, state = [], {'turns': 0, 'thread': None, 'last_text': ''}
     deadline = time.time() + timeout
 
     def one(cmd):
         err = tempfile.TemporaryFile(mode='w+', encoding='utf-8', errors='replace')
-        proc = subprocess.Popen(cmd, cwd=project, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=err, text=True, encoding='utf-8', errors='replace')
+        tree = SessionTree(cmd, cwd=project, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=err, text=True, encoding='utf-8', errors='replace')
+        proc = tree.proc
         timer = threading.Timer(max(deadline - time.time(), 1), lambda: (notes.update(stopped='timeout'),
                                                                          proc.kill()))
         timer.start()
@@ -632,11 +829,7 @@ def run_codex_plan(project, prompt, reply, turn_limit, timeout, classes, failing
                         state['last_text'] = item.get('text', '')
         finally:
             timer.cancel()
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            proc.wait()
+            notes['ended_with_session'] += tree.reap()
             err.seek(0)
             notes['stderr'] += err.read()[-1500:]
             err.close()
@@ -729,10 +922,31 @@ def run_routing(args, variants):
                 stop.set()
                 print(f'stopping: {exc}; run again to resume', flush=True)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers or 2) as pool:
+    extra = 1 if getattr(args, 'extra_worker_min_gib', 0) else 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=(args.workers or 2) + extra) as pool:
         list(pool.map(one, jobs))
     if stop.is_set():
         raise RuntimeError('stopped while waiting for memory; recorded sessions are kept')
+
+
+SLOTS = {'active': 0, 'lock': threading.Lock(), 'poll': 10}
+
+
+def admit(base, extra_gib):
+    """Take a session slot: one of `base` at once, or one more while free memory is above `extra_gib` GiB. Returns
+    how many sessions were running, this one included."""
+    while True:
+        with SLOTS['lock']:
+            if SLOTS['active'] < base or (extra_gib and SLOTS['active'] < base + 1 and
+                                          free_mib() >= extra_gib * 1024):
+                SLOTS['active'] += 1
+                return SLOTS['active']
+        time.sleep(SLOTS['poll'])
+
+
+def release():
+    with SLOTS['lock']:
+        SLOTS['active'] -= 1
 
 
 def run_one_session(args, spec, cache, out, results, turn_limit, rep, name, folder, case):
@@ -762,11 +976,15 @@ def run_one_session(args, spec, cache, out, results, turn_limit, rep, name, fold
             row['fixture'] = fixture
         prompt = case['prompt'] + spec['routing_ask']
         row['free_mib_at_start'] = wait_for_memory(args.min_free_gib, args.wait_min)
-        if args.host == 'claude':
-            lines, notes = run_claude_plan(project, prompt, case.get('reply'), turn_limit, args.timeout)
-        else:
-            lines, notes = run_codex_plan(project, prompt, case.get('reply'), turn_limit, args.timeout,
-                                          spec['actions']['classes'], spec['actions']['failing'])
+        row['sessions_running'] = admit(args.workers or 2, getattr(args, 'extra_worker_min_gib', 0))
+        try:
+            if args.host == 'claude':
+                lines, notes = run_claude_plan(project, prompt, case.get('reply'), turn_limit, args.timeout)
+            else:
+                lines, notes = run_codex_plan(project, prompt, case.get('reply'), turn_limit, args.timeout,
+                                              spec['actions']['classes'], spec['actions']['failing'])
+        finally:
+            release()
         raw = ''.join(lines)
         (keep / 'stream.jsonl').write_text(scrub(raw, project), encoding='utf-8', newline='\n')
         guard_rows = [json.loads(l) for l in guard_log.read_text(encoding='utf-8').splitlines()
@@ -788,7 +1006,8 @@ def run_one_session(args, spec, cache, out, results, turn_limit, rep, name, fold
                                           encoding='utf-8', newline='\n')
         score_row(row, score)
         row.update({'model': notes.get('model'), 'cli_version': notes.get('version'),
-                    'stopped': notes.get('stopped'), 'error': error, 'project_files': files[:40]})
+                    'stopped': notes.get('stopped'), 'error': error, 'project_files': files[:40],
+                    'ended_with_session': notes.get('ended_with_session'), 'clean_env': notes.get('clean_env')})
         if verdict:
             row.update({'route_check_passed': verdict['passed'],
                         'route_check': [{'requirement': n['requirement'], 'met': n['met']}
@@ -828,12 +1047,16 @@ def score_row(row, score):
 
 def rescore(args, variants):
     """Score every kept session again from its stream with the current scorer; the old results file is kept."""
-    spec, cases = load_cases(args.cases, args.heldout, ['dev', 'heldout', 'route'], None)
-    by_id = {c['id']: c for c in cases}
-    folders = dict(variants)
     out = Path(args.out)
     results = out / 'routing-results.jsonl'
     rows = read_rows(results)
+    recorded = {row['case'] for row in rows}
+    sets = ['dev', 'route']
+    sets += ['heldout'] if recorded & {'H1', 'H2', 'H3', 'H4', 'H5'} else []
+    sets += ['heldout-v2'] if any(c.endswith('v2') for c in recorded) else []
+    spec, cases = load_cases(args.cases, args.heldout, sets, None)
+    by_id = {c['id']: c for c in cases}
+    folders = dict(variants)
     changed = 0
     for row in rows:
         if row.get('error') or row['variant'] not in folders or row['case'] not in by_id:
@@ -1100,12 +1323,17 @@ def main():
     parser.add_argument('--workers', type=int, help='sessions at once (default: trigger 3, routing 2)')
     parser.add_argument('--budget', type=float, default=360, help='trigger mode: seconds after which no new session '
                                                                   'starts')
+    parser.add_argument('--queries', help='trigger mode: the query file (default evals/trigger-queries.json; '
+                                          'evals/trigger-queries-opus8.json holds the eight extra queries)')
     parser.add_argument('--cases', help='routing cases file, e.g. evals/reshape-routing.json')
     parser.add_argument('--host', choices=['claude', 'codex'], default='claude')
-    parser.add_argument('--sets', default='dev,heldout', help='comma list of dev, heldout, route')
+    parser.add_argument('--sets', default='dev,heldout', help='comma list of dev, heldout (the first held-out set), '
+                                                              'heldout-v2 (the second acceptance\'s), route')
     parser.add_argument('--only', help='comma list of case ids or numbers')
     parser.add_argument('--heldout', help='the sealed held-out prompts file (default: beside the repository)')
     parser.add_argument('--min-free-gib', type=float, default=2.0, help='routing: free memory a session waits for')
+    parser.add_argument('--extra-worker-min-gib', type=float, default=0,
+                        help='routing: run one session beyond --workers while at least this much memory is free')
     parser.add_argument('--timeout', type=float, default=PLAN_TIMEOUT, help='seconds per routing session')
     parser.add_argument('--turn-limit', type=int, help='default: the cases file turn_limit (codex_turn_limit on Codex)')
     parser.add_argument('--wait-min', type=float, default=0, help='minutes to wait for memory before stopping the '

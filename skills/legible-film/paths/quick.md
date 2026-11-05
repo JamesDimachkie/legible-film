@@ -11,8 +11,9 @@ says or shows (the best part, the payoff) chooses content, so that is a [cut](cu
 
 Once per machine, before its first job. `setup.py` says what works here; read back the fixes the job needs.
 `setup.py --install core` installs numpy and Pillow and names the Python to run every script with. With the person's
-yes, `--install transcription` adds faster-whisper and `--install kit` the film kit's browser; any model downloads
-only with `--download`, after the person hears its size. `selftest.py --smoke` is the ten-second real check. Done
+yes, `--install transcription` adds faster-whisper and `--install kit` the film kit's browser; a transcription or
+subject model downloads only with `--download`, after the person hears its size (`--install ear` names its weights' size
+and asks first). `selftest.py --smoke` is the ten-second real check. Done
 when `setup.py` exits 0 or names what is missing for this job.
 
 ## Steps

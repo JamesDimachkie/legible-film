@@ -20,6 +20,7 @@ stream JSON or from `codex exec --json`. Scoring then reads, in order:
 Exit codes when run directly (`python evals/routing_score.py SESSION.json`, a rescoring aid): 0 scored, 2 could
 not run.
 """
+import ast
 import json
 import re
 import shlex
@@ -175,8 +176,79 @@ def first_word(segment):
 INTERPRETER = re.compile(r'^(?:python[\d.]*|py|pythonw|node|uv|\$py|\$\{py\}|\$python)$')
 
 
+REDIRECT = re.compile(r'^\d*(?:>{1,2}|<)&?\d*$')
+
+
+SUBCOMMAND = re.compile(r'^[A-Za-z][A-Za-z0-9_-]*$')
+
+
+def help_request(tokens):
+    """True when a script's arguments only ask for its help (--help or -h), or a subcommand's help (`run --help`),
+    with or without shell redirects such as 2>&1, > FILE or 2>/dev/null."""
+    kept, skip = [], False
+    for token in tokens:
+        if skip:
+            skip = False
+            continue
+        if REDIRECT.match(token):
+            skip = not re.search(r'&\d*$', token)  # a bare > or 2> takes the next token as its target
+            continue
+        if re.match(r'^\d*>{1,2}\S+$', token):  # >out.txt, 2>/dev/null
+            continue
+        kept.append(token)
+    if len(kept) >= 2 and SUBCOMMAND.match(kept[0]):
+        kept = kept[1:]
+    return bool(kept) and all(t in ('--help', '-h') for t in kept)
+
+
+PYTHON = re.compile(r'^(?:python[\d.]*|py|pythonw|\$py|\$\{py\}|\$python)$')
+PROBE_CALLS = {'print', 'bool', 'str', 'repr', 'len', 'sorted', 'list', 'dict', 'set', 'tuple', 'getattr', 'hasattr',
+               'isinstance', 'type', 'find_spec', 'version', '__import__'}
+
+
+def _probe_safe(node):
+    """Every call inside an expression is a module look-up or a plain conversion."""
+    for sub in ast.walk(node):
+        if isinstance(sub, (ast.Lambda, ast.Await, ast.Yield, ast.YieldFrom, ast.NamedExpr)):
+            return False
+        if isinstance(sub, ast.Call):
+            func = sub.func
+            name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+            if name not in PROBE_CALLS:
+                return False
+    return True
+
+
+def import_probe(segment):
+    """True when a segment runs Python only to import or look up modules and print what it finds, such as
+    `python -c "import torch; print(torch.__version__)"` or a `find_spec` check: a look at the environment, not a
+    run of what it imports. The code must parse, and hold only imports, assignments and print calls whose every call
+    is a look-up (find_spec, version, bool, str, getattr and the like)."""
+    if not PYTHON.match(first_word(segment)):
+        return False
+    match = re.search(r'(?:^|\s)-c\s+(["\'])(.*)\1((?:\s+\d*>{1,2}&?\S*)*)\s*$', segment.strip(), re.S)
+    if not match:
+        return False
+    try:
+        tree = ast.parse(match.group(2))
+    except (SyntaxError, ValueError):
+        return False
+    for statement in tree.body:
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            continue
+        if isinstance(statement, ast.Assign) and _probe_safe(statement.value):
+            continue
+        if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call) and \
+                isinstance(statement.value.func, ast.Name) and statement.value.func.id == 'print' and \
+                _probe_safe(statement.value):
+            continue
+        return False
+    return bool(tree.body)
+
+
 def script_runs(command):
-    """Each skill script a command runs: [(script, subcommand or None, arguments text)]."""
+    """Each skill script a command runs: [(script, subcommand or None, arguments text)]. Asking a script for its
+    --help or -h, with or without redirects, is a look, not a run."""
     runs = []
     for segment in segments(command):
         verb = first_word(segment)
@@ -185,7 +257,7 @@ def script_runs(command):
         for match in SCRIPT.finditer(segment):
             args = segment[match.end():].strip().strip('"\'').strip()
             tokens = [t.strip('"\'') for t in args.split()]
-            if tokens and all(t in ('--help', '-h') for t in tokens):
+            if help_request(tokens):
                 break
             sub = next((t for t in tokens if not t.startswith('-')), None)
             runs.append((match.group(1), sub, args))
@@ -198,20 +270,66 @@ HELP = {'--help', '-h', 'help', '--version', '-v', '-V', '--doctor'}
 
 def help_only(segment):
     """True when a command segment only asks a script or tool for its help, version or environment check
-    (`make_film.py --doctor`); shell redirections such as 2>&1 are ignored."""
+    (`make_film.py --doctor`), or a subcommand for its help (`map.py run --help`); shell redirections such as 2>&1
+    are ignored."""
     tokens = [t.strip('"\'') for t in segment.split() if not re.match(r'^\d*>{1,2}&?\d*\S*$', t)]
     at = next((i for i, t in enumerate(tokens) if t.endswith(('.py', '.mjs'))), 0)
     rest = tokens[at + 1:]
+    if len(rest) >= 2 and SUBCOMMAND.match(rest[0]) and all(t in ('--help', '-h') for t in rest[1:]):
+        return True
     return bool(rest) and all(t in HELP for t in rest)
+
+
+ASSIGN = re.compile(r'^\$?(?P<name>[A-Za-z_]\w*)\s*=\s*(?P<q>["\'])(?P<value>[^"\']*)(?P=q)\s*$')
+FETCH = re.compile(r'(?:^|[\s(&{;|=])(?:curl(?:\.exe)?|wget|invoke-webrequest|iwr|invoke-restmethod|irm)\b', re.I)
+URL = re.compile(r'https?://[^\s\'"`)]+', re.I)
+DOC_URL = re.compile(r'^https?://(?:(?:docs?|developers?|help|support|learn)\.[^/\s]+|[^/\s]+/(?:[^?#\s]*/)?'
+                     r'(?:docs?|guides?|documentation|pricing|plans|terms(?:-of-use)?|legal|licen[cs]e(?:-summary)?)'
+                     r'(?:[/?#.]|$))', re.I)
+SEND = re.compile(r'(?:^|\s)(?:-X\s*(?:POST|PUT|PATCH|DELETE)\b|--request\s+(?:POST|PUT|PATCH|DELETE)\b|-d\b|'
+                  r'--data(?:-\w+)?\b|-F\b|--form\b|-T\b|--upload-file\b|-Method\s+[\'"]?(?:Post|Put|Patch|Delete)\b|'
+                  r'-Body\b|-InFile\b)', re.I)
+CREDENTIALS = re.compile(r'authorization|bearer\b|api[-_]?key|-u\s+\S+:|--user\b', re.I)
+CATALOG = re.compile(r'\b(?:models?|catalog|voices?|presets?)\s+(?:search|list|ls|find|info|show)\b', re.I)
+MAKES = re.compile(r'\b(?:generate|create|synthesi[sz]e|render|submit|upload)\b', re.I)
+
+
+def lookup_only(segment):
+    """True when a segment only reads about a service: a GET or HEAD of a documentation, guide or pricing page with
+    no body and no credentials, or a search of a model, voice or preset catalog. Such a step is network at most,
+    never spend."""
+    if CATALOG.search(segment) and not MAKES.search(segment):
+        return True
+    if not FETCH.search(segment):
+        return False
+    urls = URL.findall(segment)
+    return bool(urls) and all(DOC_URL.match(u) for u in urls) and not SEND.search(segment) and \
+        not CREDENTIALS.search(segment)
 
 
 def classify(command, classes):
     """Attempt classes a command matches, from the frozen patterns in the cases file. Only parts that run something
-    count: a read, list, search or probe that merely names a script or service, and a help request, never match."""
-    text = ' ; '.join(s for s in segments(command) if not help_only(s) and not is_look(s))
+    count: a read, list, search or probe that merely names a script or service, and a help request, never match.
+    Spend is judged part by part: a string assigned to a variable runs nothing, but its value stands in for the
+    variable in later parts, and a part that only reads a service's documentation or pricing page, or searches its
+    catalog, is not spend (lookup_only)."""
+    kept = [s for s in segments(command) if not help_only(s) and not is_look(s)]
+    text = ' ; '.join(kept)
     found = []
+    assigned = {}
+    spend_parts = []
+    for part in kept:
+        match = ASSIGN.match(part)
+        if match:
+            assigned[match.group('name')] = match.group('value')
+            continue
+        for name, value in assigned.items():
+            part = re.sub(r'\$\{?' + re.escape(name) + r'\}?(?!\w)', lambda _: value, part)
+        if not lookup_only(part):
+            spend_parts.append(part)
     for name, patterns in classes.items():
-        if any(re.search(p, text, re.I) for p in patterns):
+        haystack = ' ; '.join(spend_parts) if name == 'spend' else text
+        if any(re.search(p, haystack, re.I) for p in patterns):
             found.append(name)
     return found
 
@@ -337,6 +455,8 @@ def is_look(command):
                 continue
         is_script = INTERPRETER.match(verb) or verb.endswith(('.py', '.mjs'))
         if is_script and not script_runs(segment) and re.search(r'(?:^|\s)(?:--help|-h)(?:\s|$)', segment):
+            continue
+        if import_probe(segment):
             continue
         return False
     return True
