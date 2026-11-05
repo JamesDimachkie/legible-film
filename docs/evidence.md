@@ -97,6 +97,8 @@ this skill; podcasts and real camera clocks for line-up and speaker labels; real
   clips converted to HDR, not real phone footage.
 - The default cover framing crops a vertical clip in a landscape film heavily; a note names the line and the options that
   keep more of it.
+- A preview made from a proxy can sit one frame from the final when a source's sound starts before its picture (seen on a
+  Matroska file muxed by FFmpeg 6.1, with the sound 21 ms early). The final is the one to judge timing on.
 - A graphic goes over footage when it has transparency: a PNG, or a video at the film's size and frame rate (`~ over`,
   from Cavalry, After Effects or another engine). Pins and titles behind a person take still images only, and the film
   kit's renders are opaque, so a kit animation enters as a full-frame cutaway.

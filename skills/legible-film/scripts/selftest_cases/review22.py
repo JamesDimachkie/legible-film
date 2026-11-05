@@ -21,7 +21,8 @@ def load(scripts_dir, name):
 
 
 def ffmpeg(*args):
-    subprocess.run(['ffmpeg', '-y', '-v', 'error', '-nostdin', *map(str, args)], check=True, stdin=subprocess.DEVNULL)
+    subprocess.run(['ffmpeg', '-y', '-v', 'error', '-nostdin', *map(str, args)], check=True, stdin=subprocess.DEVNULL,
+                   timeout=300)
 
 
 def script(scripts_dir, name, *args):
@@ -68,13 +69,31 @@ def check_played_track(record, j, scripts_dir, example):
            state_of(output, 'Trim audio content offset') != 'ok', output[-600:])
 
 
+def check_caption_remux(record, j, scripts_dir):
+    """A remux to Matroska moves every stream together on some FFmpeg versions; only moving one is a change."""
+    root = Path(j('review22-remux'))
+    root.mkdir(parents=True, exist_ok=True)
+    source, same, moved = root / 'source.mp4', root / 'same.mkv', root / 'moved.mkv'
+    ffmpeg('-f', 'lavfi', '-i', 'testsrc2=d=2:s=320x180:r=24', '-f', 'lavfi', '-i', 'sine=f=440:d=2', '-c:v', 'libx264',
+           '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', source)
+    ffmpeg('-i', source, '-c', 'copy', same)
+    ffmpeg('-i', source, '-itsoffset', .2, '-i', source, '-map', '0:v', '-map', '1:a', '-c', 'copy', moved)
+    _, output = script(scripts_dir, 'check', '--file', same, '--against', source, '--edit', 'captions')
+    record('review22: a captions remux that moves every stream together keeps its content',
+           state_of(output, 'Edit video content') == 'ok' and state_of(output, 'Edit audio content') == 'ok',
+           output[-500:])
+    _, output = script(scripts_dir, 'check', '--file', moved, '--against', source, '--edit', 'captions')
+    record('review22: sound moved against the picture is never called unchanged',
+           state_of(output, 'Edit audio content') in ('FAIL', 'skip'), output[-500:])
+
+
 def lined_up_project(j, scripts_dir, example, name):
     """A camera with two sound streams, the second a second later, and two mics that start 0.7 s into the talk."""
     root = Path(j(name))
     media = Path(j(name + '-media'))
     media.mkdir(parents=True, exist_ok=True)
     camera = media / 'cam.mkv'
-    ffmpeg('-i', example, '-filter_complex', '[0:a]adelay=1000:all=1[late]', '-map', '0:v', '-map', '0:a', '-map', '[late]',
+    ffmpeg('-i', example, '-itsoffset', 1, '-i', example, '-map', '0:v', '-map', '0:a', '-map', '1:a',
            '-c:v', 'copy', '-c:a', 'aac', camera)
     mics = []
     for number, gain in ((1, -3), (2, -9)):
@@ -215,6 +234,7 @@ def check_small_helpers(record, j, scripts_dir):
 def run_review22_cases(tool, record, j, scripts_dir):
     """What an independent review of 2.2 found."""
     check_small_helpers(record, j, scripts_dir)
+    check_caption_remux(record, j, scripts_dir)
     examples = Path(scripts_dir).resolve().parents[2] / 'examples' / 'first-cut'
     example, words = examples / 'tears-of-steel-bridge.mp4', examples / 'tears-of-steel-bridge.words.json'
     if not example.is_file():

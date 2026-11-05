@@ -2943,11 +2943,20 @@ def packet_signature(path, selector):
     return hashed.stdout.strip(), times
 
 
-def signatures_match(first, second, tolerance=.001):
+def schedule_shift(first, second):
+    """How far a stream's whole schedule moved. A remux can move every stream together: Matroska shifts them all so
+    that sound with encoder priming starts at zero, which changes no timing between them."""
+    return (min(row[0] for row in second[1]) - min(row[0] for row in first[1])) if first[1] and second[1] else 0.0
+
+
+def signatures_match(first, second, tolerance=.0015, shift=0.0):
+    """The same packets on the same schedule, `shift` apart. The tolerance covers Matroska's whole milliseconds, and the
+    last packet's duration is left out: an end trim in an MP4 edit list does not carry over to it, with the same data."""
     hash_a, times_a = first
     hash_b, times_b = second
     return hash_a == hash_b and len(times_a) == len(times_b) and all(
-        abs(a - b) <= tolerance for pair_a, pair_b in zip(times_a, times_b) for a, b in zip(pair_a, pair_b))
+        abs(a[0] + shift - b[0]) <= tolerance for a, b in zip(times_a, times_b)) and all(
+        abs(a[1] - b[1]) <= tolerance for a, b in zip(times_a[:-1], times_b[:-1]))
 
 
 def thumbnails(path, moment, count=1):
@@ -3139,6 +3148,7 @@ def edit_content_items(reference, output, kind, source, destination):
     old, new = source.get('streams', []), destination.get('streams', [])
     selected = ('audio',) if kind == 'reframe' else ('video', 'audio')
     items = []
+    shift = None
     for media in selected:
         src_count = sum(row.get('codec_type') == media for row in old)
         dst_count = sum(row.get('codec_type') == media for row in new)
@@ -3154,7 +3164,9 @@ def edit_content_items(reference, output, kind, source, destination):
         except (OSError, ValueError, json.JSONDecodeError) as error:
             items.append(item('edit_' + media, 'Not assessed: edit ' + media + ' content', 'skip', str(error)))
             continue
-        if all(signatures_match(a, b) for a, b in signatures):
+        # The first stream sets how far the file moved; a stream moved differently has changed against the others.
+        shift = schedule_shift(*signatures[0]) if shift is None else shift
+        if all(signatures_match(a, b, shift=shift) for a, b in signatures):
             items.append(item('edit_' + media, 'Edit ' + media + ' content', 'pass',
                               'packet hashes and presentation timestamps match'))
             continue

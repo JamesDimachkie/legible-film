@@ -490,7 +490,10 @@ def check_colour(tool, record, j, scripts_dir, skip):
         suffix = 'mkv' if 'ffv1' in encode else 'mp4'
         slug = name.lower().replace(' ', '-').replace('.', '')
         source = Path(j(f'speed-colour-{slug}.{suffix}'))
-        counted_source(scripts_dir, source, seconds=2, picture=filters, encode=encode)
+        # Sound in Matroska with encoder priming starts before the picture on older FFmpeg, and that origin is a
+        # different question from colour, so this fixture's sound has no priming.
+        counted_source(scripts_dir, source, seconds=2, picture=filters, encode=encode,
+                       audio=('-c:a', 'pcm_s16le') if suffix == 'mkv' else ())
         compare_paths(tool, record, f'a {name} source', project(j(f'speed-colour-{slug}'), source, film),
                       list(range(15, 45)), sound=False)
     assemble = load(scripts_dir, 'assemble')
