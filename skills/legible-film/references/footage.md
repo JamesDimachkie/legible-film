@@ -11,7 +11,8 @@ Contents: [1. Story from the material](#1-story-from-the-material) · [2. Ingest
 [3. Selects](#3-selects) · [4. The edit](#4-the-edit) · [5. The edit file](#5-the-edit-file) · [6. Other ratios](#6-other-ratios) ·
 [7. Speed and stabilisation](#7-speed-and-stabilisation) · [8. Colour](#8-colour) ·
 [9. Screen recordings](#9-screen-recordings) · [10. Dialogue](#10-dialogue) · [11. Captions](#11-captions) ·
-[12. Approvals and lock](#12-approvals-and-lock) · [13. Variants and hand-off](#13-variants-and-hand-off)
+[12. Approvals and lock](#12-approvals-and-lock) · [13. Variants and hand-off](#13-variants-and-hand-off) ·
+[14. Several recordings of one conversation](#14-several-recordings-of-one-conversation)
 
 ## 1. Story from the material
 
@@ -311,3 +312,53 @@ order of `picture`.
 - To hand a cut to an editor, `exchange.py write` writes it as Final Cut Pro 7 XML with its captions and a list of
   what it does not carry ([recipes](recipes.md#hand-a-legible-film-cut-to-an-editor)); hand over the rendered file
   and the paper edit too.
+
+## 14. Several recordings of one conversation
+
+A podcast usually has a mic per person and two or three cameras, all rolling on their own clocks. The steps for cutting
+one are in [cut](../paths/cut.md#a-podcast-with-several-cameras); this is what they rest on.
+
+**Lining up.** `map.py sync PROJECT [--reference ALIAS]` finds where each recording sits against one reference from the
+sound alone, with no clap. Name as the reference a source that hears everyone, a camera or a room mic; the default is
+the longest source with picture and sound. For each source it prints the offset, a confidence and the drift between the
+start and the end of the overlap, and saves them in `map/sync.json` bound to every file's SHA-256 and sound stream.
+
+- A changed source makes its row **stale** and a changed reference makes every row stale; `cut.py check`, `cut.py render`
+  and `map.py speakers` refuse a stale row. `map.py sync PROJECT --check` shows the record as they see it.
+- A low confidence, no overlap, two offsets that fit about equally or too little sound is a **look** with its reason. It
+  is never applied, and `map.py sync` exits 1. Listen, find the offset, and set it with `map.py sync PROJECT --set
+  ALIAS=SECONDS --note TEXT`, which is recorded in `decisions.jsonl`. The number is where that source's 0:00 falls on the
+  reference's clock.
+- **Drift** over one frame is printed and makes the command exit 1, and `check` warns on the first line that uses the
+  source. Each stretch of a line uses the offset at its own place in the recording, so lines stay in step through a long
+  recording; only a very long unbroken take moves against its picture. Picture and sound are never resampled, and the
+  sound that plays is the file's own. Over an overlap under a minute drift cannot be told from scatter, and it says so.
+- What lines up is where sound arrives. Sound takes about 3 ms a metre, so a camera across a room sits a few
+  milliseconds behind a lavalier, by a different amount for each speaker; that much is under a frame. A confident offset
+  says two recordings hold the same sound. It cannot say a camera's picture is in sync with its own sound.
+
+Measured on AMI_NUMBERS_SYNC
+
+**Who speaks.** `speaker` on a word in `words.json` is shown by `map.py words` and `transcript.md`, and it reaches
+`lines.json` and the captions, which break where it changes. Three things can set it, and a label is a draft until a
+person reads it, like the transcript itself:
+
+- **Per-person mics:** `map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben` compares level across the
+  lined-up mics over each word of ALIAS's transcript. Each mic is first scaled to its own loudest speech, so a hot mic
+  does not win by gain. The mic clearly loudest over a word (by 6 dB, `--margin`) names its speaker. A word with no clear
+  winner stays unlabelled, and so do most words where people talk over each other. It says which mic heard a word
+  loudest, not who a person is: a shared table, open mics in a small room or a person leaning into another's mic will
+  mislabel words, and a mic that hears everyone equally names nobody it cannot beat.
+- **An imported transcript:** `map.py run PROJECT --alias ALIAS --words import:FILE` keeps the speaker fields of
+  WhisperX, Deepgram, AssemblyAI, Rev, Amazon Transcribe, ElevenLabs Scribe and Google Speech-to-Text JSON and WebVTT
+  `<v Name>` tags. `map.py speakers PROJECT ALIAS --rename 0=Ana` gives them names. These follow each format's
+  documented shape and were tested on written examples, not on a recent export from each service.
+- **A person:** `map.py fix PROJECT WORD_ID --speaker Ana [--through WORD_ID]`, recorded in `decisions.jsonl` and kept
+  when `map.py speakers` runs again.
+
+Measured on AMI_NUMBERS_LABELS
+
+**One shared track.** ONE_TRACK_TEXT
+
+**A recorder with two mics in one file.** Each person's mic has to be its own source: split the channels first
+(`ffmpeg -i rec.wav -af "pan=mono|c0=c0" ana.wav`, and `c0=c1` for the other), then register both.

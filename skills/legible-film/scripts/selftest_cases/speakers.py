@@ -7,9 +7,9 @@ harder on the line-up than real speech. These prove the arithmetic and the refus
 room sounds: a mic's bleed here is the other voice turned down and low-passed, and nobody talks over anyone unless a
 case says so. Without the example they print a SKIP line.
 """
-import hashlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -453,6 +453,9 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
     record('speakers: the version records the line-up it used',
            manifest.get('lineup', {}).get('sources', {}).get('cam_02', {}).get('sha256')
            == data['cam_02']['sha256'], str(manifest.get('lineup'))[:300])
+    code, output = tool('check.py', root)
+    record('speakers: the version\'s cue list stays fresh: a line-up changes no cue\'s film time',
+           'FAIL  Cue list' not in output, next((row for row in output.splitlines() if 'Cue list' in row), ''))
     # The hand-off: the mic on the dialogue track at its own in-point, the camera on V2 at its own, and the note.
     out = work / 'handoff.xml'
     code, output = tool('exchange.py', 'write', root, fast.name, '--out', out)
@@ -488,8 +491,47 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
            code in (0, 1) and nat and nat[0]['src'] == 'mic_02'
            and abs(nat[0]['in'] - (round(half, 2) + data['cam_02']['offset_s'] - data['mic_02']['offset_s'])) < 1e-3,
            f'exit {code}, {str(nat)[:200]}; ' + output[-400:])
+    check_other_rate(tool, record, j, scripts_dir, speech)
     check_used_sound(tool, record, j, scripts_dir, speech)
     check_one_source(tool, record, j, scripts_dir, speech)
+
+
+def check_other_rate(tool, record, j, scripts_dir, speech):
+    """A second camera at 25 fps under a 30 fps film, starting late: the frame on screen is the one showing at that
+    moment, on both picture paths."""
+    samples, words = speech
+    speed = load(scripts_dir, 'speed', 'selftest_cases')
+    work = Path(j('speakers-rate'))
+    work.mkdir(parents=True, exist_ok=True)
+    voices, rows = conversation(samples, words, 83, 13)
+    seconds = 12
+    write_wav(work / 'a.wav', camera(voices, 1)[:seconds * RATE])
+    write_wav(work / 'b.wav', late(camera(voices, 2, gain_db=-10), 0.8)[:int((seconds - 0.8) * RATE)])
+    speed.counted_source(scripts_dir, work / 'cam_a.mp4', seconds=seconds, rate=30, audio=['-i', str(work / 'a.wav')])
+    speed.counted_source(scripts_dir, work / 'cam_b.mp4', seconds=seconds - 0.8, rate=25,
+                         audio=['-i', str(work / 'b.wav')])
+    root = work / 'project'
+    new_project(tool, root, [('camera', work / 'cam_a.mp4'), ('camera', work / 'cam_b.mp4')])
+    rows = [row for row in rows if row['end'] < seconds - 0.5]
+    write_words(root, 'cam_01', rows)
+    code, output = tool('map.py', 'sync', root, '--reference', 'cam_01')
+    offset = saved(root)['sources']['cam_02'].get('offset_s', 0.0)
+    pick = [row for row in rows if row['start'] > 2][:8]
+    (root / 'film.md').write_text(FRONT.format(size='320x180', fps=30, captions='none') + (
+        f"> cam_01 {pick[0]['start'] - 0.05:.2f}-{pick[-1]['end'] + 0.05:.2f} "
+        + ' '.join(row['text'] for row in pick) + '\n  ~ cam_02 sync Other\n'), encoding='utf-8')
+    compared = speed.compare_paths(tool, record, 'a 25 fps camera in a 30 fps film at its offset', root)
+    if not compared:
+        return
+    lines = json.loads((compared[0] / 'lines.json').read_text(encoding='utf-8'))['lines']
+    run = next(row for row in lines if row['kind'] == 'spoken')['runs'][0]
+    frames = speed.counters(speed.frames_of(compared[0] / 'preview.mp4'))
+    expected = [int(np.floor((run['in'] + (number / 30 - run['at']) - offset) * 25 + 1e-6)) % 512
+                for number in range(len(frames))]
+    gaps = [min(abs(a - b), 512 - abs(a - b)) for a, b in zip(frames, expected)]
+    record('speakers: a camera at another rate shows the frame the offset names, within one of its frames',
+           abs(offset - 0.8) < 0.003 and max(gaps, default=9) <= 1 and len(frames) > 10,
+           f'offset {offset}, worst {max(gaps, default=9)} of {len(frames)} frames')
 
 
 def check_used_sound(tool, record, j, scripts_dir, speech):
@@ -681,6 +723,90 @@ def check_caption_breaks(tool, record, j, scripts_dir):
            any(word.get('speaker') == 'A' for row in lines for word in row.get('words', [])))
 
 
+# ----------------------------------------------------------------------------------------------- one shared track
+
+def check_shared(tool, record, j, scripts_dir, speech, skip=None):
+    """One track holding everyone: the arithmetic with a stand-in for the voice model, the refusals around its download,
+    and, where the pinned model is already here, the real thing on the example's two people."""
+    lineup = load(scripts_dir, 'lineup')
+    samples, words = speech
+    # A stand-in voice model: each stretch's samples say which voice it is, so the answer is known.
+    rate = lineup.SHARED_RATE
+    track = np.zeros(rate * 20, np.int16)
+    rows = []
+    def add(start, end, value, text='word'):
+        track[int(start * rate):int(end * rate)] = value
+        rows.append({'id': f'x-w{len(rows):06d}', 'text': text, 'start': start, 'end': end, 'speaker': None})
+    add(0.0, 1.5, 1000)
+    add(2.0, 3.5, 2000)
+    add(4.0, 5.5, 1000)
+    add(6.0, 7.5, 2000)
+    add(8.0, 8.8, 1500)  # about as near both voices, and too short to shape the centres
+    add(10.0, 10.2, 2000)  # too short to say
+    add(11.0, 12.5, 1000)
+    rows[6]['speaker'], rows[6]['speaker_by'] = 'Ana', 'person'
+    def voice(piece):
+        return {1000: np.array([1.0, 0.0]), 2000: np.array([0.0, 1.0]),
+                1500: np.array([0.7, 0.7])}[int(piece[len(piece) // 2])]
+    counts = lineup.label_shared(rows, track, voice, 2)
+    record('speakers: one track: stretches take their voice\'s label, first heard first numbered',
+           [row['speaker'] for row in rows[:4]] == ['Speaker 1', 'Speaker 2', 'Speaker 1', 'Speaker 2'],
+           str([row['speaker'] for row in rows]))
+    record('speakers: one track: a stretch about as near two voices stays unlabelled', rows[4]['speaker'] is None,
+           str(rows[4]))
+    record('speakers: one track: a stretch too short to judge stays unlabelled', rows[5]['speaker'] is None, str(rows[5]))
+    record('speakers: one track: a label a person gave is kept', rows[6]['speaker'] == 'Ana' and counts[
+        'kept_from_a_person'] == 1, str(rows[6]))
+    # The model's download and pin, with no network: an empty cache, then a file with the wrong bytes.
+    saved_homes = {name: os.environ.get(name) for name in ('LOCALAPPDATA', 'XDG_DATA_HOME')}
+    work = Path(j('speakers-shared'))
+    empty = work / 'empty-home'
+    empty.mkdir(parents=True, exist_ok=True)
+    cached = lineup.model_folder()
+    real = cached if all((cached / name).is_file() for name in lineup.SHARED_FILES) else None
+    try:
+        os.environ['LOCALAPPDATA'] = os.environ['XDG_DATA_HOME'] = str(empty)
+        try:
+            lineup.shared_model(False)
+            message = ''
+        except ValueError as error:
+            message = str(error)
+        record('speakers: one track: without --download nothing is fetched, and it names the size first',
+               f'{lineup.SHARED_MB} MB' in message and '--download' in message and 'Apache' in message
+               and not lineup.model_folder().exists(), message)
+        folder = lineup.model_folder()
+        folder.mkdir(parents=True)
+        for name in lineup.SHARED_FILES:
+            (folder / name).write_bytes(b'not the model')
+        try:
+            lineup.shared_model(False)
+            message = ''
+        except ValueError as error:
+            message = str(error)
+        record('speakers: one track: a model file that does not match its pin is refused', 'SHA-256' in message, message)
+    finally:
+        for name, value in saved_homes.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+    if real is None:
+        (skip or (lambda name, reason, count=1: print(f'SKIP  {name} ({reason})')))(
+            'speakers: one track on real speech', 'the pinned speaker model is not cached here', 1)
+        return
+    # The real model on the example's two people, whose turns are known from the film.
+    rows = [dict(word, id=f'x-w{number:06d}', speaker=None) for number, word in enumerate(words)]
+    turns = {index: name for name, spans in SPEAKERS.items() for low, high in spans for index in range(low, high)}
+    pcm = (np.interp(np.arange(int(len(samples) * rate / RATE)) * RATE / rate, np.arange(len(samples)), samples)
+           * 32767).astype(np.int16)
+    lineup.label_shared(rows, pcm, lineup.VoiceModel(lineup.shared_model(False)), 2)
+    pairs = [(row['speaker'], turns[index]) for index, row in enumerate(rows) if row['speaker'] is not None]
+    best = max(sum(1 for said, true in pairs if {'Speaker 1': first, 'Speaker 2': second}.get(said) == true)
+               for first, second in (('Celia', 'Thom'), ('Thom', 'Celia')))
+    record('speakers: one track: the pinned model tells the example\'s two people apart, best mapping of its clusters',
+           len(pairs) >= 30 and best / len(pairs) >= 0.75, f'{best} of {len(pairs)} labelled, of {len(rows)} words')
+
+
 # ----------------------------------------------------------------------------------------------- imports
 
 IMPORTS = {
@@ -824,3 +950,4 @@ def run_speakers_cases(tool, record, j, scripts_dir, skip=None):
     check_lineup(tool, record, j, scripts_dir, speech)
     check_labels(tool, record, j, scripts_dir, speech)
     check_paper_edit(tool, record, j, scripts_dir, speech)
+    check_shared(tool, record, j, scripts_dir, speech, skip)

@@ -9,7 +9,8 @@
   python map.py confirm-words PROJECT ALIAS --note TEXT [--stream INDEX] [--by person|agent]
   python map.py words PROJECT ALIAS [--from TIME] [--to TIME]
   python map.py sync PROJECT [--reference ALIAS] [--alias ALIAS ...] [--json FILE] | --check | --set ALIAS=SECONDS --note TEXT
-  python map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben [--margin DB] | --rename OLD=NEW
+  python map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben [--margin DB] | --shared --speakers N [--download]
+      | --rename OLD=NEW
   python map.py run PROJECT [--alias ALIAS] --check
   python map.py run PROJECT [--alias ALIAS] --rebuild
 
@@ -1505,11 +1506,19 @@ def run_speakers(args):
     """map.py speakers: label a transcript from lined-up mics, or rename its speakers."""
     lineup = load_lineup()
     root = Path(args.project).resolve()
-    if bool(args.mic) == bool(args.rename):
-        raise ValueError('give --mic ALIAS=NAME for each mic, or --rename OLD=NEW')
+    if sum(map(bool, (args.mic, args.rename, args.shared))) != 1:
+        raise ValueError('give --mic ALIAS=NAME for each mic, --shared --speakers N for one track, or --rename OLD=NEW')
     if args.rename:
         changed = lineup.rename_speaker(root, args.alias, lineup.parse_pairs(args.rename, '--rename'))
         print(f'{args.alias}: renamed {changed} words')
+    elif args.shared:
+        require_tool('ffmpeg')
+        counts = lineup.label_from_shared(root, args.alias, args.speakers, args.download)
+        shown = ', '.join(f'{name} {count}' for name, count in counts['labelled'].items())
+        print(f"{args.alias}: {shown}; too short or too close to call, left unlabelled: {counts['unlabelled']}"
+              + (f"; kept from a person: {counts['kept_from_a_person']}" if counts['kept_from_a_person'] else ''))
+        print('Drafts until a person reads them: name them with --rename, read transcript.md, listen where it matters, '
+              'correct with map.py fix WORD_ID --speaker NAME.')
     else:
         mics = lineup.parse_pairs(args.mic, '--mic')
         margin = lineup.MARGIN_DB if args.margin is None else args.margin
@@ -1593,6 +1602,10 @@ def main():
     speak.add_argument('--mic', action='append', metavar='ALIAS=NAME', help='a lined-up mic and whose it is; repeat')
     speak.add_argument('--margin', type=float, help='dB the loudest mic must stand above the next (higher labels fewer '
                        'words)')
+    speak.add_argument('--shared', action='store_true', help='one track holds everyone: compare voices on this machine '
+                       '(a model of about 84 MB)')
+    speak.add_argument('--speakers', type=int, help='with --shared: how many people speak')
+    speak.add_argument('--download', action='store_true', help='with --shared: permit downloading the missing model')
     speak.add_argument('--rename', action='append', metavar='OLD=NEW', help='rename a speaker across the transcript; '
                        'repeat')
     args = parser.parse_args()

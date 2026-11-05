@@ -5235,11 +5235,7 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
                                'nothing was published. Map it again if the change is intended, then render again.')
         sources = source_identities(source_map, edit['sources'])
         if source_map.lineup_used:
-            # The offsets are part of what the picture was cut from: a new line-up is a new paper identity.
             settings['_lineup'] = source_map.lineup().used_record(source_map.lineup_used)
-            for alias, row in settings['_lineup']['sources'].items():
-                if alias in sources:
-                    sources[alias]['lined_up'] = {key: row.get(key) for key in ('offset_s', 'drift_per_s')}
         identity = version_identity(cue_list, staging, film_text, sources)
         manifest = write_manifest(staging, name, parent, args, settings, size, film_text, notes, offset,
                                   sorted(proxies), time.time() - began, root, length, frames_out, sources, identity)

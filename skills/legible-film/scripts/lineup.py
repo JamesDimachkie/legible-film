@@ -7,6 +7,7 @@ Run through map.py, which owns the commands:
   python map.py sync PROJECT --check
   python map.py sync PROJECT --set ALIAS=SECONDS --note TEXT
   python map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben [--margin DB]
+  python map.py speakers PROJECT ALIAS --shared --speakers N [--download]
   python map.py speakers PROJECT ALIAS --rename OLD=NEW
 
 sync finds where each source sits against one reference from the sound alone, with no clap: short stretches of each
@@ -22,6 +23,13 @@ place in the recording, so the line itself stays in sync, and the sound and pict
 speakers compares level across lined-up microphones for each word of a source's transcript. Each mic is first scaled to
 its own loudest speech, so a hot mic does not win by gain; the mic that is clearly loudest over a word names its
 speaker, and a word with no clear winner keeps no label. Labels are drafts until a person reads them, like transcripts.
+
+speakers --shared is for one track that holds everyone. It groups the transcript's words into stretches of unbroken talk,
+turns each into a voice embedding on this machine (SpeechBrain's ECAPA-TDNN, Apache-2.0, in a pinned ONNX conversion run
+by onnxruntime; about 84 MB, downloaded only with --download), clusters them into the N speakers you name and names them
+Speaker 1, Speaker 2 in order of appearance. A stretch too short to embed, or about as near two speakers as one, keeps no
+label. The model is never given audio from outside this machine and sends nothing out. It cannot count the speakers, tell
+who a person is, or see a speaker change inside a stretch, so it is weakest at quick exchanges.
 
 What this cannot establish: the sound's arrival time is what lines up, not the moment of speech, and sound takes about
 3 ms per metre, so a distant camera sits a few milliseconds behind a lavalier and by a different amount for each
@@ -823,6 +831,220 @@ def rename_speaker(root, alias, renames):
                 changed += 1
         project.save_json(path, data)
     return changed
+
+
+# ----------------------------------------------------------------------------------------------- one shared track
+
+SHARED_REVISION = 'a9cb9321b07b4ee5b0ea47fdd25242d9cacd824a'
+SHARED_URL = ('https://huggingface.co/vedk00/ecapa-voxceleb-speaker-embedding-onnx/resolve/' + SHARED_REVISION + '/model/')
+SHARED_FILES = {'ecapa-speaker-v1.onnx': 'f46380bbaeddb929fb3a10ab63a4b1877a50e3d1e5fdd55a1b618d5651d3f64e',
+                'fbank-80x201-f32.bin': '024e5073b7cfedee84408dc68dd6bafa02808fc786e67f1314e9c918297f5a63'}
+SHARED_MB = 84
+SHARED_RATE = 16000
+GROUP_GAP_S = 0.25  # words closer than this are one stretch of talk
+GROUP_LONGEST_S = 2.5  # long enough to embed well, short enough to rarely hold two speakers
+GROUP_SHORTEST_S = 0.5  # shorter than this says little about a voice, and stays unlabelled
+FIT_SHORTEST_S = 1.0  # the clusters are fitted on the stretches long enough to embed well
+FIT_MOST = 1500  # stretches clustered, evenly sampled above this; the rest take their nearest centre
+SHARED_MARGIN = 0.04  # how much nearer the best speaker's centre must be than the next (cosine similarity)
+
+
+def model_folder():
+    """Where the skill keeps pinned models (setup.py's per-user cache), created only when something is saved."""
+    if os.name == 'nt':
+        home = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'legible-film'
+    else:
+        home = Path(os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share') / 'legible-film'
+    return home / 'models'
+
+
+def shared_model(download):
+    """The pinned model's files, fetched only with --download after their size is named. A file that does not match its
+    SHA-256 is refused, wherever it came from."""
+    folder = model_folder()
+    missing = [name for name in SHARED_FILES if not (folder / name).is_file()]
+    if missing and not download:
+        raise ValueError(f'the speaker model is not on this machine. It is about {SHARED_MB} MB (SpeechBrain ECAPA-TDNN, '
+                         'Apache-2.0, a pinned ONNX conversion) and downloads only when asked: add --download. Nothing '
+                         'else leaves or enters this machine.')
+    if missing:
+        import tempfile
+        import urllib.request
+        print(f'Speaker model download: about {SHARED_MB} MB, Apache-2.0, into {folder}.', file=sys.stderr, flush=True)
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in missing:
+            handle, temporary = tempfile.mkstemp(prefix='.speaker-', dir=str(folder))
+            os.close(handle)
+            try:
+                urllib.request.urlretrieve(SHARED_URL + name, temporary)
+                if project.file_sha256(temporary) != SHARED_FILES[name]:
+                    raise ValueError(f'the downloaded {name} does not match its pinned SHA-256')
+                os.replace(temporary, folder / name)
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+    for name, digest in SHARED_FILES.items():
+        if project.file_sha256(folder / name) != digest:
+            raise ValueError(f'{folder / name} does not match its pinned SHA-256; delete it and add --download')
+    return folder
+
+
+class VoiceModel:
+    """The pinned embedding model: 80 mel bands at 16 kHz, each stretch's mean removed, as the model was trained."""
+
+    def __init__(self, folder):
+        try:
+            import onnxruntime as ort
+        except ImportError as error:
+            raise ValueError(project.dependency_message('onnxruntime', context='transcription')) from error
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = min(4, os.cpu_count() or 1)
+        options.inter_op_num_threads = 1
+        self.session = ort.InferenceSession(str(folder / 'ecapa-speaker-v1.onnx'), sess_options=options,
+                                            providers=['CPUExecutionProvider'])
+        self.names = [row.name for row in self.session.get_inputs()]
+        self.table = np.fromfile(folder / 'fbank-80x201-f32.bin', dtype='<f4').reshape(201, 80)
+        self.window = np.hamming(400).astype(np.float32)
+
+    def __call__(self, samples):
+        padded = np.pad(samples.astype(np.float32) / 32768.0, 200)
+        count = 1 + (len(padded) - 400) // 160
+        frames = np.stack([padded[index * 160:index * 160 + 400] * self.window for index in range(count)])
+        bands = (np.abs(np.fft.rfft(frames, 400)) ** 2) @ self.table
+        levels = 10 * np.log10(np.maximum(bands, 1e-10))
+        levels = np.maximum(levels, levels.max() - 80)
+        features = (levels - levels.mean(0, keepdims=True)).astype(np.float32)[None]
+        vector = self.session.run(None, {self.names[0]: features, self.names[1]: np.array([1.0], np.float32)})[0]
+        return vector.reshape(-1).astype(np.float64)
+
+
+def word_groups(words):
+    """Lists of indexes of words in unbroken talk, none longer than GROUP_LONGEST_S."""
+    groups = []
+    for index, word in enumerate(words):
+        if groups and (float(word['start']) - float(words[groups[-1][-1]]['end']) < GROUP_GAP_S
+                       and float(word['end']) - float(words[groups[-1][0]]['start']) <= GROUP_LONGEST_S):
+            groups[-1].append(index)
+        else:
+            groups.append([index])
+    return groups
+
+
+def merge_nearest(vectors, count):
+    """Average-linkage clustering by cosine similarity down to `count` clusters: a label for each vector."""
+    similar = vectors @ vectors.T
+    np.fill_diagonal(similar, -np.inf)
+    sizes = np.ones(len(vectors))
+    labels = np.arange(len(vectors))
+    for _ in range(len(vectors) - count):
+        first, second = np.unravel_index(np.argmax(similar), similar.shape)
+        merged = (similar[first] * sizes[first] + similar[second] * sizes[second]) / (sizes[first] + sizes[second])
+        similar[first], similar[:, first] = merged, merged
+        similar[first, first] = -np.inf
+        similar[second], similar[:, second] = -np.inf, -np.inf
+        sizes[first] += sizes[second]
+        labels[labels == second] = first
+    return labels
+
+
+def speaker_centres(vectors, count):
+    """One centre per speaker: clusters merged bottom-up, then settled by a few rounds of nearest-centre assignment."""
+    labels = merge_nearest(vectors, count)
+    centres = np.stack([vectors[labels == label].mean(0) for label in sorted(set(labels))])
+    centres /= np.linalg.norm(centres, axis=1, keepdims=True)
+    for _ in range(5):
+        nearest = (vectors @ centres.T).argmax(1)
+        centres = np.stack([vectors[nearest == row].mean(0) if (nearest == row).any() else centres[row]
+                            for row in range(count)])
+        centres /= np.linalg.norm(centres, axis=1, keepdims=True)
+    return centres
+
+
+def label_shared(words, samples, embed, count, margin=SHARED_MARGIN):
+    """Label words in place from one track, keeping labels a person gave. `samples` is the track at SHARED_RATE on the
+    words' clock; `embed` turns samples into a vector. Returns the counts."""
+    groups = word_groups(words)
+    rows = []
+    for group in groups:
+        low, high = float(words[group[0]]['start']), float(words[group[-1]]['end'])
+        if high - low < GROUP_SHORTEST_S:
+            continue
+        piece = samples[int(low * SHARED_RATE):int(high * SHARED_RATE)]
+        if len(piece) < GROUP_SHORTEST_S * SHARED_RATE or not piece.any():
+            continue
+        vector = embed(piece)
+        rows.append((group, high - low, vector / (np.linalg.norm(vector) + 1e-12)))
+    if len(rows) < count:
+        raise ValueError(f'only {len(rows)} stretches of talk are long enough to compare, for {count} speakers')
+    vectors = np.stack([row[2] for row in rows])
+    long_enough = [index for index, row in enumerate(rows) if row[1] >= FIT_SHORTEST_S]
+    if len(long_enough) < count:
+        long_enough = list(range(len(rows)))
+    if len(long_enough) > FIT_MOST:
+        long_enough = [long_enough[index * len(long_enough) // FIT_MOST] for index in range(FIT_MOST)]
+    centres = speaker_centres(vectors[long_enough], count)
+    similar = vectors @ centres.T
+    order = np.sort(similar, axis=1)
+    sure = order[:, -1] - order[:, -2] >= margin
+    nearest = similar.argmax(1)
+    names = {}
+    labels = {}
+    for (group, _, _), speaker, clear in zip(rows, nearest, sure):
+        if clear:
+            names.setdefault(int(speaker), f'Speaker {len(names) + 1}')
+            for index in group:
+                labels[index] = names[int(speaker)]
+    counts = {name: 0 for name in names.values()}
+    unlabelled = kept = 0
+    for index, word in enumerate(words):
+        if word.get('speaker_by') == 'person':
+            kept += 1
+            continue
+        word['speaker'] = labels.get(index)
+        word.pop('speaker_by', None)
+        if word['speaker'] is None:
+            unlabelled += 1
+        else:
+            word['speaker_by'] = 'shared-track'
+            counts[word['speaker']] += 1
+    return {'labelled': counts, 'unlabelled': unlabelled, 'kept_from_a_person': kept}
+
+
+def label_from_shared(root, alias, count, download=False, margin=SHARED_MARGIN):
+    """map.py speakers --shared: label a transcript from the one track it was made from."""
+    root = Path(root).resolve()
+    sources = registered(root)
+    if alias not in sources:
+        raise ValueError(f'unknown alias: {alias}')
+    if not count or count < 2:
+        raise ValueError('--shared needs --speakers N, how many people speak: it cannot count them')
+    source = sources[alias]
+    path = root / 'map' / alias / 'words.json'
+    if not path.is_file():
+        raise ValueError(f'{alias} has no words.json; map or import its transcript first')
+    embed = VoiceModel(shared_model(download))
+    media = source_path(root, source)
+    length = float(source.get('duration_s') or 0)
+    command = transcribe.audio_window_command(media, (source.get('audio') or {}).get('index'), 0.0, length,
+                                              rate=SHARED_RATE, sample_format='s16le', pad=False)
+    result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True)
+    if result.returncode:
+        raise ValueError(f'{media}: sound will not decode')
+    samples = np.frombuffer(result.stdout, dtype=np.int16)
+    with project.file_lock(path):
+        data = project.load_json(path, None)
+        if not isinstance(data, dict) or not isinstance(data.get('words'), list):
+            raise ValueError(f'{path}: not a readable transcript')
+        state, reason = project.transcript_state(source, data)
+        if state == 'stale':
+            raise ValueError(f'{alias} transcript is stale: {reason}; retranscribe or confirm it first')
+        counts = label_shared(data['words'], samples, embed, count, margin)
+        data['speaker_labels'] = {
+            'method': 'shared-track', 'draft': True, 'at': project.now(), 'speakers': count, 'margin': margin,
+            'model': {'name': 'SpeechBrain ECAPA-TDNN, ONNX conversion', 'revision': SHARED_REVISION,
+                      'sha256': SHARED_FILES['ecapa-speaker-v1.onnx'], 'licence': 'Apache-2.0'},
+            'note': 'Drafts until a person reads them: voices compared on one track, not an identification.', **counts}
+        project.save_json(path, data)
+    return counts
 
 
 def parse_pairs(rows, what):

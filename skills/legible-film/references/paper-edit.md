@@ -138,6 +138,16 @@ cut.
   second before we see them.
 - **Audio-only sources** (a voice-over `vo_01`) have no picture: cover the line with cutaways. Any part left
   uncovered shows the background colour and `check` warns about it.
+- **Sound from a lined-up mic.** With recordings lined up by `map.py sync` ([footage](footage.md) §14), `{sound mic_01}`
+  plays a mic instead of the line's own sound, and `{sound mic_01 -3dB}` sets its gain. The range and the words stay on
+  the line's own source, so nothing is retyped when you change mics; the mic plays the same moment, at the saved
+  offset. The line's cuts and edges are measured in the mic's sound, since that is what a viewer hears, and its join
+  report, `tail`, `lead` and dissolve use the mic too. A line takes one mic: where two people talk at once, take the
+  source that hears both, or register a mix of them as a source of its own.
+
+  ```markdown
+  > cam_01 4:10.20-4:15.80 It broke the moment it got wet. {sound mic_01}
+  ```
 
 ## 4. Picture lines
 
@@ -167,6 +177,20 @@ no time of its own.
 - **Cutaways** (`~ ALIAS RANGE`): their picture covers the line above while its sound continues. The first starts
   with the line, each next one where the previous ended, or at `+N` seconds after the line's start. A cutaway that
   would run past the end of its line is trimmed to it. `sound` mixes the cutaway's own sound under the line.
+- **The same moment from another camera** (`~ ALIAS sync [SECONDS] [+N] [modifiers] [description]`): the picture of a
+  camera lined up by `map.py sync` ([footage](footage.md) §14), with no times to retype. It starts and ends like a
+  cutaway: with the line, or where the one before it ended, or `+N` in, and it lasts the rest of the line or the seconds
+  given. Every frame is the one the offset names, and a cut inside the line cuts this picture too, so it never slips
+  against the sound; because it jumps with the line it does not hide a jump cut, and `check` still lists one. It takes
+  `fit`, `zoom`, `crop`, a dissolve and `+N`, and runs at the line's speed. It takes no sound, since it would double the
+  line's, and no speed of its own. A range is needed only for a shot of another moment, which is an ordinary cutaway.
+  An audio-only line wholly under `~ ALIAS sync` gets no warning about uncovered picture.
+
+  ```markdown
+  > mic_01 14:20.00-14:24.60 So we built the tool we needed, in six weeks.
+    ~ cam_01 sync Wide
+    ~ cam_02 sync 1.5 +2.0 Ben reacts
+  ```
 - **Stills** (`~ still ALIAS SECONDS`) work the same way: they replace the picture, and an image's clear areas show
   the background colour.
 - **Graphics over the picture** (`~ over ALIAS [SECONDS] [+N] [fade F]`): a video with transparency (a lower third or
@@ -228,6 +252,8 @@ no time of its own.
 | `fade in 1.0` | the first line | fade picture and sound up from black at the film's start |
 | `fade out 1.5` | the last line | fade picture and sound down to black at the film's end |
 | `sound` / `sound -12dB` | picture, cutaway, spoken | use the source's own sound (spoken lines always do; the gain adjusts them) |
+| `sound mic_01` / `sound mic_01 -3dB` | spoken, picture at normal speed | play this lined-up source instead, at the same moment (section 3) |
+| `sync` | `~` line, after its alias | show this lined-up camera at the same moment, with no range (section 5) |
 | `+2.0` | `~` lines, title, music | start this many seconds later |
 | `at 0:12.5` | title, music | start at this film time |
 | `-18dB` | music | gain |
@@ -352,11 +378,16 @@ film.md:12: error: range ends at 31:10.00 but int_02 lasts 30:58.21
 film.md:14: error: the range ends at 0:19.50 but src_01's picture ends at 0:18.71 (decoded; the file's header says 0:23.25)
   suggestion: end the range by 0:18.71, or hold its last frame with a pause hold line
 film.md:15: warning: cutaway runs 1.20 s past its line; it will be trimmed
+film.md:18: error: cam_02 and cam_01 are not lined up: its line-up is a look: only 2 of 9 test windows agree
+  suggestion: run map.py sync PROJECT and read what it says about cam_02; a look stays a look until someone listens, then map.py sync PROJECT --set ALIAS=SECONDS --note TEXT
+film.md:21: error: cam_02 has no picture for this moment (0:03.10 of cam_01): on cam_01's clock it runs 0:12.30-41:07.00
+  suggestion: start it later with +N, end it sooner with SECONDS, or show another camera
 ```
 
 Errors stop a render: bad grammar, unknown aliases, ranges outside a source, unmatched or out-of-order words, a
-picture line on a source with no picture, and any line that would last longer than four times `target` (three hours
-without one), which is almost always a mistyped range or speed. A blocked render exits 2, since nothing was made to
+picture line on a source with no picture, a line-up that is missing, stale or a look under `~ ALIAS sync` or
+`{sound ALIAS}`, a lined-up source that does not cover the moment, and any line that would last longer than four times
+`target` (three hours without one), which is almost always a mistyped range or speed. A blocked render exits 2, since nothing was made to
 look at (`check` exits 1 for the same errors; `render --json` says `"status": "blocked"`). "Outside a source" means
 where it really ends: a source's duration can be its header's claim, so a range is checked against the map's decoded end
 of picture and sound, and a picture range against the picture's end even when the sound goes on. A map made before
@@ -468,10 +499,14 @@ otherwise the report identifies the short edge fades. Restore a struck filler by
 What a render adds that film.md does not say:
 
 - **Captions** are built from the kept words by `captions.py` (its reading-speed, line-length and duration rules). A
-  caption never runs across a change of source (another speaker) or a pause of 0.6 s or more. Every caption word
-  carries its transcript word ID. Lines hold up to 42 characters in a landscape or square frame and fewer in a tall
+  caption never runs across a change of source, a change of labelled speaker (an unlabelled word between two speakers
+  counts as neither) or a pause of 0.6 s or more. Labels are drafts, so a wrong one moves a break until a person
+  corrects it. Every caption word carries its transcript word ID and its speaker. Lines hold up to 42 characters in a landscape or square frame and fewer in a tall
   one (26 at 9:16, 37 at 4:5), so burned text keeps its size.
 - **Previews** are short side 540 (never larger than the film). Sources much larger than that are previewed from a
   smaller copy cached in `cuts/.cache/`; `--final` always reads the originals and keeps the sound stems.
 - **Sound** in the preview is the dialogue, natural sound and music mixed with a light limiter; levels are for
   review, and mastering happens at delivery.
+- **Several recordings.** `lines.json` marks a `~ ALIAS sync` stretch with `sync` and its source `range`, and a spoken
+  line that takes another source's sound with `sound_source` and each run's `sound_in` and `sound_out`. `manifest.json`
+  records the offsets it used (`lineup`), so a later line-up cannot change what a version says it was cut from.

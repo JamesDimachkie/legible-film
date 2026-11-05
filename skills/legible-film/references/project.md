@@ -17,6 +17,7 @@ Contents: [1. Layout](#1-layout) · [2. Sources and the map](#2-sources-and-the-
   audio/                conform, mixer and listening outputs, never beside a page
   brief.md              optional: who it is for, where it plays, what was promised
   map/sources.json      every source: alias, path, hash, probe, role
+  map/sync.json         where each recording of a conversation sits against one reference (references/footage.md §14)
   map/<alias>/          words.json, shots.json, audio.json and contact sheets for one source
   spatial/<name>.json   a track or matte layer bound to one source, its frames beside it (references/spatial.md)
   cuts/v001/ ...        one folder per rendered version; its rendered media and compiled edit never change
@@ -46,9 +47,9 @@ may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
    "audio": {"channels": 2, "rate": 48000}, "mapped": {"words": true, "shots": true, "audio": true}}]}
 ```
 
-- **Aliases** are a role and a number (`int_01`, `broll_04`, `screen_02`, `music_01`, `still_03`, `vo_01`), never a
-  file name: file names often carry people's names, and an alias stays the same when a file moves. Roles: interview,
-  broll, screen, music, sfx, vo, still, other.
+- **Aliases** are a role and a number (`int_01`, `cam_02`, `mic_01`, `broll_04`, `screen_02`, `music_01`, `still_03`,
+  `vo_01`), never a file name: file names often carry people's names, and an alias stays the same when a file moves.
+  Roles: interview, camera, mic, broll, screen, music, sfx, vo, still, other.
 - `path` points at the file where it already is: relative to the project folder when the file is inside it,
   otherwise the absolute local path. Media is not copied (`map.py add --copy` makes alias-named copies for a
   self-contained project). Paths stay in this local file and the Screening Room shows aliases only; review packets and reports
@@ -80,7 +81,9 @@ may live inside the project (`film/`) or beside it; `film.md` `page:` names it.
 - Times are source seconds. A word ID is the source alias and the word's position in that transcript, so it is stable
   for that `words.json`; a new transcription makes new IDs, recorded by `engine`.
 - `estimated: true` marks a word whose edges were not measured (split from a longer segment). Empty transcript rows
-  are dropped, never kept as words. `speaker` stays null unless a source states it.
+  are dropped, never kept as words. `speaker` stays null until an imported transcript, the mics (`map.py speakers`) or
+  a person (`map.py fix WORD_ID --speaker NAME`) sets it; `speaker_labels` says how, and a label is a draft until a
+  person reads it ([footage](footage.md) §14).
 - A transcript, once written, is kept: rerunning the map never replaces it (a person may have corrected it). Replace
   one deliberately with `map.py run PROJECT --alias ALIAS --retranscribe ALIAS`; `--words import:FILE` needs exactly
   one `--alias`. When a file moves, `map.py relink PROJECT ALIAS PATH` checks its hash and keeps its alias.
