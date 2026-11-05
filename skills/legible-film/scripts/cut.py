@@ -4400,10 +4400,12 @@ def watch(command, folder, seconds_limit, byte_limit, progress):
     return process.returncode, captured.get('out', '') + captured.get('err', '')
 
 
-def run_assemble(edit_path, out_dir, spool_gib, progress, seconds_limit, byte_limit):
+def run_assemble(edit_path, out_dir, spool_gib, progress, seconds_limit, byte_limit, every_frame=False):
     """Run assemble.py on an edit under the watchdog; returns its exit code and output."""
     command = [sys.executable, '-I', str(HERE / 'assemble.py'), str(edit_path), '--out', str(out_dir / 'picture.mp4'),
                '--json', str(out_dir / 'assemble-report.json'), '--spool-gib', f'{spool_gib:.2f}']
+    if every_frame:
+        command.append('--every-frame')
     return watch(command, out_dir, seconds_limit, byte_limit, progress)
 
 
@@ -4761,14 +4763,17 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
             job.update(0.15 + 0.7 * (1 - math.exp(-elapsed / expected)))
 
         code, output = run_assemble(staging / 'edit-render.json', work, spool_gib, progress, max(900.0, expected * 8),
-                                    render_budget(render_edit, spool, plan['duration'], size))
+                                    render_budget(render_edit, spool, plan['duration'], size),
+                                    getattr(args, 'every_frame', False))
         (staging / 'edit-render.json').unlink()
         if code not in (0, 1):
             raise RuntimeError('assemble.py could not render: ' + output.strip()[-1500:])
         notes.extend(line[len('NOTE: '):] for line in output.splitlines() if line.startswith('NOTE: ')
                      and not line.startswith('NOTE: Caption burn was encoded again'))
         job.update(0.87)
-        frames_out = (project.load_json(work / 'assemble-report.json', {}) or {}).get('frames') or frames
+        assembled = project.load_json(work / 'assemble-report.json', {}) or {}
+        frames_out = assembled.get('frames') or frames
+        settings['_picture_path'] = assembled.get('picture_path')
         length = frames_out / float(settings['fps'])
         end_captions_with_film(staging / 'captions', length, notes)
         stems = sorted(work.glob('*.wav'))
@@ -4925,6 +4930,7 @@ def write_manifest(staging, name, parent, args, settings, size, film_text, notes
                 'notes_resolved': resolved, 'title': settings['title'], 'preview_size': list(size),
                 'final': bool(args.final), 'skill_version': project.skill_version(),
                 'captions': sorted(settings['captions']), 'proxies': proxies, 'render_seconds': round(seconds, 1),
+                'picture_path': settings.get('_picture_path'),
                 'audio_processing': {'intermediate': '48 kHz stereo float PCM',
                                      'preview_mix': ('two-pass dialogue master before AAC'
                                                      if settings.get('_audio_master') else
@@ -4941,6 +4947,14 @@ def write_manifest(staging, name, parent, args, settings, size, film_text, notes
         manifest['layers'] = settings['_layers']
     project.save_json(staging / 'manifest.json', manifest)
     return manifest
+
+
+def picture_path_text(path):
+    """Which way the render drew the picture, for the printed output."""
+    path = path or {}
+    if path.get('path') == 'ffmpeg':
+        return 'FFmpeg (a plain cut; Python chose the frames and drew none)'
+    return f"every frame through Python ({path.get('reason', 'reason not recorded')})"
 
 
 def resolve_commands(root, resolved, version):
@@ -4987,6 +5001,7 @@ def run_render(args):
         size = manifest['preview_size']
         print(f'rendered {name}: {manifest["duration_s"]:.2f} s, preview {size[0]}x{size[1]} at {manifest["fps"]} fps '
               f'in {manifest["render_seconds"]:.0f} s -> cuts/{name}/preview.mp4')
+        print('picture: ' + picture_path_text(manifest.get('picture_path')))
         if manifest.get('preferences'):
             print(manifest['preferences']['summary'])
         for note in notes:
@@ -5769,6 +5784,8 @@ def argument_parser():
                              'Close each with screen.py resolve PROJECT NOTE --in vNNN --reply TEXT '
                              '(the render prints the command for each note still open)')
     render.add_argument('--final', action='store_true', help='render at full size and keep the sound stems')
+    render.add_argument('--every-frame', action='store_true',
+                        help='draw every frame in Python even when the film is a plain cut, to compare the paths')
     render.add_argument('--master', choices=('youtube', 'linkedin', 'instagram', 'tiktok', 'x', 'web'),
                         help='two-pass dialogue master for this destination (requires --final)')
     render.add_argument('--master-target', type=float, help='override the working dialogue target in LUFS')

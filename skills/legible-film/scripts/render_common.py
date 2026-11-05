@@ -30,8 +30,8 @@ except ImportError as missing:
     project_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py')
     sys.exit(runpy.run_path(project_file)['missing_package'](missing))
 
-COLOUR = ('scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,'
-          'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv')
+TAG_BT709 = 'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv'
+COLOUR = 'scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,' + TAG_BT709
 LUT = np.arange(256, dtype=np.float32) / 255
 LUT = np.where(LUT <= 0.04045, LUT / 12.92, ((LUT + 0.055) / 1.055) ** 2.4)
 # H.264 Table A-1 MaxBR (kbit/s), MaxCPB (kbit), before the High-profile 1.25 factor.
@@ -381,9 +381,10 @@ def auto_level(w, h, fps):
     raise ValueError('size/rate exceeds supported H.264 levels')
 
 
-def h264_args(w, h, fps, crf=14, level=None, preview=False):
+def h264_args(w, h, fps, crf=14, level=None, preview=False, threads=1):
     """FFmpeg output options for the delivery H.264 encode from RGB input: BT.709 matrix and tags, High
-    profile, an explicit level with its VBV limits, closed two-second GOPs and fast start."""
+    profile, an explicit level with its VBV limits, closed two-second GOPs and fast start. One encoder thread
+    unless asked: film and motion renders run several encoders side by side."""
     if w % 2 or h % 2:
         raise ValueError(f'H.264 4:2:0 needs even dimensions, not {w}x{h}')
     level = str(level or auto_level(w, h, fps))
@@ -398,7 +399,7 @@ def h264_args(w, h, fps, crf=14, level=None, preview=False):
             'veryfast' if preview else 'slow', '-crf', str(crf), '-level:v', level,
             '-maxrate', str(maxrate * 1250), '-bufsize', str(bufsize * 1250),
             '-g', str(max(1, round(fps * 2))), '-flags', '+cgop', '-x264-params', 'open-gop=0',
-            '-threads', '1', '-movflags', '+faststart', '-f', 'mp4']
+            '-threads', str(threads), '-movflags', '+faststart', '-f', 'mp4']
 
 
 def output_size(w, h, res=None):
@@ -449,22 +450,31 @@ def exact_rate(value):
 
 
 class Encoder:
-    def __init__(self, ffmpeg, path, w, h, fps, crf=14, level=None, preview=False, lossless=False):
+    def __init__(self, ffmpeg, path, w, h, fps, crf=14, level=None, preview=False, lossless=False, threads=1,
+                 pixels='rgb24', options=None):
+        """Encode raw frames fed through write or write_raw: `pixels` names their format and `options`, given,
+        replaces the output options."""
         self.log = tempfile.TemporaryFile()
         rate = exact_rate(fps)
-        cmd = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24',
+        cmd = [ffmpeg, '-hide_banner', '-v', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', pixels,
                '-s', f'{w}x{h}', '-r', f'{rate.numerator}/{rate.denominator}', '-i', 'pipe:0', '-an']
-        if lossless:
+        if options is not None:
+            cmd += options
+        elif lossless:
             # FFV1 in Matroska preserves all RGB bytes (no YUV subsampling or matrix round-trip).
             cmd += ['-c:v', 'ffv1', '-level', '3', '-pix_fmt', 'bgr0', '-threads', '1', '-f', 'matroska']
         else:
-            cmd += h264_args(w, h, fps, crf, level, preview)
+            cmd += h264_args(w, h, fps, crf, level, preview, threads)
         self.command = cmd + [str(path)]
         self.proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=self.log)
 
     def write(self, rgb):
+        self.write_raw(rgb.tobytes())
+
+    def write_raw(self, frame):
+        """Send one frame's bytes, already in the encoder's pixel format."""
         try:
-            self.proc.stdin.write(rgb.tobytes())
+            self.proc.stdin.write(frame)
         except BrokenPipeError:
             self.close()
             raise RuntimeError('encoder pipe closed')
