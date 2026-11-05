@@ -339,8 +339,8 @@ def check_hard_sources(tool, record, j, scripts_dir, skip):
 
     # Three uneven intervals repeating: 25, 40 and 35 ms, so frames fall between and on the output frames.
     vfr = Path(j('speed-vfr.mp4'))
-    counted_source(scripts_dir, vfr, seconds=6, picture=r"setpts='(floor(N/3)*0.1+if(eq(mod(N,3),0),0,if(eq(mod(N,3),1),"
-                   r"0.025,0.065)))/TB'",
+    counted_source(scripts_dir, vfr, seconds=6,
+                   picture=r"setpts='(floor(N/3)*0.1+if(eq(mod(N,3),0),0,if(eq(mod(N,3),1),0.025,0.065)))/TB'",
                    encode=(*BT709_ENCODE, '-fps_mode', 'vfr', '-video_track_timescale', '90000'))
     pts = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time',
                           '-of', 'csv=p=0', str(vfr)], capture_output=True, text=True, check=True).stdout.split()

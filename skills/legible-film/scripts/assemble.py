@@ -368,12 +368,12 @@ def shorten_picture(item, requested, available, notes):
     return available
 
 
-def hdr_transfer(ffprobe, edit, name, stream):
+def hdr_transfer(ffprobe, root, sources, name, stream):
     """The HDR transfer a picture source was recorded with, or None. A preview proxy stands in for the source under
     audio_file, and the original's own tags decide."""
-    entry = edit['sources'].get(name)
+    entry = sources.get(name)
     if isinstance(entry, dict) and entry.get('audio_file'):
-        original = audio_source_path(edit.get('_root', '.'), edit['sources'], name)
+        original = audio_source_path(root, sources, name)
         stream = json.loads(run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                                  'stream=color_transfer', '-of', 'json', original]).stdout)['streams'][0]
     transfer = stream.get('color_transfer')
@@ -417,18 +417,18 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
         if not video_bounds and audio_present:
             raise ValueError('cannot establish the picture stream end independently of audio; '
                              'remux the source with a known video duration before editing')
+        transfer = hdr_transfer(ffprobe, root, edit['sources'], item['src'], stream)
         probed[filename] = (stream, width, height, vf, assumptions, conversion, origin,
                             transcribe.presentation_duration({'format': facts.get('format', {}),
-                                                              'streams': [stream]}))
-        transfer = hdr_transfer(ffprobe, dict(edit, _root=root), item['src'], stream)
+                                                              'streams': [stream]}), transfer)
         if transfer:
-            notes.append(f"Picture {item['src']}: this source is HDR ({transfer}) and was converted to SDR with a Hable "
-                         'tone map; compare its highlights with the original.')
+            notes.append(f"Picture {item['src']}: this source is HDR ({transfer}) and was converted to SDR with a "
+                         'Hable tone map; compare its highlights with the original.')
 
     def plan_range(item):
         """One picture range's timestamps and decoder, with the notes it raised."""
         filename = source_path(root, edit['sources'], item['src'])
-        stream, width, height, vf, assumptions, conversion, origin, source_duration = probed[filename]
+        stream, width, height, vf, assumptions, conversion, origin, source_duration, transfer = probed[filename]
         range_notes = []
         requested_start = float(item['in'])
         requested_stop = float(item['out'])
@@ -491,6 +491,7 @@ def conform(ffmpeg, ffprobe, edit, root, temp, spool_limit, notes):
                'source_transfer': stream.get('color_transfer'),
                'source_primaries': stream.get('color_primaries'),
                'source_pixel_format': stream.get('pix_fmt'), 'source_range': stream.get('color_range'),
+               'hdr_transfer': transfer,
                'field_order': stream.get('field_order'), 'variable_timing': variable,
                'reported_rotation_degrees': rotation, 'rotation_conversion': 'FFmpeg autorotation',
                'presentation_origin_s': origin,
@@ -1924,8 +1925,9 @@ def burn_captions(captions, root, picture, temp):
     for index, overlay in enumerate(captions):
         output = Path(temp) / f'caption-{index}.mp4'
         report = Path(temp) / f'caption-{index}.json'
+        # Lossless whatever the preset, and this file exists only to be encoded for delivery after the burn.
         command = [sys.executable, '-I', str(CAPTIONS), 'burn', str(current), str(root / overlay['file']),
-                   '--out', str(output), '--json', str(report), '--crf', '0']
+                   '--out', str(output), '--json', str(report), '--crf', '0', '--preset', 'ultrafast']
         command += caption_options(overlay)
         run(command, 6 * 3600)
         reports.append(json.loads(report.read_text(encoding='utf-8')))
@@ -2092,13 +2094,14 @@ def main():
                         if finding.get('rule') == 'caption reduced to fit':
                             notes.append(f"Caption {finding['cue']} reduced from {finding['requested_size_px']} to "
                                          f"{finding['used_size_px']} px; choose a wider area or shorter caption.")
+                picture.unlink(missing_ok=True)
                 picture = Path(temp) / 'caption-capped.mp4'
                 cap_caption_encode(ffmpeg, captioned, picture, width, height, rate, count)
                 notes.append('Caption burn used lossless YUV intermediates before the shared level-capped encoder; '
                              'review legibility.')
             snaps.extend(render_audio(ffmpeg, ffprobe, edit, root, clips, total, temp, stage, notes))
-            hdr = {item['src']: note for item in edit['picture'] for note in notes
-                   if note.startswith(f"Picture {item['src']}: this source is HDR")}
+            hdr = {item['src'] for item in edit['picture']
+                   if properties[source_path(root, edit['sources'], item['src'])].get('hdr_transfer')}
             report = {'duration_s': total, 'frames': count, 'picture_path': path, 'snaps': snaps,
                       'hdr_sources': sorted(hdr),
                       'sources': properties,

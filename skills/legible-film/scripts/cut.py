@@ -1719,14 +1719,15 @@ def faces_outside_crop(detect, samples, centre, size):
 
 def cover_faces(source_map, alias, segments, display, kept, ffmpeg):
     """When OpenCV is installed: the source times, in a few sampled frames of these lines, where a face falls outside
-    what cover keeps. [] when it is not, when no face is lost, or when a frame cannot be read; the note stands anyway."""
+    what cover keeps. [] when it is not, when no face is lost, or when a frame cannot be read; the note stands
+    anyway. Faces smaller than about 3% of the frame's width go unseen."""
     if not ffmpeg:
         return []
     import numpy as np
     detect, _ = load_sibling('reframe').make_face_detector()
     if detect is None:
         return []
-    width = 320
+    width = 640  # the detector's smallest face is 18 pixels
     height = max(2, even(display[1] * width / display[0]))
     found = []
     for seg in segments[:COVER_FACE_SAMPLES]:

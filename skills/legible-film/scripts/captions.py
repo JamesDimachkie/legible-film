@@ -2102,7 +2102,8 @@ def burn_video(args):
                      'setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv[out]') % (
                          colour, width, height)
         command.extend(['-filter_complex', graph, '-map', '[out]', '-map', '0:a?',
-                        '-c:v', 'libx264', '-crf', str(getattr(args, 'crf', 14)), '-pix_fmt', 'yuv420p',
+                        '-c:v', 'libx264', *(['-preset', args.preset] if getattr(args, 'preset', None) else []),
+                        '-crf', str(getattr(args, 'crf', 14)), '-pix_fmt', 'yuv420p',
                         '-fps_mode', 'passthrough', '-frames:v', str(frames),
                         '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
                         '-color_range', 'tv', '-c:a', 'aac', os.path.abspath(args.out)])
@@ -2167,6 +2168,7 @@ def argument_parser():
     burn.add_argument('video', help='input video')
     burn.add_argument('input', help='captions SRT, VTT or JSON')
     burn.add_argument('--out', required=True, help='output video')
+    burn.add_argument('--preset', help='x264 preset for the burned file (default: x264\'s own)')
     burn.add_argument('--crf', type=int, default=14, metavar='0-51',
                       help='H.264 quality, lower is better (default 14; 0 is lossless encoded YUV)')
     burn.add_argument('--size', help='output WIDTHxHEIGHT')
