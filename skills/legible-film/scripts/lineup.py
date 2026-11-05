@@ -21,15 +21,16 @@ Measured drift above one frame is reported and makes the command exit 1; a line 
 place in the recording, so the line itself stays in sync, and the sound and picture are never resampled.
 
 speakers compares level across lined-up microphones for each word of a source's transcript. Each mic is first scaled to
-its own loudest speech, so a hot mic does not win by gain; the mic that is clearly loudest over a word names its
-speaker, and a word with no clear winner keeps no label. Labels are drafts until a person reads them, like transcripts.
+its own speech (its loudest moments, then the median level of the words it clearly won), so a hot mic does not win by
+gain; the mic that is clearly loudest over a word names its speaker, and a word with no clear winner keeps no label.
+Labels are drafts until a person reads them, like transcripts.
 
-speakers --shared is for one track that holds everyone. It groups the transcript's words into stretches of unbroken talk,
-turns each into a voice embedding on this machine (SpeechBrain's ECAPA-TDNN, Apache-2.0, in a pinned ONNX conversion run
-by onnxruntime; about 84 MB, downloaded only with --download), clusters them into the N speakers you name and names them
-Speaker 1, Speaker 2 in order of appearance. A stretch too short to embed, or about as near two speakers as one, keeps no
-label. The model is never given audio from outside this machine and sends nothing out. It cannot count the speakers, tell
-who a person is, or see a speaker change inside a stretch, so it is weakest at quick exchanges.
+speakers --shared is for one track that holds everyone. It groups the transcript's words into stretches of unbroken
+talk, turns each into a voice embedding on this machine (SpeechBrain's ECAPA-TDNN, Apache-2.0, in a pinned ONNX
+conversion run by onnxruntime; about 84 MB, downloaded only with --download), clusters them into the N speakers you name
+and names them Speaker 1, Speaker 2 in order of appearance. A stretch too short to embed, or about as near two speakers
+as one, keeps no label. The model is never given audio from outside this machine and sends nothing out. It cannot count
+the speakers, tell who a person is, or see a speaker change inside a stretch, so it is weakest at quick exchanges.
 
 What this cannot establish: the sound's arrival time is what lines up, not the moment of speech, and sound takes about
 3 ms per metre, so a distant camera sits a few milliseconds behind a lavalier and by a different amount for each
@@ -91,6 +92,7 @@ TEST_Z = 6.0  # a tested window agrees only with a peak this strong
 STRONG_Z = 10.0  # the median peak at which confidence stops being scaled down
 MIN_CONFIDENCE = 0.6
 MIN_WON = 0.25  # the share of the searched stretches an offset covers that must have found it
+GAP_WINDOWS = 3  # this many test windows in a row that disagree mean one offset does not hold everywhere
 MIN_AGREED = 2
 MIN_DRIFT_SPAN_S = 60.0  # shorter overlaps cannot tell a drift from the windows' own scatter
 DRIFT_LIMIT = 0.002  # 2000 parts per million: more than this between two recordings is not drift
@@ -230,16 +232,14 @@ def choose_offsets(votes):
 
 
 def offset_line(members, base, strong):
-    """One candidate offset: a line through the stretches that found it, with how many repeats it has elsewhere."""
+    """One candidate offset: a line through the stretches that found it."""
     slope = 0.0
     if len(members) >= 2 and max(row['at'] for row in members) - min(row['at'] for row in members) >= MIN_DRIFT_SPAN_S:
         first, last = min(members, key=lambda row: row['at']), max(members, key=lambda row: row['at'])
         slope = (last['offset'] - first['offset']) / (last['at'] - first['at'])
     offsets = [row['offset'] - slope * row['at'] for row in members]
-    near = [other for row in members for other in row['others'] if abs(other['offset'] - base['offset']) > SAME_OFFSET_S
-            and other['z'] >= 0.8 * row['z']]
     return {'offset': float(np.median(offsets)), 'slope': float(slope), 'members': len(members), 'strong': strong,
-            'repeats': len(near), 'member_at': [row['at'] for row in members]}
+            'member_at': [row['at'] for row in members]}
 
 
 def inside_votes(votes, choice, length, total):
@@ -291,9 +291,7 @@ def test_windows(reference, source, reference_levels, source_levels, choice):
             continue
         corr = gcc(np.fft.rfft(piece - piece.mean(), count), np.fft.rfft(region - region.mean(), count), count, mask)
         noise = noise_of(corr)
-        spot = max(0, first) - first  # where the region starts inside its intended window
-        centre = reach - spot
-        allowed = corr[:reach * 2 + 1] if centre >= 0 else corr[:reach * 2 + 1]
+        allowed = corr[:reach * 2 + 1]
         peak = int(np.argmax(allowed))
         before = corr[peak - 1] if peak > 0 else allowed[peak]
         after = corr[peak + 1] if peak + 1 < len(corr) else allowed[peak]
@@ -302,6 +300,28 @@ def test_windows(reference, source, reference_levels, source_levels, choice):
         offset = (max(0, first) + peak + shift) / RATE - at
         rows.append({'at': round(at + width / 2, 3), 'offset': float(offset), 'z': float(allowed[peak]) / noise})
     return rows, (low, high), quiet
+
+
+def failing_run(rows, agreed):
+    """The stretch of a row of test windows that do not agree which suggests a gap or a restart, as (first time, last
+    time), or None. Windows that fail here and there are a weak signal; several in a row at either end of the overlap,
+    or a quarter of them in a row anywhere, mean one offset does not hold for the whole recording."""
+    good = {id(row) for row in agreed}
+    runs, current = [], []
+    for row in rows:
+        if id(row) in good:
+            if current:
+                runs.append(current)
+            current = []
+        else:
+            current.append(row)
+    if current:
+        runs.append(current)
+    for run in runs:
+        at_end = run[0] is rows[0] or run[-1] is rows[-1]
+        if len(run) >= max(GAP_WINDOWS, len(rows) // 4) or (at_end and len(run) >= GAP_WINDOWS):
+            return run[0]['at'], run[-1]['at']
+    return None
 
 
 def fit_line(rows):
@@ -339,12 +359,55 @@ def line_up(reference, source):
         for choice in choices:
             row = test_offset(reference, source, reference_levels, source_levels, votes, choice)
             if row['state'] == 'lined-up':
-                return row
+                row = second_offset(row, choice, choices)
+                return another_fits(row, reference, source, reference_levels, source_levels, votes, choice)
             if best is None or row.get('confidence', 0.0) > best.get('confidence', 0.0):
                 best = row
         if len(source) / RATE < wanted * 2:
             break
     return best
+
+
+def second_offset(row, choice, choices):
+    """A row that holds, unless a second offset also has several stretches behind it: stretches rarely agree by chance,
+    so that is a recording with a gap or a restart, right on one side of it and wrong on the other."""
+    rival = next((other for other in choices if other is not choice and other['members'] >= 2), None)
+    if rival is None:
+        return row
+    times = rival['member_at']
+    return dict(row, state='look', second_offset_s=round(rival['offset'], 3),
+                reason=f"most of the file fits {row['offset_s']:+.3f} s, but {rival['members']} stretches near "
+                       f'{project.format_time(min(times))}-{project.format_time(max(times))} on this source\'s clock '
+                       f"fit {rival['offset']:+.3f} s: one recording may have a gap or a restart. Split the file there "
+                       'and line up each part, or listen')
+
+
+def another_fits(row, reference, source, reference_levels, source_levels, votes, choice):
+    """A row that holds, unless the strongest offset any stretch found elsewhere passes the same test: in a loop or a
+    jingle many offsets fit, and nothing in the sound says which is right. Speech fails this test at any other offset,
+    however strong a stray peak in a stretch looked."""
+    if row['state'] != 'lined-up':
+        return row
+    rivals = sorted((vote for vote in votes if vote['offset'] is not None and vote['at'] not in choice['member_at']
+                     and abs(vote['offset'] - choice['offset']) > SAME_OFFSET_S),
+                    key=lambda vote: vote['z'], reverse=True)
+    tried = []
+    for vote in rivals:
+        if any(abs(vote['offset'] - offset) <= SAME_OFFSET_S for offset in tried):
+            continue
+        tried.append(vote['offset'])
+        rows = test_windows(reference, source, reference_levels, source_levels,
+                            {'offset': vote['offset'], 'slope': 0.0})[0]
+        passed = sum(1 for item in rows
+                     if item['z'] >= TEST_Z and abs(item['offset'] - vote['offset']) <= WINDOW_REACH / 2)
+        if len(rows) >= 2 and passed / len(rows) >= MIN_CONFIDENCE:
+            return dict(row, state='look', second_offset_s=round(vote['offset'], 3),
+                        reason=f"another offset fits as well ({vote['offset']:+.3f} s as well as "
+                               f"{row['offset_s']:+.3f} s): the sound repeats (a loop, a jingle, a tone), so listen "
+                               'and set the offset by hand')
+        if len(tried) >= 2:
+            break
+    return row
 
 
 def test_offset(reference, source, reference_levels, source_levels, votes, choice):
@@ -357,7 +420,8 @@ def test_offset(reference, source, reference_levels, source_levels, votes, choic
     agreed = [row for row in rows if row['z'] >= TEST_Z]
     if agreed:
         centre = float(np.median([row['offset'] - choice['slope'] * row['at'] for row in agreed]))
-        agreed = [row for row in agreed if abs(row['offset'] - choice['slope'] * row['at'] - centre) <= WINDOW_REACH / 2]
+        agreed = [row for row in agreed
+                  if abs(row['offset'] - choice['slope'] * row['at'] - centre) <= WINDOW_REACH / 2]
     tested = len(rows)
     row = {'windows': {'tested': tested, 'agreed': len(agreed), 'too_quiet': quiet},
            'search': {'stretches': len(votes), 'agreeing': choice['members'], 'other': choice['strong']
@@ -369,27 +433,28 @@ def test_offset(reference, source, reference_levels, source_levels, votes, choic
     intercept, slope, spread = fit_line(agreed)
     strength = float(np.median([item['z'] for item in agreed]))
     confidence = len(agreed) / tested * min(1.0, strength / STRONG_Z)
-    moment_low, moment_high = float(low), float(high)
     span = max(item['at'] for item in agreed) - min(item['at'] for item in agreed)
     measured = span >= MIN_DRIFT_SPAN_S and abs(slope) <= DRIFT_LIMIT
     row.update(offset_s=round(intercept, 6), drift_per_s=round(slope if measured else 0.0, 9),
-               drift_s=(round(slope * (moment_high - moment_low), 6) if measured else None),
+               drift_s=(round(slope * (high - low), 6) if measured else None),
                confidence=round(confidence, 3), strength=round(strength, 1), spread_ms=round(spread * 1000, 2),
-               overlap_source_s=[round(moment_low, 3), round(moment_high, 3)],
-               overlap_reference_s=[round(moment_low + intercept + slope * moment_low, 3),
-                                    round(moment_high + intercept + slope * moment_high, 3)])
+               overlap_source_s=[round(low, 3), round(high, 3)],
+               overlap_reference_s=[round(low + intercept + slope * low, 3), round(high + intercept + slope * high, 3)])
     row['search']['covered'] = covered
+    gap = failing_run(rows, agreed)
+    if gap and len(agreed) >= MIN_AGREED:
+        return dict(row, state='look', reason=f'the offset holds through most of the overlap but not around '
+                                              f'{project.format_time(gap[0])}-{project.format_time(gap[1])} on this '
+                                              "source's clock: one recording may have a gap or a restart, or that "
+                                              'stretch hears something else. Split the file there, or listen')
     if covered >= 2 and won / covered < MIN_WON:
-        return dict(row, state='look', reason=f'only {won} of the {covered} searched stretches this offset covers found '
-                                              'it, so a few words may match by chance: these recordings may not hold '
-                                              'the same conversation')
+        return dict(row, state='look', reason=f'only {won} of the {covered} searched stretches this offset covers '
+                                              'found it, so a few words may match by chance: these recordings may not '
+                                              'hold the same conversation')
     if confidence < MIN_CONFIDENCE or len(agreed) < min(MIN_AGREED, tested):
         return dict(row, state='look', reason=f'only {len(agreed)} of {tested} test windows agree '
                                               f'(median peak {strength:.1f}), so the recordings may not hold the '
                                               'same sound, or one has a gap or a restart')
-    if choice['repeats'] and choice['repeats'] >= choice['members']:
-        return dict(row, state='look', reason='another offset fits nearly as well: the sound repeats (a loop, a '
-                                              'jingle, a tone), so listen and set the offset by hand')
     if abs(slope) > DRIFT_LIMIT:
         return dict(row, state='look', reason=f'the offset moves {slope * 1e6:.0f} parts per million, far past any '
                                               "clock's drift: one recording has a gap, or changes speed")
@@ -643,7 +708,8 @@ def sync_report(record):
             continue
         state = row.get('state')
         if state == 'look':
-            lines.append(f"{alias}: look, not applied: {row.get('reason')}")
+            confidence = f" (confidence {row['confidence']:.2f})" if row.get('confidence') is not None else ''
+            lines.append(f"{alias}: look, not applied{confidence}: {row.get('reason')}")
             continue
         if state == 'set-by-hand':
             lines.append(f"{alias}: {row['offset_s']:+.3f} s, set by hand: {row.get('note')}")
@@ -710,14 +776,13 @@ def speech_levels(path, stream, length):
 class MicLevels:
     """One microphone's level track, scaled to its own speech and floor, with quick averages over any span."""
 
-    def __init__(self, power, shift=None):
+    def __init__(self, power):
         self.power = power
         self.total = np.concatenate([[0.0], np.cumsum(power.astype(np.float64))])
         positive = power[power > 0]
         self.db = 10 * np.log10(positive + 1e-12) if len(positive) else np.zeros(1)
         self.own = float(np.percentile(self.db, OWN_PERCENTILE))
         self.floor = float(np.percentile(self.db, FLOOR_PERCENTILE))
-        self.shift = shift
 
     def level(self, start, end):
         """The mean level in dB over a span of its own clock; None when the span is outside its sound."""
@@ -749,21 +814,42 @@ def trimmed(start, end):
     return start + trim, end - trim
 
 
+def word_levels(word, alias, lineup, levels):
+    """Each mic's plain level over a word's core, or None where the mic does not cover it."""
+    low, high = trimmed(float(word['start']), float(word['end']))
+    return {mic: track.level(lineup.map_time(alias, mic, low), lineup.map_time(alias, mic, high))
+            for mic, track in levels.items()}
+
+
+def settle_own_levels(words, alias, lineup, levels, margin):
+    """Scale each mic to the median level of the words it clearly won, a better measure of its own speech than its
+    loudest moments: on two real meetings it labelled 3 to 25 points more words and got more of them right."""
+    won = {mic: [] for mic in levels}
+    for word in words:
+        plain = word_levels(word, alias, lineup, levels)
+        scaled = {mic: None if value is None else (value - levels[mic].own, value - levels[mic].floor)
+                  for mic, value in plain.items()}
+        winner, _ = word_winner(scaled, margin)
+        if winner:
+            won[winner].append(plain[winner])
+    for mic, rows in won.items():
+        if rows:
+            levels[mic].own = float(np.median(rows))
+
+
 def label_words(words, alias, lineup, levels, names, margin=MARGIN_DB):
     """Label each word in place by the mic clearly loudest over it, keeping labels a person gave. Returns the counts."""
     counts = {name: 0 for name in names.values()}
     unlabelled = kept = 0
+    settle_own_levels(words, alias, lineup, levels, margin)
     for word in words:
         if word.get('speaker_by') == 'person':
             kept += 1
             if word.get('speaker') in counts:
                 counts[word['speaker']] += 1
             continue
-        low, high = trimmed(float(word['start']), float(word['end']))
-        measured = {}
-        for mic, track in levels.items():
-            level = track.level(lineup.map_time(alias, mic, low), lineup.map_time(alias, mic, high))
-            measured[mic] = None if level is None else (level - track.own, level - track.floor)
+        measured = {mic: None if value is None else (value - levels[mic].own, value - levels[mic].floor)
+                    for mic, value in word_levels(word, alias, lineup, levels).items()}
         winner, _ = word_winner(measured, margin)
         word['speaker'] = names[winner] if winner else None
         word.pop('speaker_by', None)
@@ -836,7 +922,8 @@ def rename_speaker(root, alias, renames):
 # ----------------------------------------------------------------------------------------------- one shared track
 
 SHARED_REVISION = 'a9cb9321b07b4ee5b0ea47fdd25242d9cacd824a'
-SHARED_URL = ('https://huggingface.co/vedk00/ecapa-voxceleb-speaker-embedding-onnx/resolve/' + SHARED_REVISION + '/model/')
+SHARED_URL = ('https://huggingface.co/vedk00/ecapa-voxceleb-speaker-embedding-onnx/resolve/'
+              + SHARED_REVISION + '/model/')
 SHARED_FILES = {'ecapa-speaker-v1.onnx': 'f46380bbaeddb929fb3a10ab63a4b1877a50e3d1e5fdd55a1b618d5651d3f64e',
                 'fbank-80x201-f32.bin': '024e5073b7cfedee84408dc68dd6bafa02808fc786e67f1314e9c918297f5a63'}
 SHARED_MB = 84
@@ -846,16 +933,12 @@ GROUP_LONGEST_S = 2.5  # long enough to embed well, short enough to rarely hold 
 GROUP_SHORTEST_S = 0.5  # shorter than this says little about a voice, and stays unlabelled
 FIT_SHORTEST_S = 1.0  # the clusters are fitted on the stretches long enough to embed well
 FIT_MOST = 1500  # stretches clustered, evenly sampled above this; the rest take their nearest centre
-SHARED_MARGIN = 0.04  # how much nearer the best speaker's centre must be than the next (cosine similarity)
+SHARED_MARGIN = 0.08  # how much nearer the best speaker's centre must be than the next (cosine similarity)
 
 
 def model_folder():
     """Where the skill keeps pinned models (setup.py's per-user cache), created only when something is saved."""
-    if os.name == 'nt':
-        home = Path(os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local') / 'legible-film'
-    else:
-        home = Path(os.environ.get('XDG_DATA_HOME') or Path.home() / '.local' / 'share') / 'legible-film'
-    return home / 'models'
+    return load_sibling('setup').data_home() / 'models'
 
 
 def shared_model(download):
@@ -864,9 +947,9 @@ def shared_model(download):
     folder = model_folder()
     missing = [name for name in SHARED_FILES if not (folder / name).is_file()]
     if missing and not download:
-        raise ValueError(f'the speaker model is not on this machine. It is about {SHARED_MB} MB (SpeechBrain ECAPA-TDNN, '
-                         'Apache-2.0, a pinned ONNX conversion) and downloads only when asked: add --download. Nothing '
-                         'else leaves or enters this machine.')
+        raise ValueError(f'the speaker model is not on this machine. It is about {SHARED_MB} MB (SpeechBrain '
+                         'ECAPA-TDNN, Apache-2.0, a pinned ONNX conversion) and downloads only when asked: add '
+                         '--download. Nothing else leaves or enters this machine.')
     if missing:
         import tempfile
         import urllib.request

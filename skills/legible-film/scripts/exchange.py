@@ -1787,9 +1787,9 @@ def run_write(args):
     if not captions.is_file():
         notes.append('The version has no captions.srt; no SRT was written.')
     if manifest.get('lineup'):
-        notes.append('The line-up itself is not carried: each camera and mic clip sits at the in-point its offset gave, '
-                     'with no sync group or multicam clip, and a drift correction is the in-point of each clip. Slip a '
-                     'clip and it leaves the others; link them in the editor first if you mean to.')
+        notes.append('The line-up itself is not carried: each camera and mic clip sits at the in-point its offset '
+                     'gave, with no sync group or multicam clip, and a drift correction is the in-point of each clip. '
+                     'Slip a clip and it leaves the others; link them in the editor first if you mean to.')
     if edit.get('holds'):
         notes.append('Hold effects are not carried as editable source holds.')
     if edit.get('film_fades'):

@@ -2359,8 +2359,10 @@ class Compiler:
                                     self.grid(alias) if has_picture else (self.rate, 0.0), limit, entry['line']))
             shift = lineup.map_time(alias, sound_alias, run['in']) - run['in'] if sound_alias else 0.0
             sound_in, sound_out = run['in'] + shift, run['out'] + shift
-            item = {'track': 'dialogue', 'src': sound_alias or alias, 'in': round(sound_in, 6),
-                    'out': round(sound_out, 6), 'at': round(at, 6), 'fade_ms': AUDIO_FADE_MS,
+            # A mic that started a hair after this piece: its sound starts when it does, at the right moment.
+            late = max(0.0, -sound_in)
+            item = {'track': 'dialogue', 'src': sound_alias or alias, 'in': round(sound_in + late, 6),
+                    'out': round(sound_out, 6), 'at': round(at + late, 6), 'fade_ms': AUDIO_FADE_MS,
                     **({'gain_db': gain} if gain else {})}
             if same_boundary and number == 0:
                 previous['audio']['fade_out_ms'] = 0
@@ -2427,7 +2429,8 @@ class Compiler:
             if first < -RANGE_SLACK or (stop and last > stop + RANGE_SLACK):
                 begin = lineup.map_time(sound, alias, 0.0)
                 finish = lineup.map_time(sound, alias, stop) if stop else None
-                covers = f'{fmt(max(0.0, begin))}-{fmt(finish)}' if finish is not None else f'from {fmt(max(0.0, begin))}'
+                covers = (f'{fmt(max(0.0, begin))}-{fmt(finish)}' if finish is not None
+                          else f'from {fmt(max(0.0, begin))}')
                 self.problems.error(entry['line'], f"{sound} has no sound for {fmt(low)}-{fmt(high)} of {alias}: on "
                                     f"{alias}'s clock it runs {covers}",
                                     f'keep this line inside that stretch, or take its sound from another source')
@@ -2498,8 +2501,9 @@ class Compiler:
             extra['sound_source'] = sound_alias
             self.say_drift(sound_alias, entry['line'])
         if 'sound' in entry['mods']:
-            item = {'track': 'nat', 'src': sound_alias or alias, 'in': sound_in, 'out': sound_out,
-                    'at': round(start, 6), 'fade_ms': 15, 'gain_db': entry['mods']['sound']}
+            late = max(0.0, -sound_in)
+            item = {'track': 'nat', 'src': sound_alias or alias, 'in': sound_in + late, 'out': sound_out,
+                    'at': round(start + late, 6), 'fade_ms': 15, 'gain_db': entry['mods']['sound']}
             self.audio.append(item)
         self.cursor = start + length
         record = self.record(entry, 'picture', start, self.cursor, speed=speed, **extra)
@@ -2836,8 +2840,8 @@ class Compiler:
         rest of the line."""
         line, alias = over['line'], over['alias']
         if parent['kind'] not in ('spoken', 'picture'):
-            self.problems.error(line, f'~ {alias} sync needs a spoken or picture line above it to take its moment from; '
-                                f'a {parent["kind"]} has no source clock',
+            self.problems.error(line, f'~ {alias} sync needs a spoken or picture line above it to take its moment '
+                                f'from; a {parent["kind"]} has no source clock',
                                 'put it under a spoken or picture line, or write a cutaway with its own range')
             return
         reason = self.map.lineup_problem(parent['alias'], alias)
@@ -2873,10 +2877,12 @@ class Compiler:
             moment = piece['clock_in'] + (low - piece['at']) * speed
             first = lineup.map_time(piece['clock_alias'], alias, moment)
             last = first + (high - low) * speed
-            if first < -RANGE_SLACK or (stop and last > stop + RANGE_SLACK):
+            half_frame = 0.5 / float(self.grid(alias)[0])
+            if first < -half_frame or (stop and last > stop + RANGE_SLACK):
                 begin = lineup.map_time(alias, piece['clock_alias'], 0.0)
                 finish = lineup.map_time(alias, piece['clock_alias'], stop) if stop else None
-                covers = f'{fmt(max(0.0, begin))}-{fmt(finish)}' if finish is not None else f'from {fmt(max(0.0, begin))}'
+                covers = (f'{fmt(max(0.0, begin))}-{fmt(finish)}' if finish is not None
+                          else f'from {fmt(max(0.0, begin))}')
                 self.problems.error(line, f"{alias} has no picture for this moment ({fmt(moment)} of "
                                     f"{piece['clock_alias']}): on {piece['clock_alias']}'s clock it runs {covers}",
                                     'start it later with +N, end it sooner with SECONDS, or show another camera')
@@ -3596,6 +3602,7 @@ SLIVER = 0.5
 
 
 BACKWARD_S = 30.0
+SPEECH_ROLES = ('interview', 'camera', 'mic')  # sources where consecutive lines read as one telling
 FEED_WIDTH = 390
 FEED_WORDS = re.compile(r'\b(phone|feed|scroll\w*|mobile|social|reels?|shorts|tiktok|instagram|stories)\b', re.I)
 
@@ -3736,7 +3743,7 @@ def out_of_order(plan, source_map, problems):
                     key=lambda record: record['start'])
     for before, after in zip(spoken, spoken[1:]):
         alias = after.get('source')
-        if alias != before.get('source') or (source_map.sources.get(alias) or {}).get('role') != 'interview':
+        if alias != before.get('source') or (source_map.sources.get(alias) or {}).get('role') not in SPEECH_ROLES:
             continue
         back = before['range'][1] - after['range'][0]
         if back > BACKWARD_S:
@@ -4018,6 +4025,8 @@ def spoken_summary(record):
     kept = len(record.get('words', []))
     cut = [word['text'] for word in record.get('cut_words', [])]
     parts = [f'line {record["line"]} {record.get("source")}: keeps {kept} of {kept + len(cut)} words']
+    if record.get('sound_source'):
+        parts[0] += f', sound from {record["sound_source"]}'
     if cut:
         shown = ', '.join(f'"{text}"' for text in cut[:8]) + (' ...' if len(cut) > 8 else '')
         parts.append('cuts ' + shown)
@@ -5494,6 +5503,8 @@ def modifier_text(name, value):
 def describe(entry):
     """A readable form of a line, retaining its full text, strike marks and modifiers."""
     parts = [entry['kind'], entry.get('alias') or '']
+    if entry.get('sync'):
+        parts.append('sync')
     if entry.get('start') is not None:
         parts.append(f'{fmt(entry["start"])}-{fmt(entry["end"])}')
     if entry.get('seconds') is not None:

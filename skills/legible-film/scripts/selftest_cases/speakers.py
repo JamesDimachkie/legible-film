@@ -37,7 +37,9 @@ def example(scripts_dir):
     """(clip, transcript words) of the first-cut example, or None where it is not installed."""
     folder = Path(scripts_dir).parents[2] / 'examples' / 'first-cut'
     clip, words = folder / 'tears-of-steel-bridge.mp4', folder / 'tears-of-steel-bridge.words.json'
-    return (clip, json.loads(words.read_text(encoding='utf-8'))['words']) if clip.is_file() and words.is_file() else None
+    if not clip.is_file() or not words.is_file():
+        return None
+    return clip, json.loads(words.read_text(encoding='utf-8'))['words']
 
 
 def clip_samples(clip):
@@ -187,7 +189,10 @@ def check_lineup(tool, record, j, scripts_dir, speech):
              'mic_early.wav': early(mic(voices, 'Thom', 3, gain_db=4), 3.5),
              'cam_late.wav': late(camera(voices, 4, gain_db=-14, noise_db=-44), 41.0),
              'drift.wav': drifted(mic(voices, 'Thom', 5), 500.0),
-             'other.wav': mic(other_voices, 'Celia', 6)}
+             'other.wav': mic(other_voices, 'Celia', 6),
+             # Recorder stopped for 8 s, 85% of the way through: most of the file fits one offset, and the end does not.
+             'restart.wav': (lambda sound: np.concatenate([sound[:int(125 * RATE)], sound[int(133 * RATE):]]))(
+                 mic(voices, 'Thom', 7))}
     for name, data in files.items():
         write_wav(work / name, data, 44100 if name == 'mic_late.wav' else 22050 if name == 'cam_late.wav' else RATE)
     # A repeating sound fits many offsets: a tone that loops, and a recording with no sound at all.
@@ -198,7 +203,8 @@ def check_lineup(tool, record, j, scripts_dir, speech):
     aliases = new_project(tool, root, [('camera', work / 'cam.wav'), ('mic', work / 'mic_late.wav'),
                                        ('mic', work / 'mic_early.wav'), ('camera', work / 'cam_late.wav'),
                                        ('mic', work / 'drift.wav'), ('other', work / 'other.wav'),
-                                       ('other', work / 'loop.wav'), ('other', work / 'silent.wav')])
+                                       ('other', work / 'loop.wav'), ('other', work / 'silent.wav'),
+                                       ('mic', work / 'restart.wav')])
     code, output = tool('map.py', 'sync', root, '--reference', aliases['cam.wav'])
     record('speakers: map.py sync exits 1 and prints a look when something cannot be lined up',
            code == 1 and 'look' in output, f'exit {code}: {output[-400:]}')
@@ -210,7 +216,8 @@ def check_lineup(tool, record, j, scripts_dir, speech):
     late_error = error_ms('mic_late.wav', 7.25)
     record('speakers: a mic that starts late, at another rate and level, under room noise lines up within 2 ms',
            late_error <= 2 and rows[aliases['mic_late.wav']]['state'] == 'lined-up'
-           and rows[aliases['mic_late.wav']]['confidence'] >= 0.6, f'{late_error:.2f} ms: {rows[aliases["mic_late.wav"]]}')
+           and rows[aliases['mic_late.wav']]['confidence'] >= 0.6,
+           f'{late_error:.2f} ms: {rows[aliases["mic_late.wav"]]}')
     early_error = error_ms('mic_early.wav', -3.5)
     record('speakers: a mic that started before the reference gets a negative offset within 2 ms', early_error <= 2,
            f'{early_error:.2f} ms: {rows[aliases["mic_early.wav"]].get("offset_s")}')
@@ -220,18 +227,28 @@ def check_lineup(tool, record, j, scripts_dir, speech):
     drift = rows[aliases['drift.wav']]
     record('speakers: a clock 500 parts per million fast is measured as drift across the overlap',
            drift.get('state') == 'lined-up' and abs(abs(drift.get('drift_s') or 0) - 0.076) < 0.01, str(drift))
-    record('speakers: drift over one frame is printed, not hidden', 'DRIFT' in output and aliases['drift.wav'] in output,
-           output[-400:])
+    record('speakers: drift over one frame is printed, not hidden',
+           'DRIFT' in output and aliases['drift.wav'] in output, output[-400:])
     from_end = load(scripts_dir, 'lineup').Lineup(root).map_time(aliases['cam.wav'], aliases['drift.wav'], 140.0)
     record('speakers: a drifting source maps to its right place late in the recording',
            abs(from_end - 140.0 * (1 + 500e-6)) < 0.004, f'{from_end:.4f} s')
     record('speakers: a recording of another conversation is a look and is not applied',
            rows[aliases['other.wav']]['state'] == 'look' and rows[aliases['other.wav']].get('reason'),
            str(rows[aliases['other.wav']]))
+    record('speakers: a recording that stopped and restarted is a look, though most of it fits one offset',
+           rows[aliases['restart.wav']]['state'] == 'look' and 'gap' in rows[aliases['restart.wav']].get('reason', ''),
+           str(rows[aliases['restart.wav']]))
     record('speakers: a looping tone is a look with its reason', rows[aliases['loop.wav']]['state'] == 'look',
            str(rows[aliases['loop.wav']]))
     record('speakers: a silent recording is a look with its reason', rows[aliases['silent.wav']]['state'] == 'look',
            str(rows[aliases['silent.wav']]))
+    # Both recordings hold the same loop: any whole number of its repeats fits equally.
+    rng = np.random.default_rng(3)
+    bar = (rng.standard_normal(RATE // 2) * np.hanning(RATE // 2) * 8000).astype(np.int16)
+    both = np.tile(bar, 180)[::6]
+    row = load(scripts_dir, 'lineup').line_up(both, both[8000:])
+    record('speakers: two recordings of one repeating sound are a look, and say why',
+           row['state'] == 'look' and 'offset' in row.get('reason', ''), str(row)[:300])
     cam = aliases['cam.wav']
     mic_alias = aliases['mic_late.wav']
     sources = json.loads((root / 'map' / 'sources.json').read_text(encoding='utf-8'))['sources']
@@ -320,8 +337,8 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
     counted_camera(speed, scripts_dir, work / 'cam_a.mp4', seconds, rate, work / 'cam_a.wav')
     counted_camera(speed, scripts_dir, work / 'cam_b.mp4', seconds - 1.2, rate, work / 'cam_b.wav')
     root = work / 'project'
-    new_project(tool, root, [('camera', work / 'cam_a.mp4'), ('camera', work / 'cam_b.mp4'), ('mic', work / 'mic_a.wav'),
-                             ('mic', work / 'mic_b.wav')])
+    new_project(tool, root, [('camera', work / 'cam_a.mp4'), ('camera', work / 'cam_b.mp4'),
+                             ('mic', work / 'mic_a.wav'), ('mic', work / 'mic_b.wav')])
     rows = [row for row in rows if row['end'] < seconds - 0.5]
     write_words(root, 'cam_01', rows)
     def film(body, size='320x180', captions='none', fps=rate):
@@ -406,7 +423,8 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
     film(body)
     code, found = problems()
     errors = [item for item in found if item['severity'] == 'error']
-    record('speakers: the synced line with sound from a mic passes check', code in (0, 1) and not errors, str(errors)[-400:])
+    record('speakers: the synced line with sound from a mic passes check', code in (0, 1) and not errors,
+           str(errors)[-400:])
     compared = speed.compare_paths(tool, record, 'a synced camera over a line with a cut, sound from a mic', root)
     if not compared:
         return
@@ -491,6 +509,20 @@ def check_paper_edit(tool, record, j, scripts_dir, speech):
            code in (0, 1) and nat and nat[0]['src'] == 'mic_02'
            and abs(nat[0]['in'] - (round(half, 2) + data['cam_02']['offset_s'] - data['mic_02']['offset_s'])) < 1e-3,
            f'exit {code}, {str(nat)[:200]}; ' + output[-400:])
+    # Every reader refuses a changed file, at the same size, for the sound and for the picture.
+    for path, name in ((work / 'mic_a.wav', 'mic'), (work / 'cam_b.mp4', 'camera')):
+        film(body)
+        original = path.read_bytes()
+        changed = bytearray(original)
+        changed[len(changed) // 2] ^= 0xFF
+        path.write_bytes(bytes(changed))
+        code, found = problems()
+        hit = next((item for item in found if item['severity'] == 'error' and 'changed' in item['message']), None)
+        render_code, render_output = tool('cut.py', 'render', root)
+        path.write_bytes(original)
+        record(f'speakers: a changed {name}, at the same size, is refused by check on its line and blocks a render',
+               code == 1 and hit is not None and hit['line'] in (10, 11) and render_code == 2,
+               f'check {code}, render {render_code}: {str(found)[-300:]}')
     check_other_rate(tool, record, j, scripts_dir, speech)
     check_used_sound(tool, record, j, scripts_dir, speech)
     check_one_source(tool, record, j, scripts_dir, speech)
@@ -632,8 +664,8 @@ def check_labels(tool, record, j, scripts_dir, speech):
            output[-300:])
     code, output = tool('map.py', 'sync', root, '--reference', 'cam_01')
     data = saved(root)['sources']
-    record('speakers: the label fixture lines up', all(data[name]['state'] == 'lined-up' for name in ('mic_01', 'mic_02')),
-           output[-400:])
+    record('speakers: the label fixture lines up',
+           all(data[name]['state'] == 'lined-up' for name in ('mic_01', 'mic_02')), output[-400:])
     code, output = tool('map.py', 'speakers', root, 'cam_01', '--mic', 'mic_01=Celia', '--mic', 'mic_02=Thom')
     path = root / 'map' / 'cam_01' / 'words.json'
     stored = json.loads(path.read_text(encoding='utf-8'))
@@ -643,7 +675,8 @@ def check_labels(tool, record, j, scripts_dir, speech):
            code == 0 and correct / max(1, correct + wrong) >= 0.97 and none <= 0.1 * len(rows),
            f'{correct} right, {wrong} wrong, {none} unlabelled of {len(rows)}')
     record('speakers: the words record how they were labelled, as a draft',
-           stored.get('speaker_labels', {}).get('method') == 'mic-level' and stored['speaker_labels'].get('draft') is True
+           stored.get('speaker_labels', {}).get('method') == 'mic-level'
+           and stored['speaker_labels'].get('draft') is True
            and 'read' in stored['speaker_labels'].get('note', ''), str(stored.get('speaker_labels'))[:200])
     record('speakers: map.py speakers says labels are drafts', 'Drafts' in output, output[-200:])
     code, shown = tool('map.py', 'words', root, 'cam_01', '--from', '0', '--to', '20')
@@ -678,6 +711,15 @@ def check_labels(tool, record, j, scripts_dir, speech):
     stored = json.loads((root / 'map' / 'cam_01' / 'words.json').read_text(encoding='utf-8'))['words']
     record('speakers: a word with no clear winner stays unlabelled', code == 0 and all(
         word.get('speaker') is None for word in stored), output[-200:])
+    media = work / 'same_a.wav'
+    original = media.read_bytes()
+    changed = bytearray(original)
+    changed[len(changed) // 2] ^= 0xFF
+    media.write_bytes(bytes(changed))
+    code, output = tool('map.py', 'speakers', root, 'cam_01', '--mic', 'mic_01=A', '--mic', 'mic_02=B')
+    media.write_bytes(original)
+    record('speakers: a mic changed since the line-up is refused when labelling', code == 2 and 'changed' in output,
+           output[-200:])
     code, output = tool('map.py', 'speakers', root, 'cam_01', '--rename', 'A=Ana')
     record('speakers: --rename needs no line-up and changes no unlabelled word', code == 0, output[-200:])
     check_caption_breaks(tool, record, j, scripts_dir)
@@ -687,9 +729,9 @@ def check_caption_breaks(tool, record, j, scripts_dir):
     """Captions break where the speaker changes, in captions.py itself and through a rendered film."""
     speed = load(scripts_dir, 'speed', 'selftest_cases')
     captions = load(scripts_dir, 'captions')
+    said = [('we', 'A'), ('both', 'A'), ('know', 'A'), ('that', 'A'), ('do', 'B'), ('we', 'B'), ('really', 'B')]
     words = [{'id': f'x-w{number:06d}', 'text': text, 'start': 0.3 * number, 'end': 0.3 * number + 0.25,
-              'speaker': speaker} for number, (text, speaker) in enumerate(
-                  [('we', 'A'), ('both', 'A'), ('know', 'A'), ('that', 'A'), ('do', 'B'), ('we', 'B'), ('really', 'B')])]
+              'speaker': speaker} for number, (text, speaker) in enumerate(said)]
     source = Path(j('speakers-caption-words.json'))
     source.write_text(json.dumps({'words': words}), encoding='utf-8')
     prefix = j('speakers-caption')
@@ -754,7 +796,8 @@ def check_shared(tool, record, j, scripts_dir, speech, skip=None):
            str([row['speaker'] for row in rows]))
     record('speakers: one track: a stretch about as near two voices stays unlabelled', rows[4]['speaker'] is None,
            str(rows[4]))
-    record('speakers: one track: a stretch too short to judge stays unlabelled', rows[5]['speaker'] is None, str(rows[5]))
+    record('speakers: one track: a stretch too short to judge stays unlabelled', rows[5]['speaker'] is None,
+           str(rows[5]))
     record('speakers: one track: a label a person gave is kept', rows[6]['speaker'] == 'Ana' and counts[
         'kept_from_a_person'] == 1, str(rows[6]))
     # The model's download and pin, with no network: an empty cache, then a file with the wrong bytes.
@@ -783,7 +826,8 @@ def check_shared(tool, record, j, scripts_dir, speech, skip=None):
             message = ''
         except ValueError as error:
             message = str(error)
-        record('speakers: one track: a model file that does not match its pin is refused', 'SHA-256' in message, message)
+        record('speakers: one track: a model file that does not match its pin is refused', 'SHA-256' in message,
+               message)
     finally:
         for name, value in saved_homes.items():
             if value is None:
@@ -828,9 +872,10 @@ IMPORTS = {
                        'speaker': 1}]}]}]}},
         [('Hello', 0.5, 0.9, '0'), ('there.', 1.0, 1.5, '0'), ('Hi.', 2.0, 2.5, '1')]),
     'AssemblyAI: milliseconds become seconds and speakers stay': (
-        {'audio_duration': 3, 'words': [{'text': 'Hello', 'start': 500, 'end': 900, 'confidence': 0.9, 'speaker': 'A'},
-                                        {'text': 'there.', 'start': 1000, 'end': 1500, 'confidence': 0.8, 'speaker': 'A'},
-                                        {'text': 'Hi.', 'start': 2000, 'end': 2500, 'confidence': 0.9, 'speaker': 'B'}]},
+        {'audio_duration': 3, 'words': [
+            {'text': 'Hello', 'start': 500, 'end': 900, 'confidence': 0.9, 'speaker': 'A'},
+            {'text': 'there.', 'start': 1000, 'end': 1500, 'confidence': 0.8, 'speaker': 'A'},
+            {'text': 'Hi.', 'start': 2000, 'end': 2500, 'confidence': 0.9, 'speaker': 'B'}]},
         [('Hello', 0.5, 0.9, 'A'), ('there.', 1.0, 1.5, 'A'), ('Hi.', 2.0, 2.5, 'B')]),
     'Rev: monologues, with punctuation joined to its word': (
         {'monologues': [{'speaker': 0, 'elements': [
@@ -931,8 +976,10 @@ def check_imports(tool, record, j, scripts_dir):
     # Milliseconds with no sign of the service in the file: the media's length tells.
     bare = work / 'bare.json'
     bare.write_text(json.dumps({'words': [{'text': 'Hello', 'start': 500, 'end': 900, 'speaker': 'A'},
-                                          {'text': 'Hi', 'start': 2000, 'end': 2500, 'speaker': 'B'}]}), encoding='utf-8')
-    code, output = tool('map.py', 'run', root, '--alias', 'src_01', '--words', f'import:{bare}', '--retranscribe', 'src_01')
+                                          {'text': 'Hi', 'start': 2000, 'end': 2500, 'speaker': 'B'}]}),
+                    encoding='utf-8')
+    code, output = tool('map.py', 'run', root, '--alias', 'src_01', '--words', f'import:{bare}',
+                        '--retranscribe', 'src_01')
     stored = json.loads((root / 'map' / 'src_01' / 'words.json').read_text(encoding='utf-8'))
     record('speakers: word times far past the media\'s end are read as milliseconds, and it says so',
            code in (0, 1) and abs(stored['words'][1]['end'] - 2.5) < 1e-6 and 'millisecond' in output, output[-300:])

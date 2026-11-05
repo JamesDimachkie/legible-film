@@ -323,12 +323,12 @@ sound alone, with no clap. Name as the reference a source that hears everyone, a
 the longest source with picture and sound. For each source it prints the offset, a confidence and the drift between the
 start and the end of the overlap, and saves them in `map/sync.json` bound to every file's SHA-256 and sound stream.
 
-- A changed source makes its row **stale** and a changed reference makes every row stale; `cut.py check`, `cut.py render`
-  and `map.py speakers` refuse a stale row. `map.py sync PROJECT --check` shows the record as they see it.
+- A changed source makes its row **stale** and a changed reference makes every row stale; `cut.py check`, `cut.py
+  render` and `map.py speakers` refuse a stale row. `map.py sync PROJECT --check` shows the record as they see it.
 - A low confidence, no overlap, two offsets that fit about equally or too little sound is a **look** with its reason. It
   is never applied, and `map.py sync` exits 1. Listen, find the offset, and set it with `map.py sync PROJECT --set
-  ALIAS=SECONDS --note TEXT`, which is recorded in `decisions.jsonl`. The number is where that source's 0:00 falls on the
-  reference's clock.
+  ALIAS=SECONDS --note TEXT`, which is recorded in `decisions.jsonl`. The number is where that source's 0:00 falls on
+  the reference's clock.
 - **Drift** over one frame is printed and makes the command exit 1, and `check` warns on the first line that uses the
   source. Each stretch of a line uses the offset at its own place in the recording, so lines stay in step through a long
   recording; only a very long unbroken take moves against its picture. Picture and sound are never resampled, and the
@@ -336,29 +336,59 @@ start and the end of the overlap, and saves them in `map/sync.json` bound to eve
 - What lines up is where sound arrives. Sound takes about 3 ms a metre, so a camera across a room sits a few
   milliseconds behind a lavalier, by a different amount for each speaker; that much is under a frame. A confident offset
   says two recordings hold the same sound. It cannot say a camera's picture is in sync with its own sound.
+- A gap or restart inside a file is a look when the windows or searched stretches show it, since one offset cannot hold
+  on both sides of it. A short dropout, or one near the very end, can fall between them, so split a file you know was
+  stopped, and watch the end of a long recording.
 
-Measured on AMI_NUMBERS_SYNC
+Measured on three meetings of the [AMI corpus](https://groups.inf.ed.ac.uk/ami/corpus/) (CC BY 4.0; checked 2026-11-05),
+15 to 25 minutes each, whose files share one clock, so a trim gives a known answer. A far-field table mic stood in for a
+camera, close headsets and a mix for mics. 25 of 27 pairs lined up, among them headset against headset, where only
+another person's faint voice connects them, and 100 parts per million of added drift (read within 2 ms of the 91 to
+151 ms added). The error had a median of 2.9 ms and a worst of 10.3 ms, and it includes the metres of air between the
+mics; a frame at 30 fps is 33 ms. The other two were 15 s excerpts against a whole meeting, and were looks. All 6 pairs
+from different meetings were looks. These are meetings in a few rooms, not podcasts, and no real camera's clock or
+picture was tested: a real camera's drift, a far-off mic or a very short overlap can do worse.
 
 **Who speaks.** `speaker` on a word in `words.json` is shown by `map.py words` and `transcript.md`, and it reaches
-`lines.json` and the captions, which break where it changes. Three things can set it, and a label is a draft until a
+`lines.json` and the captions, which break where it changes. Four things can set it, and a label is a draft until a
 person reads it, like the transcript itself:
 
 - **Per-person mics:** `map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben` compares level across the
-  lined-up mics over each word of ALIAS's transcript. Each mic is first scaled to its own loudest speech, so a hot mic
-  does not win by gain. The mic clearly loudest over a word (by 6 dB, `--margin`) names its speaker. A word with no clear
-  winner stays unlabelled, and so do most words where people talk over each other. It says which mic heard a word
-  loudest, not who a person is: a shared table, open mics in a small room or a person leaning into another's mic will
-  mislabel words, and a mic that hears everyone equally names nobody it cannot beat.
+  lined-up mics over each word of ALIAS's transcript. Each mic is first scaled to its own speech, so a hot mic does not
+  win by gain. The mic clearly loudest over a word (by 6 dB, `--margin`) names its speaker. A word with no
+  clear winner stays unlabelled, and so do most words where people talk over each other. It says which mic heard a word
+  loudest, not who a person is: open mics in a small room or a person leaning into another's mic will mislabel words,
+  and a mic that hears everyone wins whatever the others hear faintly, so give each mic one person.
 - **An imported transcript:** `map.py run PROJECT --alias ALIAS --words import:FILE` keeps the speaker fields of
   WhisperX, Deepgram, AssemblyAI, Rev, Amazon Transcribe, ElevenLabs Scribe and Google Speech-to-Text JSON and WebVTT
   `<v Name>` tags. `map.py speakers PROJECT ALIAS --rename 0=Ana` gives them names. These follow each format's
   documented shape and were tested on written examples, not on a recent export from each service.
 - **A person:** `map.py fix PROJECT WORD_ID --speaker Ana [--through WORD_ID]`, recorded in `decisions.jsonl` and kept
   when `map.py speakers` runs again.
+- **One shared track:** `map.py speakers PROJECT ALIAS --shared --speakers 2 [--download]` is for a recording with no
+  per-person mics. It groups the transcript's words into stretches of talk, turns each into a voice embedding on this
+  machine, clusters them into the number of people you name and calls them `Speaker 1`, `Speaker 2`; `--rename` names
+  them. A stretch under 0.5 s, or about as near two voices as one, keeps no label. It needs onnxruntime and a model of
+  about 84 MB ([engines](engines.md)), which downloads only with `--download`; no audio leaves the machine. It cannot
+  count the speakers, and it cannot see a change of speaker inside a stretch of 2.5 s or less, so quick exchanges are
+  its weakest place. Use mics when there are mics: it is wrong about three times as often.
 
-Measured on AMI_NUMBERS_LABELS
+Measured on the same three meetings, with each person's real headset as their mic (real bleed, real talk over talk) and
+the corpus's hand-timed words as the transcript. Spread is across meetings:
 
-**One shared track.** ONE_TRACK_TEXT
+| Method | People | Words | Labelled | Right, of the labelled |
+|---|---|---:|---:|---:|
+| Mics | 2 mics, the two who talk most | 6,246 | 93% | 97.5% (96.6 to 98.5) |
+| Mics | 4 mics | 6,908 | 88% | 96.8% (95.7 to 97.7) |
+| One track, far-field table mic | the two who talk most | 6,246 | 93% | 93.0% (91.6 to 94.2) |
+| One track, close mix | the two who talk most | 6,246 | 97% | 93.7% (91.4 to 96.6) |
+| One track, far-field table mic | 4 | 6,908 | 90% | 87.6% (86.3 to 89.6) |
+| One track, close mix | 4 | 6,908 | 95% | 90.4% (89.2 to 92.2) |
+
+One track's clusters were matched to people by the best mapping, as `--rename` does. Most of the mics' wrong labels fall
+on words where people overlap (about 1 in 100 or fewer elsewhere). A draft transcriber's word times are rougher than
+hand-timed ones, these are meetings and not podcasts, and the speech is one corpus's; a label is checked by a person
+because one word in 40, or one in 15, is still wrong.
 
 **A recorder with two mics in one file.** Each person's mic has to be its own source: split the channels first
 (`ffmpeg -i rec.wav -af "pan=mono|c0=c0" ana.wav`, and `c0=c1` for the other), then register both.

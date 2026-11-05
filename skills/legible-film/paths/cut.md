@@ -80,7 +80,9 @@ Two people, a mic each and two or three cameras; [footage](../references/footage
    `--set ALIAS=SECONDS --note TEXT`, never guessed. Drift over a frame is a reason to watch the long takes.
 4. **Label.** `map.py speakers PROJECT cam_01 --mic mic_01=Ana --mic mic_02=Ben`, then read `map/cam_01/transcript.md`.
    Labels are drafts until a person has read them: correct them with `map.py fix PROJECT WORD_ID --speaker Ana
-   [--through WORD_ID]`, and look hardest at the unlabelled words, which are often people talking at once.
+   [--through WORD_ID]`, and look hardest at the unlabelled words, which are often people talking at once. With no
+   per-person mics, `map.py speakers PROJECT cam_01 --shared --speakers 2 --download` compares voices on that one track
+   instead (a model of about 84 MB, with the person's yes), and is wrong about three times as often.
 5. **Write the paper edit**, one line per turn, on the transcribed camera's clock, each line's sound from its speaker's
    mic and its picture from the camera that suits the moment:
 
@@ -100,8 +102,8 @@ Two people, a mic each and two or three cameras; [footage](../references/footage
    moment, with its line. Its join report measures each change of mic; a background that changes at a join gets a `tail`
    or `lead`, or a bed. Every tight cut gets a listen, in the mic it plays.
 7. **Render and watch.** `cut.py render PROJECT`; watch every camera change, since a line-up says the sound agrees and
-   only a person sees that a mouth does. Read each caption, since a wrong label moves its break. `exchange.py write` hands
-   the cut on with each clip at its own in-point and says what the XML does not carry. Then the shared last steps.
+only a person sees that a mouth does. Read each caption, since a wrong label moves its break. `exchange.py write` hands
+the cut on with each clip at its own in-point and says what the XML does not carry. Then the shared last steps.
 
 ## First question
 

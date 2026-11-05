@@ -289,6 +289,15 @@ The optional MODNet download is about 26 MB and requires `setup.py --install spa
 The runtime checks its hash before inference and records the model URL, hash and licences in each layer. A low
 flicker measure cannot establish that the subject or its edges were found correctly.
 
+### Optional speaker model (checked 2026-11-05)
+
+`map.py speakers --shared` compares voices on one track ([footage](footage.md) §14) with [SpeechBrain's
+ECAPA-TDNN](https://huggingface.co/speechbrain/spkrec-ecapa-voxceleb) (Apache-2.0), through a [community ONNX
+conversion](https://huggingface.co/vedk00/ecapa-voxceleb-speaker-embedding-onnx) pinned to revision `a9cb9321b07b` and
+each file's SHA-256 in `lineup.py`. It is about 84 MB, downloads only with `--download` after its size is named, runs
+through onnxruntime and sends nothing out. SpeechBrain does not publish this conversion, so a hash that does not match
+is refused rather than updated.
+
 ## 8. Capture
 
 - **Playwright** (1.64): set the viewport and the video size to the target resolution (the default video is

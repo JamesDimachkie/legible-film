@@ -13,9 +13,9 @@ Every transcript records the input file's SHA-256, byte count and selected audio
 input must remain unchanged during transcription, and the output cannot replace the media or imported transcript.
 A matching media record establishes file identity, not that a draft accurately represents the speech.
 An imported transcript keeps its speaker labels. Word-timed JSON from WhisperX, Deepgram, AssemblyAI, Rev, Amazon
-Transcribe, ElevenLabs Scribe and Google Speech-to-Text is read by its shape, and a WebVTT cue's <v Name> names its words.
-These are the formats' documented shapes, not a guarantee of any service's output today. Labels are drafts until a person
-reads them. Word times far past the media's end are read as milliseconds, and it says so.
+Transcribe, ElevenLabs Scribe and Google Speech-to-Text is read by its shape, and a WebVTT cue's <v Name> names its
+words. These are the formats' documented shapes, not a guarantee of any service's output today. Labels are drafts until
+a person reads them. Word times far past the media's end are read as milliseconds, and it says so.
 Exit 0 on success, 2 when it cannot run.
 """
 import argparse

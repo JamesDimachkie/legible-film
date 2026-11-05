@@ -140,10 +140,10 @@ cut.
   uncovered shows the background colour and `check` warns about it.
 - **Sound from a lined-up mic.** With recordings lined up by `map.py sync` ([footage](footage.md) §14), `{sound mic_01}`
   plays a mic instead of the line's own sound, and `{sound mic_01 -3dB}` sets its gain. The range and the words stay on
-  the line's own source, so nothing is retyped when you change mics; the mic plays the same moment, at the saved
-  offset. The line's cuts and edges are measured in the mic's sound, since that is what a viewer hears, and its join
-  report, `tail`, `lead` and dissolve use the mic too. A line takes one mic: where two people talk at once, take the
-  source that hears both, or register a mix of them as a source of its own.
+  the line's own source, so nothing is retyped when you change mics; the mic plays the same moment, at the saved offset.
+  The line's cuts and edges are measured in the mic's sound, since that is what a viewer hears, and its join report,
+  `tail`, `lead` and dissolve use the mic too. A line takes one mic: where two people talk at once, take the source that
+  hears both, or register a mix of them as a source of its own.
 
   ```markdown
   > cam_01 4:10.20-4:15.80 It broke the moment it got wet. {sound mic_01}
@@ -384,23 +384,23 @@ film.md:21: error: cam_02 has no picture for this moment (0:03.10 of cam_01): on
   suggestion: start it later with +N, end it sooner with SECONDS, or show another camera
 ```
 
-Errors stop a render: bad grammar, unknown aliases, ranges outside a source, unmatched or out-of-order words, a
-picture line on a source with no picture, a line-up that is missing, stale or a look under `~ ALIAS sync` or
-`{sound ALIAS}`, a lined-up source that does not cover the moment, and any line that would last longer than four times
-`target` (three hours without one), which is almost always a mistyped range or speed. A blocked render exits 2, since nothing was made to
-look at (`check` exits 1 for the same errors; `render --json` says `"status": "blocked"`). "Outside a source" means
+Errors stop a render: bad grammar, unknown aliases, ranges outside a source, unmatched or out-of-order words, a picture
+line on a source with no picture, a line-up that is missing, stale or a look under `~ ALIAS sync` or `{sound ALIAS}`, a
+lined-up source that does not cover the moment, and any line that would last longer than four times `target` (three
+hours without one), which is almost always a mistyped range or speed. A blocked render exits 2, since nothing was made
+to look at (`check` exits 1 for the same errors; `render --json` says `"status": "blocked"`). "Outside a source" means
 where it really ends: a source's duration can be its header's claim, so a range is checked against the map's decoded end
-of picture and sound, and a picture range against the picture's end even when the sound goes on. A map made before
-this has the header of the video stream to go on, and a render that finds less picture than that refuses the line; `map.py
-run PROJECT --alias ALIAS --rebuild` measures it. The renderer never fills a range with a frozen frame: a hold is a
-line you write (`pause N hold`, `still ALIAS TIME N`). Warnings describe something that will
-render but deserves a look: a duration far from `target`, a tight cut, a trimmed cutaway, uncovered audio-only picture,
-sound that ends before its picture does, an abrupt sound change at a join, busy cutting, a flash frame (under half a second of a picture: a source's shot
-change just inside a range, or a moment of a line's own picture left between two cutaways), an interview line said
-more than 30 s before the line it follows, burned captions on a landscape frame whose audience is a phone feed,
-a film whose first word may continue a sentence, a question or exclamation answered with under 0.5 s where the
-source took 1 s or more, and, in a film over 20 s, a join between passages with no note
-between its lines saying what links the two sides ([finding-the-story](finding-the-story.md) §4).
+of picture and sound, and a picture range against the picture's end even when the sound goes on. A map made before this
+has the header of the video stream to go on, and a render that finds less picture than that refuses the line; `map.py
+run PROJECT --alias ALIAS --rebuild` measures it. The renderer never fills a range with a frozen frame: a hold is a line
+you write (`pause N hold`, `still ALIAS TIME N`). Warnings describe something that will render but deserves a look: a
+duration far from `target`, a tight cut, a trimmed cutaway, uncovered audio-only picture, sound that ends before its
+picture does, an abrupt sound change at a join, busy cutting, a flash frame (under half a second of a picture: a
+source's shot change just inside a range, or a moment of a line's own picture left between two cutaways), an interview
+line said more than 30 s before the line it follows, burned captions on a landscape frame whose audience is a phone
+feed, a film whose first word may continue a sentence, a question or exclamation answered with under 0.5 s where the
+source took 1 s or more, and, in a film over 20 s, a join between passages with no note between its lines saying what
+links the two sides ([finding-the-story](finding-the-story.md) §4).
 
 ## 11. Examples
 
@@ -501,8 +501,8 @@ What a render adds that film.md does not say:
 - **Captions** are built from the kept words by `captions.py` (its reading-speed, line-length and duration rules). A
   caption never runs across a change of source, a change of labelled speaker (an unlabelled word between two speakers
   counts as neither) or a pause of 0.6 s or more. Labels are drafts, so a wrong one moves a break until a person
-  corrects it. Every caption word carries its transcript word ID and its speaker. Lines hold up to 42 characters in a landscape or square frame and fewer in a tall
-  one (26 at 9:16, 37 at 4:5), so burned text keeps its size.
+  corrects it. Every caption word carries its transcript word ID and its speaker. Lines hold up to 42 characters in a
+  landscape or square frame and fewer in a tall one (26 at 9:16, 37 at 4:5), so burned text keeps its size.
 - **Previews** are short side 540 (never larger than the film). Sources much larger than that are previewed from a
   smaller copy cached in `cuts/.cache/`; `--final` always reads the originals and keeps the sound stems.
 - **Sound** in the preview is the dialogue, natural sound and music mixed with a light limiter; levels are for

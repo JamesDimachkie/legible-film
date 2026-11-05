@@ -8,9 +8,10 @@
   python map.py fix PROJECT WORD_ID [TEXT] [--start S] [--end E] [--by person|agent]
   python map.py confirm-words PROJECT ALIAS --note TEXT [--stream INDEX] [--by person|agent]
   python map.py words PROJECT ALIAS [--from TIME] [--to TIME]
-  python map.py sync PROJECT [--reference ALIAS] [--alias ALIAS ...] [--json FILE] | --check | --set ALIAS=SECONDS --note TEXT
-  python map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben [--margin DB] | --shared --speakers N [--download]
-      | --rename OLD=NEW
+  python map.py sync PROJECT [--reference ALIAS] [--alias ALIAS ...] [--json FILE] | --check
+      | --set ALIAS=SECONDS --note TEXT
+  python map.py speakers PROJECT ALIAS --mic mic_01=Ana --mic mic_02=Ben [--margin DB]
+      | --shared --speakers N [--download] | --rename OLD=NEW
   python map.py run PROJECT [--alias ALIAS] --check
   python map.py run PROJECT [--alias ALIAS] --rebuild
 
@@ -1590,7 +1591,8 @@ def main():
                       'else the longest with picture and sound)')
     line.add_argument('--alias', action='append', help='measure only this source; repeat to select more (default: '
                       'camera, mic, interview, vo and other roles)')
-    line.add_argument('--check', action='store_true', help='report the saved line-up as readers see it; measure nothing')
+    line.add_argument('--check', action='store_true',
+                      help='report the saved line-up as readers see it; measure nothing')
     line.add_argument('--set', dest='set_offset', metavar='ALIAS=SECONDS', help="after listening: where this source's "
                       "0:00 falls on the reference's clock; needs --note")
     line.add_argument('--note', help='what was checked before --set')
