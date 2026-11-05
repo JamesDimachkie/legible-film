@@ -21,8 +21,8 @@ Contents: [1. Render custody](#1-render-custody) · [2. Frame rate and motion bl
 For footage edits, `assemble.py` first decodes each selected range to obtain its presentation times without writing
 raw frames, then decodes it again as the clip plays. It retains at most two source frames per active clip; a dissolve
 or dip can have two active readers. On the every-frame path each picture decoder uses one input thread to reduce
-concurrent decoder memory; this can slow decoding. Motion retimes also stream after a timestamp pass. Automatic crop analysis adds a
-separate 320-pixel-wide decode and keeps its sampled analysis in memory, not a raw-frame disk spool. These passes cost
+concurrent decoder memory; this can slow decoding. Motion retimes also stream after a timestamp pass. Automatic crop
+analysis adds a separate 320-pixel-wide decode and keeps its sampled analysis in memory, not a raw-frame disk spool. These passes cost
 time and their timestamp and crop-analysis metadata grow with the number of frames. The preflight schedule for spatial
 layers also grows with the output frames it covers. Encoded picture intermediates and audio files still need disk space
 proportional to their duration; the 2 GiB free-space check is a reserve, not a bound on the whole render. `--spool-gib`
@@ -31,9 +31,9 @@ The assembly report retains the requested `spool_budget_bytes` for compatibility
 as false. If seeked playback fails, the picture is restarted with a linear decode only when its timestamps still
 match the original plan; a changed clock fails the render.
 
-**Two paths draw the picture.** On a plain cut FFmpeg decodes, frames and converts each clip and Python forwards the
-frames without touching a pixel; every other film passes every frame through Python, which is what spatial layers,
-overlays and dissolves need. `plain_cut_reason` in `assemble.py` is the one place that decides, and it allows only what
+**Two paths draw the picture.** On a plain cut FFmpeg decodes, frames and converts each clip, and Python chooses which
+frame comes next and forwards its bytes without touching a pixel; every other film passes every frame through Python,
+which is what spatial layers, overlays and dissolves need. `plain_cut_reason` in `assemble.py` is the one place that decides, and it allows only what
 has been compared with the every-frame path: straight cuts, fixed crops and zooms, a letterbox on black, nearest-frame
 speed changes and burned captions, on sources of any frame rate, rotation, pixel shape or colour except interlaced.
 Anything it does not recognise, a line type added later included, stays on the every-frame path. Both paths choose
@@ -48,10 +48,16 @@ to compare them.
 Burned captions are composited by FFmpeg on both paths. On the plain path the picture reaches that burn losslessly and
 is encoded for delivery once, after it.
 
-What a render costs, on a 16-core laptop with FFmpeg 9.0.2 (2026-11-05; other work was running, so these move):
-see the plain-cut timings in the release notes. Nearly all of it is the H.264 encode: at the delivery settings x264 ran
-at 12 frames a second on one thread and 54 on twelve, which is why `assemble.py` now gives it up to twelve. Film and
-motion renders, which run encoders side by side, keep one each.
+**What a render costs.** Measured 2026-11-05 on a 16-core laptop with FFmpeg 9.0.2, three runs each unless noted, other
+work running: a plain 30-second 1080p30 cut at `--final` took 29 s (28.5-30.4), a 30-second 1080p60 cut 42 s
+(41.3-42.6), and a preview of a 3-minute 1080p60 cut 80 s (79.3-79.7), or 90 s the first time, when it also makes the
+proxy. The source was the first-cut example scaled up, which is soft: the same cut with film grain added, a 24 Mbit/s
+source, took 62 s (two runs), so expect detailed or grainy footage to run slower than real time. A film with burned
+captions took 29 s for 15 s of 1080p30 (two runs). The every-frame path took 42 s for the same plain cut (two runs).
+The fixed cost is small, about 3.5 s for a one-second film; everything else grows with the film, the H.264 encode above
+all. At the delivery settings x264 ran at 12 frames a second on one thread and 54 on twelve, so `assemble.py` gives it
+up to twelve, on both paths, for about 10% more peak memory. Film and motion renders, which run encoders side by side,
+keep one each.
 
 ## 2. Frame rate and motion blur
 
