@@ -1,6 +1,6 @@
 ---
 name: legible-film
-description: "Make and edit video with picture and sound on one clock: launch films and motion graphics, social posts and shorts, cutting and tightening interviews, podcasts and tutorials, captions and subtitles, sound for a finished picture, an editor's Premiere revisions, quick conversions, and checking how an export looks or plays. Not for audio-only files, downloading, transcribing or metadata alone."
+description: "Make and edit video with picture and sound on one clock: launch films and motion graphics, social posts, shorts, cutting and tightening interviews, podcasts and tutorials, captions and subtitles, sound for a finished picture, an editor's Premiere revisions, quick conversions, and checking how an export looks, sounds or plays. Not for audio-only files, downloading, transcribing or metadata alone."
 license: Apache-2.0
 compatibility: "Python 3.9+ with numpy and Pillow (setup.py --install core) and FFmpeg/ffprobe 5.1+ on PATH. Optional: faster-whisper for local transcription; Node 18+ with Playwright and Chromium for the film kit and cue export. No accounts or paid services required."
 metadata:

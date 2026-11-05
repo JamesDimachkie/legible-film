@@ -229,6 +229,8 @@ compare them with `compare_versions.py` against the pipeline's noise floor (§2)
 Tesseract is a proprietary video tool with its own agent skills (Edit Video, Motion Graphics) and a command line,
 `tsrct`. This skill holds no Tesseract code, files or dependency, and has not run it. When the person has Tesseract
 installed and chooses it, create, cut and insert hand the build to Tesseract's skills, and everything else stays here.
+Take the person's word that it is installed and do not run `tsrct`, not even to check it: write the steps below whether
+or not this machine can reach it.
 
 1. Write the brief and the frame as usual, and record `timeline: tesseract` in `film.md` ([project](project.md) §3).
 2. Write the cue list as a plan: `cues.json` v2 whose picture is `{"kind": "plan", "sha256": null}`, with the sections,
