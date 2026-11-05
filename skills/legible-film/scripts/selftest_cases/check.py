@@ -296,6 +296,12 @@ def check_edit_content(tool, record, j):
            found.get('edit_trim_content_offset', {}).get('state') == 'fail'
            and 'offset' in found.get('edit_trim_content_offset', {}).get('detail', ''),
            str(found.get('edit_trim_content_offset')))
+    shaped = make('trim-reframed.mp4', '-ss', 2, '-t', 6, '-i', source, '-vf', 'crop=101:180', '-c:v', 'libx264',
+                  '-pix_fmt', 'yuv420p', '-bsf:v', TAGS, '-c:a', 'aac')
+    code, found, output = checked(shaped, 'trim:2,8')
+    record('quick edits (control): a trim that also reframes is not assessed on its picture, never a false alarm',
+           found.get('edit_picture', {}).get('state') == 'skip'
+           and found['edit_picture']['label'].startswith('Not assessed: content'), str(found.get('edit_picture')))
     black = make('black.mp4', '-f', 'lavfi', '-i', 'color=black:s=320x180:r=12:d=20', '-f', 'lavfi', '-i',
                  'sine=frequency=440:sample_rate=48000:duration=20', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
                  '-bsf:v', TAGS, '-c:a', 'aac', '-shortest', '-movflags', '+faststart')

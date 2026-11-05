@@ -77,8 +77,8 @@ tolerant of re-encoding and scaling: eight sampled pictures against the source f
 `speed`, `convert`, `compress`) and the sound against the source's (`trim`, `convert`, `compress`, `extract-audio`,
 `reframe`). Sound that matches nothing there, or most pictures that do not match, is a `fail`; a mix of matching and
 not is a `look`; too little to compare (flat picture, a steady tone) is not assessed. What is not compared says
-`Not assessed: content`: a reframe's picture, a speed change's sound, and sound in a file with several streams or over
-15 minutes. A passage in the same shot a second or less away can still match: this finds the wrong content, not a slip
+`Not assessed: content`: a reframe's picture or any frame that changed shape, a speed change's sound, and sound in a
+file with several streams or over 15 minutes. A passage in the same shot a second or less away can still match: this finds the wrong content, not a slip
 of a moment. Thresholds were measured on the first-cut example and synthetic media, not across kinds of film.
 
 **The context and sync groups.** Inside a project, `check.py` adds two groups. Their `unconfirmed` and

@@ -144,6 +144,7 @@ PICTURE_SAMPLES = 8
 PICTURE_SAME = 0.9
 PICTURE_OTHER = 0.6
 PICTURE_FLAT = 3.0
+PICTURE_SHAPE = 0.04
 # sync_check.py holds both sounds in memory, at about 0.4 MB a second each.
 AUDIO_COMPARE_S = 900
 # The first frame is read at this size; it is one colour when no channel spans more than FLAT_SPAN code values.
@@ -3001,6 +3002,15 @@ def frame_seconds(data):
         return None
 
 
+def frame_shape(data):
+    """A probed file's first video stream as width over height, or None."""
+    video = next((row for row in data.get('streams', []) if row.get('codec_type') == 'video'), {})
+    try:
+        return float(video['width']) / float(video['height'])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
 def picture_content_item(reference, output, source, destination, when, what):
     """Sampled frames of the output against the source frames the edit says they show (`when` turns an output time
     into a source time; `what` names them). Confident disagreement fails, a mixed result is a look, and too little
@@ -3011,6 +3021,11 @@ def picture_content_item(reference, output, source, destination, when, what):
         return item('edit_picture', label, 'skip', 'FFmpeg is required')
     if not seconds:
         return item('edit_picture', label, 'skip', 'the output has no length to sample')
+    shapes = frame_shape(source), frame_shape(destination)
+    if all(shapes) and abs(shapes[1] / shapes[0] - 1) > PICTURE_SHAPE:
+        # A trim that also reframes, say: its frames show part of the source's, so they cannot be matched whole.
+        return item('edit_picture', label, 'skip', f'the frame changed shape, from {shapes[0]:.3f} to {shapes[1]:.3f}, so '
+                    'its frames cannot be matched with the whole source; look at the framing')
     source_frame = frame_seconds(source) or .04
     reach = max(source_frame, (frame_seconds(destination) or source_frame) * (when(1.0) - when(0.0)))
     count = min(12, math.ceil(2 * reach / source_frame) + 1)
