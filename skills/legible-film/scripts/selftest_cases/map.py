@@ -391,7 +391,8 @@ def check_decoded_end(tool, record, j):
     record('map: a whole file keeps its header length, with both ends recorded and nothing to report',
            code == 0 and 'decodes' not in output and abs(row['duration_s'] - 8) < .05
            and abs(row['ends']['picture']['decoded'] - 8) < .11 and abs(row['ends']['sound']['decoded'] - 8) < .05
-           and row['ends']['picture']['usable'] == row['ends']['picture']['header'], str(row.get('ends')) + output[-200:])
+           and row['ends']['picture']['usable'] == row['ends']['picture']['header'],
+           str(row.get('ends')) + output[-200:])
 
     data = json.loads(index.read_text(encoding='utf-8'))
     data['sources'][0].pop('ends', None)

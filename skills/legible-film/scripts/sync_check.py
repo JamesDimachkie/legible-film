@@ -8,9 +8,10 @@ across the film are drift or an edit; weak or ambiguous correlation is inconclus
 windows with sound in the reference match nothing at all in the delivered audio, which says its
 content differs (or it was moved further than the search, or sped up beyond the 0.95-1.05 a fit
 covers): no correlation peak of 0.5 or more, or standing half as high again as the rest of the
-search. Delivered silence is inconclusive as transport; the report counts its windows. Measured over 3 s and 0.5 s windows on one film's sound and on noise: AAC re-encodes down
-to 16 kb/s peak at 0.71 or more, or for white noise at 0.29 or more standing ten times above the
-rest; another passage, a tone or another speed peak at 0.38 or less, within 1.5 times of the rest.
+search. Delivered silence is inconclusive as transport; the report counts its windows. Measured
+over 3 s and 0.5 s windows on one film's sound and on noise: AAC re-encodes down to 16 kb/s peak
+at 0.71 or more, or for white noise at 0.29 or more standing ten times above the rest; another
+passage, a tone or another speed peak at 0.38 or less, within 1.5 times of the rest.
 For steadily changing lag, short low-pass probes propose an affine time map, then
 full-length rate-adjusted windows validate it. A supported fit reports rate_ratio
 (delivered playback rate / reference rate), time_scale = 1 / rate_ratio, and offset
@@ -626,9 +627,9 @@ def main():
     summary['windows_matching_nothing'] = len(disagreeing)
     summary['windows_delivered_silent'] = sum(r['delivered_silent'] for r in rows)
     if len(good) < max(2, len(rows) // 2) and not fit and len(disagreeing) >= max(2, math.ceil(2 * len(rows) / 3)):
-        verdict, code = (f'content differs: {len(disagreeing)} of {len(rows)} windows with sound in the reference match '
-                         f'nothing in the delivered audio within {a.max_lag_ms:g} ms (other sound, or moved further, '
-                         'or at another speed)'), 1
+        verdict, code = (f'content differs: {len(disagreeing)} of {len(rows)} windows with sound in the reference '
+                         f'match nothing in the delivered audio within {a.max_lag_ms:g} ms (other sound, or moved '
+                         'further, or at another speed)'), 1
     elif len(good) < max(2, len(rows) // 2):
         verdict, code = 'inconclusive: too few confident windows (silence, noise or repetitive material)', 1
     elif summary['spread_ms'] > a.tolerance_ms:

@@ -345,10 +345,10 @@ def picture_line(item):
 def shorten_picture(item, requested, available, notes):
     """An out-point past the picture's end: shortened and reported, or for a line of a paper edit, refused."""
     if item.get('line') is not None and requested - available > RANGE_SLACK_S:
-        raise ValueError(f"{picture_line(item)}{item['src']}'s picture ends at {available:.3f} s and this line needs it "
-                         f'to {requested:.3f} s, so nothing was rendered. End the line by then, or hold its last frame '
-                         f"with a pause hold line; map.py run PROJECT --alias {item['src']} --rebuild lets cut.py check "
-                         'report this before a render.')
+        raise ValueError(f"{picture_line(item)}{item['src']}'s picture ends at {available:.3f} s and this line needs "
+                         f'it to {requested:.3f} s, so nothing was rendered. End the line by then, or hold its last '
+                         f"frame with a pause hold line; map.py run PROJECT --alias {item['src']} --rebuild lets "
+                         'cut.py check report this before a render.')
     item['out'] = available
     notes.append(f"Picture {item['src']} out clamped from {requested:.6f} to {available:.6f} s; "
                  'review the shortened edit.')

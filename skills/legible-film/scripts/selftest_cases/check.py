@@ -146,8 +146,8 @@ def check_empty_captions(tool, record, j, scripts_dir):
            and 'required' in found.get('captions_rules', {}).get('label', ''), str(found.get('captions_rules')))
     empty.write_text('  \n\n', encoding='utf-8')
     _, found, _ = checked('blank')
-    record('check: a sidecar of blank lines is an empty sidecar', found.get('captions_rules', {}).get('state') == 'look',
-           str(found.get('captions_rules')))
+    record('check: a sidecar of blank lines is an empty sidecar',
+           found.get('captions_rules', {}).get('state') == 'look', str(found.get('captions_rules')))
     silent = folder / 'silent.mp4'
     subprocess.run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=320x180:r=30:d=2', '-f', 'lavfi',
                     '-i', 'anullsrc=r=48000:cl=stereo', '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
@@ -308,7 +308,8 @@ def check_edit_content(tool, record, j):
     flat = make('black-trim.mp4', '-ss', 2, '-t', 6, '-i', black, '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
                 '-bsf:v', TAGS, '-c:a', 'aac')
     out = folder / 'flat.json'
-    code, output = tool('check.py', '--file', flat, '--against', black, '--edit', 'trim:2,8', '--no-speech', '--json', out)
+    code, output = tool('check.py', '--file', flat, '--against', black, '--edit', 'trim:2,8', '--no-speech',
+                        '--json', out)
     found = by_id(checks_at(out))
     record('quick edits: flat picture and a steady tone are too little to compare: not assessed, never fail',
            found.get('edit_picture', {}).get('state') == 'skip'
@@ -408,8 +409,8 @@ def check_default_audio_stream(tool, record, j):
     plain = folder / 'plain.mp4'
     make_video(plain, 'testsrc2=s=320x180:r=30')
     code, output = tool('check.py', '--file', plain, '--no-speech', '--json', folder / 'plain.json')
-    record('check: one sound stream gets no stream item', 'audio_streams' not in by_id(checks_at(folder / 'plain.json')),
-           output[-200:])
+    record('check: one sound stream gets no stream item',
+           'audio_streams' not in by_id(checks_at(folder / 'plain.json')), output[-200:])
 
 
 def run_check_cases(tool, record, j, scripts_dir):

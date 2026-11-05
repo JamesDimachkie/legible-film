@@ -4726,7 +4726,7 @@ def render_locked(root, args, plan, settings, source_map, problems, film_text):
         size = render_size(settings['size'], args.final)
         render_edit = json.loads(json.dumps(edit))
         render_edit['size'] = list(size)
-        # A range the map could not know is short (a map without decoded ends) is refused by assemble.py, naming its line.
+        # A range the map could not know is short (no decoded ends in it) is refused by assemble.py, naming its line.
         for item, seg in zip(render_edit['picture'], plan['segments']):
             if seg['key'] in source_map.sources:
                 item['line'] = seg['line']

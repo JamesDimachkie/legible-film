@@ -3031,8 +3031,8 @@ def picture_content_item(reference, output, source, destination, when, what):
     shapes = frame_shape(source), frame_shape(destination)
     if all(shapes) and abs(shapes[1] / shapes[0] - 1) > PICTURE_SHAPE:
         # A trim that also reframes, say: its frames show part of the source's, so they cannot be matched whole.
-        return item('edit_picture', label, 'skip', f'the frame changed shape, from {shapes[0]:.3f} to {shapes[1]:.3f}, so '
-                    'its frames cannot be matched with the whole source; look at the framing')
+        return item('edit_picture', label, 'skip', f'the frame changed shape, from {shapes[0]:.3f} to {shapes[1]:.3f}, '
+                    'so its frames cannot be matched with the whole source; look at the framing')
     source_frame = frame_seconds(source) or .04
     reach = max(source_frame, (frame_seconds(destination) or source_frame) * (when(1.0) - when(0.0)))
     count = min(12, math.ceil(2 * reach / source_frame) + 1)
@@ -3049,12 +3049,13 @@ def picture_content_item(reference, output, source, destination, when, what):
         return item('edit_picture', label, 'skip', f'too little to compare: {counted}, and {informative} had the '
                     'detail to tell them apart; look at the picture')
     if len(other) >= max(2, math.ceil(informative / 2)):
-        return item('edit_picture', 'Picture content', 'fail', f'{len(other)} of {informative} comparable frames do not '
-                    f'match: {counted}; first at {P.format_time(other[0])}', other[0])
+        return item('edit_picture', 'Picture content', 'fail', f'{len(other)} of {informative} comparable frames do '
+                    f'not match: {counted}; first at {P.format_time(other[0])}', other[0])
     if other or same * 4 < informative * 3:
         return item('edit_picture', 'Picture content', 'look', f'{same} of {informative} comparable frames match and '
                     f'{len(other)} do not: {counted}; look at them', other[0] if other else None)
-    return item('edit_picture', 'Picture content', 'pass', f'{same} of {informative} comparable frames match: {counted}')
+    return item('edit_picture', 'Picture content', 'pass',
+                f'{same} of {informative} comparable frames match: {counted}')
 
 
 def sync_state(summary):
@@ -3065,7 +3066,8 @@ def sync_state(summary):
     if verdict == 'consistent with the reference within tolerance':
         return 'pass', verdict
     if silent >= max(2, math.ceil(2 * windows / 3)):
-        return 'fail', f'content differs: the output is silent in {silent} of {windows} windows where the source has sound'
+        return 'fail', (f'content differs: the output is silent in {silent} of {windows} windows where the source has '
+                        'sound')
     if verdict.startswith(('constant offset', 'lag changes', 'content differs')):
         return 'fail', verdict
     return 'skip', verdict or 'audio comparison inconclusive'
@@ -3102,7 +3104,8 @@ def audio_content_item(reference, output, source, destination):
     if report is None:
         return item('edit_audio', label, 'skip', why)
     state, detail = sync_state(report.get('summary') or {})
-    row = item('edit_audio', label if state == 'skip' else 'Sound content', state, detail + '; compared with the source')
+    row = item('edit_audio', label if state == 'skip' else 'Sound content', state,
+               detail + '; compared with the source')
     row['measurement'] = report.get('summary')
     return row
 

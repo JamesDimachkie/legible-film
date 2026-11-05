@@ -1630,7 +1630,7 @@ def check_errors(tool, record, j, media):
         blocked = json.loads(json_output[json_output.index('{'):])
     except ValueError:
         blocked = {}
-    record('cut: render refuses a paper edit with errors with exit 2 (it could not run), and --json says it was blocked',
+    record('cut: render refuses a paper edit with errors with exit 2 (it could not run), and --json says blocked',
            code == 2 and not (root / 'cuts' / 'v001').exists() and 'not rendered' in output
            and json_code == 2 and blocked.get('status') == 'blocked' and blocked.get('version') is None
            and any(item['severity'] == 'error' for item in blocked.get('problems', [])), output[-300:])
