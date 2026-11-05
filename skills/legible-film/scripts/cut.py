@@ -2,7 +2,8 @@
 """Compile the paper edit (film.md) into a rendered version; check it, compare versions, or draft one.
 
   python cut.py check PROJECT [--json] [--no-audio]
-  python cut.py render PROJECT [--label TEXT] [--resolves n1,n2] [--final] [--master PLATFORM] [--json]
+  python cut.py render PROJECT [--label TEXT] [--resolves n1,n2] [--final] [--master PLATFORM] [--every-frame]
+      [--json]
   python cut.py diff PROJECT vA [vB] [--json]
   python cut.py draft PROJECT --select 'int_01:"we tried everything"' [--select ALIAS:START-END ...] [--force]
   python cut.py tighten PROJECT ALIAS [--pause 0.35] [--fillers named|LIST] [--punch-in 1.1] [--music-bed]
@@ -11,7 +12,9 @@
 check parses film.md (grammar: references/paper-edit.md) and validates it against map/ without rendering: aliases,
 ranges inside each source, every spoken line's words found in order among its transcript words (a word not found is
 reported with the nearest transcript words), joins, fades, and the estimated duration against `target`. Each problem
-has a line number and a suggestion.
+has a line number and a suggestion. check and render also warn when cover framing discards a third or more of a
+source's height or width, naming the line, what keeps more of it, and any sampled face it would lose where OpenCV is
+installed; a face it misses is not evidence that nobody is there.
 
 Lines that pin to, draw behind or blur a layer in spatial/ (references/spatial.md) are checked against it: the layer
 exists, is the right kind, is current for its source (the map's size and SHA-256), was made from the source on
@@ -54,6 +57,8 @@ them, because closing needs a reply for the person. For each named note still op
 the command that closes it, `screen.py resolve PROJECT NOTE --in vNNN --reply TEXT`, with the new version filled in.
 Picture, audio, words and captions share the source/edit clock; the output picture samples the source frame showing
 at each output-frame time. Transcript-energy and repeated-phrase prompts ask for listening, never automatic deletion.
+A plain cut has FFmpeg draw its picture; everything else (and --every-frame) passes every frame through Python. The
+output and manifest.json say which ran; references/finishing.md says what counts as plain and how the two compare.
 With --final --master PLATFORM, a two-pass dialogue master records both passes, the actual mode and delivered AAC
 measurements in audio-master.json. Its default -16 LUFS is a working target, not a platform requirement; use
 --master-target or film.md loudness to set another target. Listen to the delivered sound and review warnings.

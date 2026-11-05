@@ -1765,7 +1765,9 @@ def render_picture_with_retry(ffmpeg, clips, images, width, height, fps, total, 
 # every-frame path until someone has shown both paths agree on it, so the plain path learns a thing by an entry here.
 PLAIN_EDIT_KEYS = frozenset({'version', 'size', 'fps', 'sources', 'picture', 'audio', 'overlays', 'holds', 'declared',
                              'cues', 'film_fades', 'paper'})
-PLAIN_PICTURE_KEYS = frozenset({'src', 'in', 'out', 'speed', 'retime', 'join', 'fit', 'background', 'crop', 'line'})
+PLAIN_PICTURE_KEYS = frozenset({'src', 'in', 'out', 'speed', 'retime', 'join', 'fit', 'background', 'crop', 'line',
+                                'hold_previous'})
+PLAIN_SOURCE_KEYS = frozenset({'file', 'audio_file', 'audio_stream', 'sha256', 'bytes'})
 PLAIN_OVERLAY_KINDS = frozenset({'captions'})
 
 
@@ -1776,6 +1778,10 @@ def plain_cut_reason(edit, clips, properties, fps):
     extra = sorted(set(edit) - PLAIN_EDIT_KEYS)
     if extra:
         return f'the edit has {extra[0]}'
+    for name, entry in edit['sources'].items():
+        extra = sorted(set(entry) - PLAIN_SOURCE_KEYS) if isinstance(entry, dict) else []
+        if extra:
+            return f'source {name} has {extra[0]}'
     for overlay in edit.get('overlays', []):
         if overlay.get('kind') not in PLAIN_OVERLAY_KINDS:
             return f"it draws a {overlay.get('kind', 'graphic')} overlay"
@@ -1842,7 +1848,7 @@ def plain_source(clip, width, height, fps, end):
     clock = raw.clock + f'trim=end_frame={needed},'
     framing, on_chroma = plain_framing(clip, width, height)
     if native_709(raw.properties) and on_chroma:
-        steps = [f"scale={clip['sw']}:{clip['sh']}:flags=lanczos", 'setsar=1', *framing, 'format=yuv420p', TAG_BT709]
+        steps = [f"scale={clip['sw']}:{clip['sh']}:flags=lanczos", 'setsar=1', *framing, 'format=yuv420p']
     else:
         # The every-frame path's own conversion to RGB, and the encoder's own conversion from it.
         steps = [raw.vf[len(raw.clock):], *framing, COLOUR]
@@ -2079,7 +2085,7 @@ def main():
                 try:
                     count = render_plain_with_retry(ffmpeg, clips, width, height, rate, total, picture,
                                                     bool(captions))
-                except (RuntimeError, ValueError) as error:
+                except (OSError, RuntimeError, ValueError) as error:
                     # The every-frame path stays the authority: it reports a real source fault in its own words.
                     why = f'the FFmpeg picture path failed: {str(error)[:300]}'
             if why:

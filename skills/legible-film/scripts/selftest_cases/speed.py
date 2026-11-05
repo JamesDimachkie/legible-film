@@ -231,6 +231,7 @@ def check_eligibility(record, scripts_dir):
         'an overlay kind added later': dict(edit=dict(plain, overlays=[{'kind': 'lower-third'}])),
         'a picture key added later': dict(edit=dict(plain, picture=[dict(item, angle='cam-2')])),
         'an edit key added later': dict(edit=dict(plain, recordings=[{'group': 'stage'}])),
+        'a source key added later': dict(edit=dict(plain, sources={'a': {'file': 'a.mp4', 'lined_up': 1.5}})),
         'a gap in the picture': dict(clips=[clip, dict(clip, at=3)])}
     for name, case in stays.items():
         why = reason(**case)
@@ -551,6 +552,20 @@ def check_captions(tool, record, j, scripts_dir):
     first = (fast / 'captions.srt').read_text(encoding='utf-8')
     record('speed: the caption file is the same on both paths',
            first == (slow / 'captions.srt').read_text(encoding='utf-8') and 'Every' in first)
+
+    def states(folder):
+        rows = json.loads((folder / 'checks.json').read_text(encoding='utf-8')).get('items', [])
+        return {row['id']: row['state'] for row in rows}
+
+    plain_code, _ = tool('check.py', root)
+    plain = states(Path(root) / 'cuts' / 'v003')
+    _, _, folder, _ = render(tool, root, '--every-frame')
+    every_code, _ = tool('check.py', root)
+    every = states(folder)
+    changed = {key: (plain.get(key), every.get(key)) for key in set(plain) | set(every)
+               if plain.get(key) != every.get(key)}
+    record('speed: check.py reads a version the same from either path', plain_code == every_code and not changed,
+           f'exit {plain_code} and {every_code}; {changed}')
 
 
 # ----------------------------------------------------------------------------------------------- phone footage
