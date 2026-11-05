@@ -19,6 +19,117 @@ def load(path, name):
     return module
 
 
+def transcription_rows(setup, importable, models):
+    """The Local transcription rows when faster-whisper is or is not importable, with these models cached."""
+    versions = {'ffmpeg': 'ffmpeg version 9.0', 'ffprobe': 'ffprobe version 9.0'}
+    with mock.patch.object(setup, 'ffmpeg_features', return_value=(versions, {'libx264': True, 'aac': True},
+                                                                   {'ass': True, 'zscale': True, 'whisper': False})), \
+            mock.patch.object(setup, 'module_available', return_value=importable), \
+            mock.patch.object(setup, 'cached_models', return_value=models), \
+            mock.patch.object(setup, 'kit_doctor', return_value={}):
+        return {row['label']: row for row in setup.inspect()['Local transcription']}
+
+
+def run_main(setup, *arguments):
+    """Run setup.py main with installs recorded instead of run: (exit code, subprocess commands, stderr text)."""
+    commands = []
+    groups = {name: [{'state': 'ready', 'label': 'probe', 'detail': 'probe', 'fix': ''}] for name in setup.REQUIRED}
+
+    def run(command, **kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0)
+    errors = io.StringIO()
+    with mock.patch.object(setup, 'inspect', return_value=groups), \
+            mock.patch.object(setup, 'selected_python', return_value=Path(sys.executable)), \
+            mock.patch.object(setup.subprocess, 'run', side_effect=run), \
+            mock.patch.object(sys, 'argv', ['setup.py', *arguments]), \
+            mock.patch.object(sys, 'stderr', new=errors), mock.patch.object(sys, 'stdout', new=io.StringIO()):
+        code = setup.main()
+    return code, commands, errors.getvalue()
+
+
+def check_transcription_consent(record, setup, j, scripts):
+    """The package installs with the person's yes; the model downloads only with --download, after its size."""
+    fetches = lambda commands: [c for c in commands if any('download_model' in str(part) for part in c)]  # noqa: E731
+    with mock.patch.object(setup.subprocess, 'run') as installed, mock.patch.object(sys, 'stderr', new=io.StringIO()):
+        setup.install_transcription(True, 'example-python')
+    record('firstrun: installing transcription downloads no model', len(installed.call_args_list) == 1
+           and not fetches([call.args[0] for call in installed.call_args_list]), str(installed.call_args_list))
+    _, without, said = run_main(setup, '--install', 'transcription', '--yes')
+    record('firstrun: --install transcription alone runs pip and no model download',
+           any('faster-whisper' in c for c in without) and not fetches(without), str(without)[:500])
+    record('firstrun: it says the model is separate and how to get it', '--download' in said and '460' in said, said)
+    _, downloading, said = run_main(setup, '--install', 'transcription', '--download', '--yes')
+    record('firstrun: --install transcription --download fetches the small model after naming its size',
+           len(fetches(downloading)) == 1 and '460' in said and fetches(downloading)[0][0] == sys.executable,
+           str(downloading)[:500] + said)
+    script = scripts / 'setup.py'
+    refused = subprocess.run([sys.executable, '-I', str(script), '--install', 'transcription', '--download', '--json'],
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    orphan = subprocess.run([sys.executable, '-I', str(script), '--install', 'core', '--download', '--yes', '--json'],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+    record('firstrun: the download also needs a yes, and --download needs a group that has a model',
+           refused.returncode == 2 and 'Not installed' in refused.stdout and orphan.returncode == 2
+           and '--install transcription' in orphan.stdout and '--install spatial' in orphan.stdout,
+           refused.stdout + orphan.stdout)
+    rows = transcription_rows(setup, True, [])
+    fix = rows['faster-whisper']['fix'].replace('"', '')
+    record('firstrun: with the package and no model, setup names the download, its size and the exact command',
+           rows['faster-whisper']['state'] == 'limited' and '--install transcription --download' in fix
+           and '460' in rows['faster-whisper']['detail'], str(rows['faster-whisper']))
+    rows = transcription_rows(setup, False, [])
+    fix = rows['faster-whisper']['fix'].replace('"', '')
+    record('firstrun: with nothing installed, the one command gets both package and model',
+           '--install transcription --download' in fix, fix)
+    rows = transcription_rows(setup, False, ['small'])
+    fix = rows['faster-whisper']['fix'].replace('"', '')
+    record('firstrun: with the model cached and no package, setup does not offer a download',
+           '--install transcription' in fix and '--download' not in fix, fix)
+    rows = transcription_rows(setup, True, ['small'])
+    record('firstrun: package and model together are ready', rows['faster-whisper']['state'] == 'ready',
+           str(rows['faster-whisper']))
+    for name in ('map', 'tighten'):
+        text = (scripts / (name + '.py')).read_text(encoding='utf-8')
+        record(f'firstrun: {name}.py says the setup install needs --download for a model',
+               '--install transcription --download' in text, name)
+    card = load(scripts / 'grade.py', 'firstrun_grade')
+    card.find_spec = lambda name: None
+    _, info = card.local_transcript(j('none.mp4'), j('none.grade'), 'digest', True, True)
+    record('firstrun: the scorecard hint names the model download', '--download' in info.get('next', '')
+           and '460' in info.get('next', ''), str(info))
+
+
+def check_dedicated_core(record, setup):
+    """A group installed into an environment without numpy and Pillow brings them, so the Python setup names works."""
+    def run(command, **kwargs):
+        commands.append(command)
+        probing = '-c' in command and 'import numpy, PIL' in command[command.index('-c') + 1]
+        return subprocess.CompletedProcess(command, 1 if probing and bare else 0)
+
+    def main_with(*arguments):
+        groups = {name: [{'state': 'ready', 'label': 'probe', 'detail': 'probe', 'fix': ''}]
+                  for name in setup.REQUIRED}
+        with mock.patch.object(setup, 'inspect', return_value=groups), \
+                mock.patch.object(setup, 'selected_python', return_value=Path(sys.executable)), \
+                mock.patch.object(setup.subprocess, 'run', side_effect=run), \
+                mock.patch.object(sys, 'argv', ['setup.py', *arguments]), \
+                mock.patch.object(sys, 'stderr', new=io.StringIO()), \
+                mock.patch.object(sys, 'stdout', new=io.StringIO()):
+            setup.main()
+
+    commands, bare = [], True
+    main_with('--install', 'faces', '--yes')
+    pips = [c for c in commands if 'pip' in c]
+    record('firstrun: a group installed where numpy and Pillow are missing installs them too',
+           any('numpy' in c and 'Pillow' in c for c in pips) and any('opencv-python' in c for c in pips),
+           str(pips)[:600])
+    commands, bare = [], False
+    main_with('--install', 'faces', '--yes')
+    pips = [c for c in commands if 'pip' in c]
+    record('firstrun: a group installed where they are present does not repeat them',
+           not any('numpy' in c for c in pips) and any('opencv-python' in c for c in pips), str(pips)[:600])
+
+
 def run_firstrun_cases(tool, record, j, scripts_dir):
     """Check a clean interpreter, optional features and model-download consent."""
     scripts = Path(scripts_dir)
@@ -86,16 +197,15 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
     expected = project.python_command([scripts / 'setup.py', '--install', 'core'], fresh_py).count('--install core')
     record('firstrun: setup prints one core repair per missing package',
            result.returncode == 1 and output.count('--install core') == 2 * expected, output[-1000:])
-    fake_stdlib = Path(j('fake-stdlib'))
-    fake_stdlib.mkdir(exist_ok=True)
-    (fake_stdlib / 'EXTERNALLY-MANAGED').write_text('[externally-managed]\n', encoding='utf-8')
-    detector = getattr(setup, 'externally_managed', None)
-    detected = bool(detector and detector(fake_stdlib, 'system', 'system')
-                    and not detector(fake_stdlib, 'venv', 'system'))
-    record('firstrun: external management applies to the base Python, not a venv', detected)
-    for label, managed, pip in (('externally managed', True, True), ('without pip', False, False)):
-        target = Path(j('mock-' + label.replace(' ', '-'))) / ('Scripts/python.exe' if os.name == 'nt'
-                                                                 else 'bin/python')
+    # (label, in a virtual environment, has pip, packages folder writable, the current Python keeps the install)
+    for label, virtual, pip, writable, stays in (
+            ('a shared Python, writable with pip', False, True, True, False),
+            ('a shared Python without pip', False, False, True, False),
+            ('a virtual environment', True, True, True, True),
+            ('a virtual environment without pip', True, False, True, False),
+            ('a virtual environment it cannot write to', True, True, False, False)):
+        target = Path(j('mock-' + label.replace(' ', '-').replace(',', ''))) / ('Scripts/python.exe' if os.name == 'nt'
+                                                                                 else 'bin/python')
         calls = []
 
         def make_environment(command, **kwargs):
@@ -106,16 +216,23 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
 
         def pip_probe(exe):
             return pip if str(exe) == sys.executable else True
+        prefix, base = ('the-venv', 'the-base') if virtual else ('the-base', 'the-base')
         with mock.patch.object(setup, 'dedicated_python', return_value=target), \
-                mock.patch.object(setup, 'externally_managed', return_value=managed), \
+                mock.patch.object(setup.sys, 'prefix', prefix), mock.patch.object(setup.sys, 'base_prefix', base), \
                 mock.patch.object(setup, 'has_pip', side_effect=pip_probe), \
+                mock.patch.object(setup.os, 'access', return_value=writable), \
                 mock.patch.object(setup.subprocess, 'run', side_effect=make_environment):
             chosen = setup.selected_python(create=True)
-        record('firstrun: ' + label + ' selects a dedicated environment',
-               chosen == target and len(calls) == 1 and 'venv' in calls[0], str(calls))
+        if stays:
+            record('firstrun: ' + label + ' keeps the install', chosen == Path(sys.executable) and not calls,
+                   str((chosen, calls)))
+        else:
+            record('firstrun: ' + label + ' selects a dedicated environment',
+                   chosen == target and len(calls) == 1 and 'venv' in calls[0], str((chosen, calls)))
     missing_venv = Path(j('mock-no-venv')) / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     with mock.patch.object(setup, 'dedicated_python', return_value=missing_venv), \
-            mock.patch.object(setup, 'externally_managed', return_value=True), \
+            mock.patch.object(setup.sys, 'prefix', 'the-base'), \
+            mock.patch.object(setup.sys, 'base_prefix', 'the-base'), \
             mock.patch.object(setup.subprocess, 'run', side_effect=subprocess.CalledProcessError(1, 'venv')):
         try:
             setup.selected_python(create=True)
@@ -128,10 +245,13 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
         setup.install_faces(True, target)
         face_cmd = installed.call_args.args[0]
         setup.install_transcription(True, target)
+        setup.download_transcription(True, target)
         commands_used = [call.args[0] for call in installed.call_args_list[1:]]
     record('firstrun: optional installations use the selected interpreter',
            face_cmd[0] == str(target) and len(commands_used) == 2
            and all(command[0] == str(target) for command in commands_used), str((face_cmd, commands_used)))
+    check_transcription_consent(record, setup, j, scripts)
+    check_dedicated_core(record, setup)
     versions = {'ffmpeg': 'ffmpeg version 9.0', 'ffprobe': 'ffprobe version 9.0'}
     encoders = {'libx264': True, 'aac': True}
     filters = {'ass': False, 'zscale': False, 'whisper': False}
@@ -231,6 +351,8 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
             error = str(exc)
     record('firstrun: missing weights do not download without permission', calls == [True]
            and '--download' in error and '460' in error, str((calls, error)))
+    record('firstrun: the refusal names the setup command that fetches the model',
+           '--install transcription --download' in error.replace('"', ''), error)
     calls.clear()
     args.no_download = True
     args.download = True

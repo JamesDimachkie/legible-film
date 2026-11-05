@@ -31,7 +31,8 @@ for an incomplete --check, when a transcript is stale (its warning names both re
 of its header, 2 on error.
 --words auto (the default) transcribes speech roles only: music and sfx sources skip words, so mapping a music bed
 never waits on transcription. --words all transcribes every role, lyrics included.
-Uncached transcription weights download only with --download or with setup.py --install transcription and consent.
+Uncached transcription weights download only with --download here or setup.py --install transcription --download, after
+the size is named.
 With several sound streams, map.py run measures each and prints its level. When the stream it would use is digitally
 silent and another has sound, it uses the one with sound and says so with the --stream command to override; a stream
 named with --stream stays chosen, and a transcript already made keeps its stream, each with a warning instead.

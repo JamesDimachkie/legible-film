@@ -27,8 +27,28 @@ Thank you for helping improve this skill. It stays useful by staying evidence-ba
   "$PY" skills/legible-film/scripts/selftest.py --force
   ```
 
-  `--smoke` takes about ten seconds; the full run takes 10 to 45 minutes. CI runs it on Linux, macOS, Windows and on
+  `--smoke` takes about ten seconds; the full run takes 16 to 32 minutes. CI runs it on Linux, macOS, Windows and on
   Python 3.9 with FFmpeg 5.1, and `.github/scripts/check_docs.py` checks the docs, links and line endings.
+
+## Tested versions
+
+`skills/legible-film/scripts/constraints.txt` names the exact version of everything `setup.py` installs through pip,
+the packages those pull in included, and every pip install in `setup.py` and CI uses it. `PLAYWRIGHT_CORE` in `setup.py`
+does the same for the film kit, and so for its Chromium build. The `upstream` workflow installs the newest releases
+without either, weekly or by hand, so a break upstream shows there before any pin moves; it blocks nothing.
+
+To move a pin:
+
+1. Change its line in `constraints.txt`, or `PLAYWRIGHT_CORE`. Each Python from 3.9 keeps one version with wheels for
+   every system it runs on; PyPI lists a release's wheels. Any package the new version pulls in gets a pin of its own:
+   `pip install --dry-run --only-binary :all: -c constraints.txt PACKAGE` lists them.
+2. Anything PyTorch depends on must also be a version its CPU index (`https://download.pytorch.org/whl/cpu`) carries,
+   as the note in `constraints.txt` says.
+3. On the oldest and the newest Python you can, run `.github/scripts/extras_check.py`, which installs every group
+   through `setup.py` into the per-user environment and tests what the scripts need from each package, then the full
+   self-test with that environment's Python. Set `LOCALAPPDATA` (Windows) or `XDG_DATA_HOME` to an empty folder first,
+   so your own environment stays as it is.
+4. CI's `pins` job does the same on each system. Say in the CHANGELOG which pin moved and why.
 
 ## Privacy
 

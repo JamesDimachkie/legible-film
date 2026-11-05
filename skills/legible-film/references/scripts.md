@@ -9,7 +9,7 @@ report, 1 something to look at, 2 could not run).
 | Script | Answers |
 |---|---|
 | **Projects and the last steps** | |
-| `setup.py` | What can this machine do, what is missing and how to fix it; installs one group (`core`, `transcription`, `faces`, `spatial`, `kit`, `ear`) with the person's yes. |
+| `setup.py` | What can this machine do, what is missing and how to fix it; installs one group (`core`, `transcription`, `faces`, `spatial`, `kit`, `ear`) at the tested versions in `constraints.txt`, with the person's yes; the transcription and spatial models only with `--download`. |
 | `project.py` | Creates a project folder (`init`, with its path, owner and frame when given), prints the one-line status, and records stages and a person's reviews; `add-version` registers a master made in any engine as an immutable version bound to its cue list and source, rendering the kept copy with `--render` and muxing a mix with `--sound`; `prune-frozen` removes kept frozen copies no list or version names. |
 | `map.py` | Registers sources under aliases and maps them: transcript, shots, contact sheets, loudness, silences; music and effects roles skip words unless `--words all`; each sound stream's level; where picture and sound really end, when a file decodes short of its header; `map.py words` lists word times and the pauses between them. |
 | `transcribe.py` | A local word-timed transcript (faster-whisper; FFmpeg's whisper filter as a fallback; or an imported one). |

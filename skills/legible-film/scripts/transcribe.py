@@ -529,9 +529,10 @@ def faster(args):
                      'small.en': 'about 460 MB', 'large-v3-turbo': 'about 1.6 GB'}
             size = sizes.get(args.model, 'size unknown')
             command = getattr(args, 'download_help_command', None) or download_command(sys.argv[1:])
-            setup = project.python_command([Path(__file__).with_name('setup.py'), '--install', 'transcription'])
+            setup = project.python_command([Path(__file__).with_name('setup.py'), '--install', 'transcription',
+                                            '--download'])
             raise ValueError(f'Model {args.model} is not cached ({size}). To allow its download, run: {command}\n'
-                             f'For the default small model, or to install transcription, run: {setup}') from error
+                             f'For the default small model, or to install transcription too, run: {setup}') from error
         print('Downloading explicitly permitted model weights: ' + args.model, flush=True)
         model = WhisperModel(args.model, device='cpu', compute_type='int8', download_root=args.model_dir,
                              local_files_only=False)

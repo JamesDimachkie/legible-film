@@ -1,0 +1,115 @@
+# The versions Legible Film is tested with. setup.py passes this file to every pip install (-c), and CI installs through
+# it too, so a new user gets what was tested, not what was released this week. Unpinned installs have already broken
+# twice: OpenCV 5 removed face detection without saying so, and faster-whisper 1.2.1 fails on PyAV 16.
+#
+# Each Python from 3.9 gets the newest version with wheels for it, and packages that setup.py never names are pinned
+# too. How to move a pin: "Tested versions" in the repository's CONTRIBUTING.md.
+
+# setup.py --install core
+numpy==2.0.2 ; python_version < "3.10"
+numpy==2.2.6 ; python_version == "3.10"
+numpy==2.4.6 ; python_version == "3.11"
+numpy==2.5.4 ; python_version >= "3.12"
+pillow==11.3.0 ; python_version < "3.10"
+pillow==12.3.0 ; python_version == "3.10"
+pillow==13.0.0 ; python_version >= "3.11"
+
+# setup.py --install faces and --install spatial. OpenCV stays below 5, which has no haarcascades. Only CI's Linux jobs
+# use the headless build, at the same version. onnxruntime 1.23 is the last with wheels for Python 3.10, macOS 13 and
+# Intel Macs, and the first with wheels for Python 3.14 has none of them.
+opencv-python==4.14.0.94
+opencv-python-headless==4.14.0.94
+onnxruntime==1.19.2 ; python_version < "3.10"
+onnxruntime==1.23.2 ; python_version >= "3.10" and python_version < "3.14"
+onnxruntime==1.31.1 ; python_version >= "3.14"
+coloredlogs==15.0.1 ; python_version < "3.14"
+flatbuffers==25.12.19
+humanfriendly==10.0 ; python_version < "3.14"
+packaging==26.3
+protobuf==6.33.6 ; python_version < "3.10"
+protobuf==7.36.2 ; python_version >= "3.10"
+pyreadline3==3.5.6 ; python_version < "3.14"
+
+# setup.py --install transcription. faster-whisper 1.2.1 passes metadata_errors to av.open, which PyAV 16 removed.
+faster-whisper==1.2.1
+av==15.1.0
+certifi==2026.10.23
+charset-normalizer==3.5.2
+colorama==0.4.6
+ctranslate2==4.8.5
+fsspec==2025.10.0 ; python_version < "3.10"
+fsspec==2026.9.0 ; python_version >= "3.10"
+hf-xet==1.8.0
+huggingface-hub==0.36.2
+idna==3.20
+pyyaml==6.0.3
+requests==2.32.5 ; python_version < "3.10"
+requests==2.34.2 ; python_version >= "3.10"
+tokenizers==0.22.2
+tqdm==4.70.1
+typing-extensions==4.16.0
+urllib3==2.6.3 ; python_version < "3.10"
+urllib3==2.8.0 ; python_version >= "3.10"
+
+# setup.py --install ear, torch first and alone from the PyTorch CPU index. That index serves torch's own dependencies
+# too, and carries only some versions: filelock, fsspec, jinja2, markupsafe, mpmath, networkx, setuptools, sympy and
+# typing-extensions must be versions it has, and the macOS torch stops at 2.11. Python 3.9's own pip (23.0) rejects the
+# index's metadata, so setup.py moves it first. No torch at these versions runs on an Intel Mac.
+pip==26.0.1 ; python_version < "3.10"
+torch==2.8.0 ; python_version < "3.10"
+torch==2.14.1 ; python_version == "3.10" and sys_platform != "darwin"
+torch==2.15.0 ; python_version >= "3.11" and sys_platform != "darwin"
+torch==2.11.0 ; python_version >= "3.10" and sys_platform == "darwin"
+filelock==3.19.1 ; python_version < "3.10"
+filelock==4.1.0 ; python_version == "3.10"
+filelock==4.2.4 ; python_version >= "3.11"
+jinja2==3.1.6
+markupsafe==3.0.2 ; python_version < "3.10"
+markupsafe==3.0.3 ; python_version >= "3.10"
+mpmath==1.3.0
+networkx==3.2.1 ; python_version < "3.10"
+networkx==3.4.2 ; python_version == "3.10"
+networkx==3.6.1 ; python_version == "3.11"
+networkx==3.7 ; python_version >= "3.12"
+setuptools==78.1.0
+sympy==1.14.0
+transformers==4.57.6
+safetensors==0.7.0 ; python_version < "3.10"
+safetensors==0.8.0 ; python_version >= "3.10"
+librosa==0.11.0 ; python_version < "3.12"
+librosa==1.0.0 ; python_version >= "3.12"
+soundfile==0.13.1 ; python_version < "3.10"
+soundfile==0.14.0 ; python_version >= "3.10"
+soxr==1.1.0
+audioread==3.1.0 ; python_version < "3.12"
+cffi==2.0.0 ; python_version < "3.10"
+cffi==2.1.1 ; python_version >= "3.10"
+cloudpickle==3.1.2 ; python_version >= "3.10"
+decorator==5.3.1
+joblib==1.5.3 ; python_version < "3.10"
+joblib==1.6.0 ; python_version >= "3.10"
+lazy-loader==0.6
+llvmlite==0.43.0 ; python_version < "3.10"
+llvmlite==0.50.0 ; python_version >= "3.10"
+msgpack==1.1.2 ; python_version < "3.10"
+msgpack==1.2.4 ; python_version >= "3.10"
+narwhals==2.28.0 ; python_version >= "3.11"
+numba==0.60.0 ; python_version < "3.10"
+numba==0.68.1 ; python_version >= "3.10"
+platformdirs==4.4.0 ; python_version < "3.10"
+platformdirs==4.12.4 ; python_version == "3.10"
+platformdirs==4.14.5 ; python_version >= "3.11"
+pooch==1.9.0
+pycparser==2.23 ; python_version < "3.10"
+pycparser==3.11 ; python_version == "3.10"
+pycparser==3.12 ; python_version >= "3.11"
+regex==2026.1.15 ; python_version < "3.10"
+regex==2026.9.29 ; python_version >= "3.10"
+scikit-learn==1.6.1 ; python_version < "3.10"
+scikit-learn==1.7.2 ; python_version == "3.10"
+scikit-learn==1.9.1 ; python_version >= "3.11"
+scipy==1.13.1 ; python_version < "3.10"
+scipy==1.15.3 ; python_version == "3.10"
+scipy==1.17.1 ; python_version == "3.11"
+scipy==1.18.1 ; python_version >= "3.12"
+threadpoolctl==3.7.0

@@ -14,8 +14,8 @@ kept. Declare a known continuous music or ambience bed with --music-bed: pauses 
 steady bed cannot be identified reliably from levels alone. The one-file mode keeps its project beside the result
 (OUT-project) so the edit can be revised. Silence-only does not remove fillers. Measured quiet and transcript coverage
 do not prove that no speech was missed; listen to the source and every join. Needs numpy, Pillow and FFmpeg. Local
-transcription additionally needs faster-whisper and cached model weights; install with setup.py --install transcription.
-No weights are downloaded by this command. Exit codes: 0 ran, 1 ran with items to inspect, 2 could not run.
+transcription additionally needs faster-whisper and cached model weights; install with
+setup.py --install transcription --download. No weights are downloaded by this command. Exit codes: 0 ran, 1 ran with items to inspect, 2 could not run.
 """
 import argparse
 import importlib.util

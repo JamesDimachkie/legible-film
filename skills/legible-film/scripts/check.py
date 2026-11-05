@@ -123,7 +123,6 @@ READING_RULES = {'invalid timing', 'lines', 'line length', 'overlap', 'minimum d
                  'orphan', 'gap'}
 WORD_PROMPTS = {'spelled differently from the words', 'contraction differs from the words', 'spoken but not captioned',
                 'speech with no caption', 'apparent offset from estimated word times: listen'}
-PACKAGES = {'PIL': 'Pillow', 'cv2': '"opencv-python>=4.8,<5"', 'faster_whisper': 'faster-whisper'}
 QA_FILES = ('qc.json', 'flash_scan.json', 'blank_scan.json', 'captions-rules.json', 'captions-edit.json',
             'captions-speech.json', 'speech-words.json', 'captions-check.json', 'captions-contrast.json',
             'titles-contrast.json', 'technical.json')
@@ -229,11 +228,7 @@ def why_not_run(name, code, output):
         return f'{name} could not run: {named.group(0).strip()}'
     missing = re.search(r"No module named '([\w.]+)'", output)
     if missing:
-        module = missing.group(1).split('.')[0]
-        if module in ('PIL', 'numpy', 'faster_whisper', 'onnxruntime'):
-            return f'{name} could not run: {P.dependency_message(module)}'
-        return (f'{name} could not run: the Python module {module} is missing; install it: '
-                f'pip install {PACKAGES.get(module, module)}')
+        return f"{name} could not run: {P.dependency_message(missing.group(1).split('.')[0])}"
     # "moov atom not found" is a damaged file named by a tool that is plainly there, so the tools are looked for.
     tools = all(shutil.which(os.environ.get(tool.upper()) or tool) for tool in ('ffmpeg', 'ffprobe'))
     if not tools and re.search(r'ffmpeg|ffprobe', output, re.IGNORECASE) and re.search(

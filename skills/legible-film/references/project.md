@@ -123,10 +123,11 @@ have no `effects` until `map.py run --rebuild`.
 `map/<alias>/audio.json`: `{"version": 1, "source": "…", "integrated_lufs": -23.1, "levels_db":
 {"step_s": 0.25, "values": […]}, "silences": [{"start": 3.1, "end": 4.6}]}`.
 
-Transcription runs locally: faster-whisper when it is installed (`setup.py --install transcription`; the `small`
-model by default, `--quality best` for large-v3-turbo), otherwise FFmpeg's whisper filter with a downloaded model
-(less accurate, word edges estimated), or an imported transcript. A model not yet on this machine is downloaded
-only with `--download` (its size is named first); without it the run stops and keeps any existing transcript.
+Transcription runs locally: faster-whisper when it is installed (`setup.py --install transcription`, and `--download`
+for the `small` model, the default; `--quality best` for large-v3-turbo), otherwise FFmpeg's whisper filter with a
+downloaded model (less accurate, word edges estimated), or an imported transcript. A model not yet on this machine is
+downloaded only with `--download` (its size is named first); without it the run stops and keeps any existing
+transcript.
 Nothing is uploaded.
 
 ## 3. The paper edit

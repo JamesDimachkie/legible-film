@@ -36,7 +36,7 @@ back to the key frame, as the mean distance of its corners from where they start
 What this does not prove: that the region is the surface you meant, or that a corner pin will look attached; a
 surface that bends, reflects or is mostly featureless tracks poorly, and error_px measures agreement between
 features, not the true position. Look at frames (frame_sheet.py) of a render that uses it. Needs OpenCV
-(opencv-python-headless), numpy and FFmpeg. Exit codes: 0 every frame tracked; 1 some frames lost or the error is
+(setup.py --install spatial), numpy and FFmpeg. Exit codes: 0 every frame tracked; 1 some frames lost or the error is
 large (inspect them); 2 could not run (OpenCV missing, a bad region, a source that cannot be read).
 """
 import argparse

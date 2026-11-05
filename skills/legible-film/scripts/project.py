@@ -117,7 +117,7 @@ def dependency_message(name, python=None, context=None):
         option = 'spatial'
     executable = str(python or sys.executable)
     if option is None:
-        command = python_command(['-m', 'pip', 'install', package], executable)
+        command = python_command([Path(__file__).with_name('setup.py')], executable)
         return f'{package} is missing from Python {executable}. Fix: {command}'
     arguments = [Path(__file__).with_name('setup.py'), '--install', option]
     if module == 'modnet':
