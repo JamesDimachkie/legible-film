@@ -132,7 +132,7 @@ project = load_sibling('project')
 
 FRONT_KEYS = ('title', 'size', 'fps', 'target', 'captions', 'music', 'pad', 'max_pause', 'fit', 'crop',
               'background', 'font', 'loudness', 'bars', 'audience', 'takeaway', 'story',
-              'path', 'timeline', 'page', 'frame')
+              'path', 'timeline', 'page', 'frame', 'rhythm_pin')
 # The film's direction (references/finding-the-story.md section 2): who it is for, what they leave with, its spine.
 DIRECTION_KEYS = ('audience', 'takeaway', 'story')
 SHORT_CLIP = 20.0  # seconds; a cut longer than this without a stated direction is warned about
@@ -455,6 +455,8 @@ def parse_settings(found, problems, root=None):
                 problems.error(line, f'bars must be allow or no, not {value!r}')
             else:
                 settings['bars'] = value.lower() in ('allow', 'allowed', 'yes', 'true')
+        elif key == 'rhythm_pin':
+            settings['rhythm_pin'] = unquote(value)
     return settings
 
 
@@ -4066,16 +4068,106 @@ def preference_summary(root, lines, include_details=False):
     return load_sibling('taste').summary(root, lines, include_details)
 
 
+def load_rhythm_pin(root, settings=None, explicit=None):
+    """Load rhythm-pin.json from --pin, film.md front matter (rhythm_pin), or PROJECT/rhythm-pin.json."""
+    cand = None
+    if explicit:
+        cand = Path(explicit)
+        if not cand.is_file():
+            raise ValueError(f'no such rhythm pin file: {cand}')
+    elif settings and settings.get('rhythm_pin'):
+        raw = Path(settings['rhythm_pin'])
+        cand = raw if raw.is_absolute() else (root / raw)
+    elif (root / 'rhythm-pin.json').is_file():
+        cand = root / 'rhythm-pin.json'
+    if cand is None or not cand.is_file():
+        return None
+    data = json.loads(cand.read_text(encoding='utf-8'))
+    if not isinstance(data, dict) or not isinstance(data.get('summary'), dict):
+        raise ValueError(f'invalid rhythm pin file: {cand}')
+    data['_path'] = str(cand)
+    return data
+
+
+def rhythm_pin_check(plan, pin, problems=None):
+    """Compare the paper edit's cut cadence and hold lengths against a pinned reference rhythm profile."""
+    if not pin:
+        return None
+    dur = float(plan.get('duration') or 0.0)
+    if dur <= 0:
+        return None
+    sm = pin.get('summary') or {}
+    tols = pin.get('tolerances') or {}
+    # Collect visual cut/insert hold spans across spoken/picture lines and picture changes.
+    change_times = [0.0]
+    for ln in plan.get('lines') or []:
+        t = ln.get('film_start') if isinstance(ln.get('film_start'), (int, float)) else ln.get('at')
+        if isinstance(t, (int, float)) and t > change_times[-1] + 0.02:
+            change_times.append(float(t))
+    for ch in plan.get('picture_changes') or []:
+        t = ch.get('at') if isinstance(ch, dict) else None
+        if isinstance(t, (int, float)) and 0.02 < t < dur - 0.02:
+            change_times.append(float(t))
+    change_times = sorted(set(round(t, 3) for t in change_times if 0.0 <= t < dur))
+    if not change_times or change_times[0] > 0.0:
+        change_times.insert(0, 0.0)
+    spans = [b - a for a, b in zip(change_times, [*change_times[1:], dur]) if b - a > 0.02]
+    if not spans:
+        spans = [dur]
+    spans_sorted = sorted(spans)
+    paper_med_hold = round(float(spans_sorted[len(spans_sorted) // 2]), 3)
+    paper_max_hold = round(float(spans_sorted[-1]), 3)
+    # the opening is where the film starts, not a change: counting it gave a plan with no change 5 events in 10 s
+    # against a still reference's 0
+    paper_ev10 = round(10.0 * len([t for t in change_times if t > 0.0]) / dur, 2)
+
+    target_ev10 = sm.get('events_per_10s')
+    target_hold = sm.get('median_hold_s')
+    tol_ev10 = float(tols.get('events_per_10s', 2.0))
+    tol_hold = float(tols.get('median_hold_s', 0.35))
+    off = []
+    if target_ev10 is not None and abs(paper_ev10 - float(target_ev10)) > tol_ev10:
+        off.append('events_per_10s')
+        if problems is not None:
+            problems.warn(1, f'rhythm pin: paper cadence is {paper_ev10} events/10s vs pinned {target_ev10} (±{tol_ev10})',
+                          'add punch-ins or B-roll cutaways (~ lines), or drop the pin if another pace is intended')
+    if target_hold is not None and abs(paper_med_hold - float(target_hold)) > tol_hold:
+        off.append('median_hold_s')
+        if problems is not None:
+            problems.warn(1, f'rhythm pin: median hold is {paper_med_hold}s vs pinned {target_hold}s (±{tol_hold}s)',
+                          'tighten pauses or break long shots with ~ punch / ~ broll inserts')
+    if target_hold and paper_max_hold > max(2.5, 2.0 * float(target_hold)):
+        off.append('max_hold_s')
+        if problems is not None:
+            problems.warn(1, f'rhythm pin: longest hold {paper_max_hold}s exceeds 2x pinned median hold ({target_hold}s)',
+                          'insert a punch-in or cutaway to keep the pinned rhythm')
+    return {
+        'pin_file': pin.get('_path'),
+        'ref_video': pin.get('ref_video'),
+        'target_events_per_10s': target_ev10,
+        'target_median_hold_s': target_hold,
+        'paper_events_per_10s': paper_ev10,
+        'paper_median_hold_s': paper_med_hold,
+        'paper_max_hold_s': paper_max_hold,
+        'off_metrics': off,
+        'status': 'off-rhythm' if off else 'on-rhythm',
+    }
+
+
 def run_check(args):
     """cut.py check: validate film.md against the map without rendering."""
     root = load_project(args.project)
     text, settings, entries, plan, problems, _ = analyse(root, measure=not args.no_audio)
+    pin = load_rhythm_pin(root, settings, explicit=getattr(args, 'pin', None))
+    pin_report = rhythm_pin_check(plan, pin, problems) if pin else None
     errors, warnings = problems.count('error'), problems.count('warning')
     target = settings.get('target')
     report = {'project': str(root), 'ok': errors == 0, 'errors': errors, 'warnings': warnings,
               'duration_s': round(plan['duration'], 3), 'target_s': target, 'problems': problems.items,
               'lines': plan['lines'], 'joins': plan['joins'], 'picture_changes': plan['picture_changes'],
               'busy_cutting': plan['busy_cutting']}
+    if pin_report is not None:
+        report['rhythm_pin'] = pin_report
     preference = preference_summary(root, plan, include_details=True)
     if preference is not None:
         report['preferences'] = preference
@@ -4093,6 +4185,9 @@ def run_check(args):
             print(spoken_summary(record))
     for row in join_summary(plan):
         print(row)
+    if pin_report is not None:
+        print(f"rhythm pin ({pin_report['status']}): {pin_report['paper_events_per_10s']} events/10s (target {pin_report['target_events_per_10s']}), "
+              f"median hold {pin_report['paper_median_hold_s']}s (target {pin_report['target_median_hold_s']}s)")
     if preference is not None:
         print(preference['summary'])
     print(f'{errors} error{"s" if errors != 1 else ""}, {warnings} warning{"s" if warnings != 1 else ""}')
@@ -5831,14 +5926,27 @@ def run_draft(args):
         rate = source_map.fps(first_alias)
         if rate:
             fps = str(rate.numerator) if rate.denominator == 1 else f'{rate.numerator}/{rate.denominator}'
+    pin = load_rhythm_pin(root, explicit=getattr(args, 'pin', None))
+    pin_lines, pin_note = [], []
+    if pin:
+        rec = pin.get('recommended_cut_settings') or {}
+        sm = pin.get('summary') or {}
+        try:
+            rel_pin = Path(pin['_path']).resolve().relative_to(root.resolve()).as_posix()
+        except ValueError:
+            rel_pin = pin['_path']
+        pin_lines.append(f'rhythm_pin: {rel_pin}')
+        pin_note = [f'<!-- Rhythm Pin: target {sm.get("events_per_10s")} events/10s, '
+                    f'median_hold {sm.get("median_hold_s")}s, punch every {rec.get("punch_every_s")}s -->', '']
     title = project.read_status(root).get('title') or root.name
     direction = [f'{key}: {kept[key]}' for key in DIRECTION_KEYS if key in kept]
     reminder = ([] if len(direction) == len(DIRECTION_KEYS) else
                 ['Write audience, takeaway and story in the front matter before arranging these selects into beats '
-                 '(references/finding-the-story.md).', ''])
+                 '(references/finding-the-story.md).', '']) + pin_note
     text = '\n'.join(['---', f'title: {title}', *direction, f'size: {size}', f'fps: {fps}',
                       f'target: {math.ceil(total)}',
                       'captions: ' + (', '.join(sorted(captions)) if captions else 'none'),
+                      *pin_lines,
                       '---', '', f'Drafted by cut.py draft from {len(args.select)} selects; '
                       'delete words to cut them, then run cut.py check.', '', *reminder, '## Selects', *lines, ''])
     if film.exists():
@@ -6197,6 +6305,7 @@ def argument_parser():
     sub = parser.add_subparsers(dest='command', required=True)
     check = sub.add_parser('check', help='validate film.md against the map without rendering')
     check.add_argument('project')
+    check.add_argument('--pin', help='rhythm-pin.json from measure.py pin to check pacing against')
     check.add_argument('--json', action='store_true', help='print the full report as JSON')
     check.add_argument('--no-audio', action='store_true', help='place cuts from transcript times only')
     render = sub.add_parser('render', help='render the next version')
@@ -6222,11 +6331,13 @@ def argument_parser():
     draft.add_argument('project')
     draft.add_argument('--select', action='append', required=True, help='ALIAS:"phrase" or ALIAS:START-END')
     draft.add_argument('--captions', default='srt, vtt', help='caption outputs, e.g. "burn, srt, vtt"')
+    draft.add_argument('--pin', help='rhythm-pin.json from measure.py pin')
     draft.add_argument('--force', action='store_true', help='replace an existing film.md (kept as film.md.bak)')
     tighten = sub.add_parser('tighten', help='write a paper edit, removal report and listening reel')
     tighten.add_argument('project')
     tighten.add_argument('alias')
-    tighten.add_argument('--pause', type=float, default=0.35, help='target pause in seconds')
+    tighten.add_argument('--pause', type=float, default=None, help='target pause in seconds (default 0.35 or derived from --pin)')
+    tighten.add_argument('--pin', help='rhythm-pin.json from measure.py pin (derives pause target and punch cadence)')
     tighten.add_argument('--fillers', help='named or a comma-separated list; off by default')
     tighten.add_argument('--punch-in', type=float, help='alternate this zoom on successive lines')
     tighten.add_argument('--music-bed', action='store_true', help='keep pauses and fillers when a bed is present')

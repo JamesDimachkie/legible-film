@@ -83,7 +83,7 @@ from pathlib import Path
 DIGEST = 'lf1'
 TEXT_EXTENSIONS = ('.html', '.js', '.css', '.json', '.md', '.svg', '.csv', '.txt')
 EXPORTS = ('cues.json', 'reading.json', 'captions.srt', 'captions.vtt')
-EXPORT_FILES = EXPORTS + ('palette.json', 'sound-edits.json')
+EXPORT_FILES = EXPORTS + ('palette.json', 'sound-edits.json', 'times.gen.ts', 'times.gen.js')
 SKIP_TOP = frozenset({'qa', 'audio', '.git', 'node_modules', '__pycache__'})
 ENGINE_TOP = frozenset({'renders', 'snapshots', 'dist', 'coverage'})
 IGNORE_FILE = '.hyperframesignore'
@@ -446,8 +446,8 @@ def classify_local(folder, files, refs):
                     inside = Path(os.path.abspath(target)).relative_to(folder).as_posix()
                 except ValueError:
                     inside = None
-                if inside in files:
-                    continue   # a ../ that stays inside the page (the kit's blocks/ importing ../lf/): kept in place
+                if inside in files or inside in ('times.gen.js', 'times.gen.ts'):
+                    continue   # a ../ that stays inside the page (the kit's blocks/ importing ../lf/ or ../times.gen.*): kept in place
                 if inside is not None:
                     unidentified.append(f'{user} -> {inside}')   # inside the folder, outside the identity
                     continue
@@ -1370,10 +1370,238 @@ def upgrade_event(ev):
     return ev
 
 
+def sanitize_cue_ident(cue_id):
+    """Turn a cue id (e.g. 'lock', 'act-2.start') into a safe CUE_<IDENT> export name."""
+    cleaned = re.sub(r'[^A-Za-z0-9]+', '_', str(cue_id or '')).strip('_').upper()
+    return f'CUE_{cleaned or "ITEM"}'
+
+
+def _cues_constants_data(cues_path):
+    """Build deterministic constant structures from cues.json."""
+    cp = Path(cues_path).resolve()
+    if not cp.is_file():
+        raise CueListError(f'no such cue list: {cp}')
+    raw = cp.read_bytes()
+    cues_sha = hashlib.sha256(raw).hexdigest()
+    try:
+        doc = json.loads(raw.decode('utf-8'))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise CueListError(f'{cp} is not valid UTF-8 JSON: {error}') from error
+    if not isinstance(doc, dict):
+        raise CueListError(f'{cp} must contain a JSON object')
+
+    fps = float(parse_rate(doc['fps'])) if doc.get('fps') is not None else 60.0
+    exp = doc.get('export') if isinstance(doc.get('export'), dict) else {}
+    size_str = str(exp.get('size') or doc.get('size') or '1920x1080')
+    m = re.fullmatch(r'(\d+)x(\d+)', size_str)
+    width, height = (int(m.group(1)), int(m.group(2))) if m else (1920, 1080)
+    dur_s = exp.get('duration') or doc.get('duration')
+    if dur_s is None and isinstance(doc.get('sections'), list) and doc['sections']:
+        dur_s = max((float(s.get('b') or 0) for s in doc['sections'] if isinstance(s, dict)), default=0.0)
+    if dur_s is None and isinstance(doc.get('events'), list) and doc['events']:
+        dur_s = max((float(e.get('t_end') or e.get('t') or 0) for e in doc['events'] if isinstance(e, dict)), default=0.0)
+    dur_s = round(float(dur_s or 0.0), 6)
+    dur_frames = int(round(dur_s * fps)) if dur_s else 0
+
+    pic = doc.get('picture') if isinstance(doc.get('picture'), dict) else {}
+    pic_sha = str(pic.get('sha256') or '')
+    clock_obj = {'fps': int(fps) if fps.is_integer() else round(fps, 6), 'width': width, 'height': height,
+                 'duration_s': dur_s, 'duration_frames': dur_frames}
+
+    sections_map = {}
+    for sec in doc.get('sections') or []:
+        if isinstance(sec, dict) and 'id' in sec:
+            a_t = round(float(sec.get('a') or 0.0), 6)
+            b_t = round(float(sec.get('b') or 0.0), 6)
+            sections_map[str(sec['id'])] = {
+                'a': a_t, 'b': b_t,
+                'a_frame': int(round(a_t * fps)), 'b_frame': int(round(b_t * fps)),
+                'clock': sec.get('clock'),
+            }
+
+    times_map, frames_map, cues_list, named_cues = {}, {}, [], {}
+    used_idents = set()
+    for ev in doc.get('events') or []:
+        if not isinstance(ev, dict) or 'id' not in ev:
+            continue
+        cid = str(ev['id'])
+        t_val = round(float(ev.get('t') if ev.get('t') is not None else float(ev.get('frame') or 0) / fps), 6)
+        f_val = int(ev['frame']) if isinstance(ev.get('frame'), int) else int(round(t_val * fps))
+        entry = {
+            'id': cid,
+            't': t_val,
+            'frame': f_val,
+            'scale': ev.get('scale', 'contact'),
+            **({'role': ev['role']} if ev.get('role') else {}),
+            **({'section': ev['section']} if ev.get('section') else {}),
+            **({'note': ev['picture']} if ev.get('picture') else {}),
+        }
+        times_map[cid] = t_val
+        frames_map[cid] = f_val
+        cues_list.append(entry)
+        ident = sanitize_cue_ident(cid)
+        if ident in used_idents:
+            k = 2
+            while f'{ident}_{k}' in used_idents:
+                k += 1
+            ident = f'{ident}_{k}'
+        used_idents.add(ident)
+        named_cues[ident] = entry
+
+    # the hash names the picture timing the constants carry (clock, sections, each cue's id, time, frame, scale and
+    # section), not the whole cue file: spotting writes roles and sound into cues.spotted.json without moving a cue,
+    # and a render of the spotted list was refused for a CUES_SHA256 of the other file
+    cues_sha = hashlib.sha256(json.dumps({'CLOCK': clock_obj, 'SECTIONS': sections_map, 'TIMES': times_map, 'FRAMES': frames_map,
+                                          'CUES': [_timing_of(c) for c in cues_list]}, sort_keys=True).encode('utf-8')).hexdigest()
+    return {
+        'CUES_SHA256': cues_sha,
+        'PICTURE_SHA256': pic_sha,
+        'CLOCK': clock_obj,
+        'SECTIONS': sections_map,
+        'TIMES': times_map,
+        'FRAMES': frames_map,
+        'CUES': cues_list,
+        'named': named_cues,
+    }
+
+
+TIMING_KEYS = ('id', 't', 'frame', 'scale', 'section')
+
+
+def _timing_of(entry):
+    """A cue's timing: what the constants bind (roles and notes are the spotting's, and may change without a cue moving)."""
+    return {k: entry[k] for k in TIMING_KEYS if k in entry}
+
+
+GEN_LINE = re.compile(r'^export\s+const\s+[A-Za-z_][A-Za-z0-9_]*\s*=\s*.+?(?:\s+as\s+const)?;$')
+
+
+def _render_constants_source(data, typescript=True):
+    suf = ' as const' if typescript else ''
+    lines = [
+        '// Generated by cue_list.py codegen from cues.json — do not edit by hand.',
+        f'export const CUES_SHA256 = {json.dumps(data["CUES_SHA256"])};',
+        f'export const PICTURE_SHA256 = {json.dumps(data["PICTURE_SHA256"])};',
+        f'export const CLOCK = {json.dumps(data["CLOCK"], sort_keys=False)}{suf};',
+        f'export const SECTIONS = {json.dumps(data["SECTIONS"], sort_keys=False)}{suf};',
+        f'export const TIMES = {json.dumps(data["TIMES"], sort_keys=False)}{suf};',
+        f'export const FRAMES = {json.dumps(data["FRAMES"], sort_keys=False)}{suf};',
+        f'export const CUES = {json.dumps(data["CUES"], sort_keys=False)}{suf};',
+    ]
+    for ident, entry in data['named'].items():
+        lines.append(f'export const {ident} = {json.dumps(entry, sort_keys=False)}{suf};')
+    return '\n'.join(lines) + '\n'
+
+
+def compile_cue_constants(cues_path, out_ts=None, out_js=None):
+    """Compile cues.json into deterministic times.gen.ts and times.gen.js constant modules."""
+    cp = Path(cues_path).resolve()
+    ts_path = Path(out_ts).resolve() if out_ts else (cp.parent / 'times.gen.ts')
+    js_path = Path(out_js).resolve() if out_js else (cp.parent / 'times.gen.js')
+    data = _cues_constants_data(cp)
+    for target, ts_flag in ((ts_path, True), (js_path, False)):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        txt = _render_constants_source(data, typescript=ts_flag)
+        tmp = target.with_name(f'.tmp.{target.name}.{os.getpid()}')
+        tmp.write_bytes(txt.encode('utf-8'))
+        tmp.replace(target)
+    return {
+        'cues': str(cp),
+        'cues_sha256': data['CUES_SHA256'],
+        'out_ts': str(ts_path),
+        'out_js': str(js_path),
+        'cue_count': len(data['CUES']),
+    }
+
+
+def _parse_generated_exports(gen_path):
+    """Parse single-line `export const NAME = <JSON>[ as const];` declarations from times.gen.*."""
+    text = Path(gen_path).read_text(encoding='utf-8')
+    parsed = {}
+    for line in text.splitlines():
+        m = re.match(r'^export\s+const\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)(?:\s+as\s+const)?;\s*$', line)
+        if not m:
+            continue
+        name, raw_val = m.groups()
+        parsed[name] = json.loads(raw_val)
+    return parsed
+
+
+def verify_cue_constants(cues_path, gen_path):
+    """Return a list of drift/mismatch messages between cues.json and times.gen.ts/.js ([] if synced)."""
+    expected = _cues_constants_data(cues_path)
+    gp = Path(gen_path)
+    if not gp.is_file():
+        return [f'{gp} does not exist']
+    try:
+        actual = _parse_generated_exports(gp)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return [f'{gp} could not be parsed: {error}']
+    problems = []
+    # nothing but the generator's own lines: a module is code, and a line it did not write (an appended
+    # `TIMES["open-hit"] = 99;`) ran in the render while every constant still read as synced
+    lines = gp.read_text(encoding='utf-8').splitlines()
+    stray = [ln for ln in lines[1:] if ln.strip() and not GEN_LINE.match(ln.strip())]
+    if not lines or not lines[0].startswith('// Generated by cue_list.py codegen') or stray:
+        problems.append(f'{gp.name}: holds lines cue_list.py did not write' + (f' ({stray[0][:60]!r})' if stray else ''))
+    if actual.get('CUES_SHA256') != expected['CUES_SHA256']:
+        problems.append(f'{gp.name}: CUES_SHA256 {actual.get("CUES_SHA256")!r} != the cue list\'s timing {expected["CUES_SHA256"]!r}')
+    for key in ('CLOCK', 'SECTIONS', 'TIMES', 'FRAMES'):
+        if actual.get(key) != expected[key]:
+            problems.append(f'{gp.name}: {key} differs from cues.json')
+    if [_timing_of(c) for c in actual.get('CUES') or []] != [_timing_of(c) for c in expected['CUES']]:
+        problems.append(f'{gp.name}: CUES differs from cues.json')
+    for ident, entry in expected['named'].items():
+        if _timing_of(actual.get(ident) or {}) != _timing_of(entry):
+            problems.append(f'{gp.name}: constant {ident} differs from cues.json')
+    return problems
+
+
 # ================================================================ CLI
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == 'codegen':
+        p = argparse.ArgumentParser(prog='cue_list.py codegen',
+                                    description='Compile cues.json into times.gen.ts / times.gen.js constants or verify sync.')
+        p.add_argument('cues', help='path to cues.json')
+        p.add_argument('--out-ts', help='output TypeScript constants file (default times.gen.ts beside cues.json)')
+        p.add_argument('--out-js', help='output JavaScript ESM constants file (default times.gen.js beside cues.json)')
+        p.add_argument('--verify', action='store_true', help='verify existing times.gen.* matches cues.json (exit 2 on mismatch)')
+        p.add_argument('--json', action='store_true')
+        a = p.parse_args(argv[1:])
+        try:
+            cp = Path(a.cues).resolve()
+            if a.verify:
+                targets = []
+                if a.out_ts:
+                    targets.append(Path(a.out_ts))
+                if a.out_js:
+                    targets.append(Path(a.out_js))
+                if not targets:
+                    for name in ('times.gen.ts', 'times.gen.js'):
+                        cand = cp.parent / name
+                        if cand.is_file():
+                            targets.append(cand)
+                    if not targets:
+                        targets = [cp.parent / 'times.gen.ts', cp.parent / 'times.gen.js']
+                all_problems = []
+                for tgt in targets:
+                    all_problems.extend(verify_cue_constants(cp, tgt))
+                if a.json:
+                    print(json.dumps({'ok': not all_problems, 'problems': all_problems, 'cues': str(cp)}, indent=1))
+                elif all_problems:
+                    for prob in all_problems:
+                        print(f'cue_list.py codegen: {prob}', file=sys.stderr)
+                else:
+                    print(f'{cp}: generated constants in sync ({len(targets)} file(s))')
+                return 2 if all_problems else 0
+            res = compile_cue_constants(cp, a.out_ts, a.out_js)
+        except (CueListError, OSError) as error:
+            print(f'cue_list.py: {error}', file=sys.stderr)
+            return 2
+        print(json.dumps(res, indent=1) if a.json else f"wrote {res['out_ts']} and {res['out_js']} ({res['cue_count']} cues)")
+        return 0
     if argv and argv[0] == 'fingerprint':
         p = argparse.ArgumentParser(prog='cue_list.py fingerprint', description='The identity of a picture.')
         p.add_argument('kind', choices=('page', 'picture', 'paper'))

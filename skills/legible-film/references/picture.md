@@ -28,8 +28,11 @@ Contents: [1. The job](#1-decide-what-this-picture-must-do) · [2. A world with 
 ## 2. A world with reasons
 
 - **One world**: a stage (light or dark, neutral or tinted), a type scale, margins, a material, and how things enter
-  and leave, each with a reason inside this film. One documented film was a warm paper desk with a single thread as
-  the product's spine and one accent colour on the operative word only. Mixed worlds can also cohere through
+  and leave, each with a reason inside this film. Name its **world line** (subject × one far thing true of how it
+  works), name every scene boundary (`becomes`, `carried`, `matched`, `door`, or `change of ground` — never bare
+  "next"), list **ties** and 1-3 undeclared **gifts**, and render the pre-render world sheet (`look.py world-sheet`)
+  before generating lower-thirds, callouts or motion blocks. One documented film was a warm paper desk with a single
+  thread as the product's spine and one accent colour on the operative word only. Mixed worlds can also cohere through
   recurring type and movement.
 - **One type scale**, applied everywhere. Off-scale sizes read as mistakes, and near-miss values for the same role
   (weights or tracking that almost match) read as "almost matched".
@@ -87,6 +90,10 @@ Rules that came from rendered defects; each is cheap to check on a full-resoluti
   a 912 px card 54 px past the margin.
 - A variable font clamps any weight outside its axis to the nearest weight it has, silently; check the axis range
   before specifying a weight. Do not animate the weight of text that reflows.
+- **Serif limit, held scale hierarchy, and tracking split:** A serif sets at most 3 words at a time (`<= 3` words; full
+  sentences stay in sans). A held frame's primary display line is at least `2x` the pixel size of the secondary line on
+  the same frame (unless the smaller line is a distinct face in italic or small caps). Large display type tracks tight
+  (`-0.03em` to `-0.05em`; sans sentences `-0.02em`), while small mono labels open wide (`+0.10em` to `+0.16em`).
 
 ## 5. Motion
 

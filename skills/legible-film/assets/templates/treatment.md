@@ -19,6 +19,9 @@ Chosen, and why:
 The best idea taken from the others:
 
 ## Governing operation
+- World line (subject × far thing):
+- Scene boundaries (name each cut: `becomes` | `carried` | `matched` | `door` | `change of ground` — never bare "next"):
+- Ties (what returns later and answers the opening) & Gifts (1-3 undeclared details):
 Because the product does ___, the film's ___ changes from ___ to ___. We recognise it again when ___.
 The analogy stops at ___.
 

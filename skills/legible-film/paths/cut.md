@@ -49,9 +49,12 @@ into a new version; nothing else holds the cut.
 
 ## By kind
 
-- **Tightening.** `tighten.py FILE` for one file, or `cut.py tighten PROJECT ALIAS` in a project. Declare a music or
-  ambience bed with `--music-bed`, since nothing detects it, and listen to the whole reel. `--help` and
-  [paper-edit](../references/paper-edit.md) §12 hold the rules.
+- **Tightening & Rhythm Profiling.** `tighten.py FILE` for one file, or `cut.py tighten PROJECT ALIAS` in a project.
+  To match the cut cadence and hold distribution of a reference film instead of guessing pause thresholds, pin the
+  reference first (`measure.py pin PROJECT REF.mp4`, writing `rhythm-pin.json` + `refs/pin/` sheets), then run
+  `cut.py tighten PROJECT ALIAS --pin rhythm-pin.json` and verify the paper edit with `cut.py check --pin` and the
+  rendered cut with `measure.py compare --as refill`. Declare a music or ambience bed with `--music-bed`, since
+  nothing detects it, and listen to the whole reel. `--help` and [paper-edit](../references/paper-edit.md) §12 hold the rules.
 - **Interviews and voice-over explainers.** The story comes from the transcript
   ([finding-the-story](../references/finding-the-story.md) §1-7). A voice-over is a source to map, and every claim
   traces to the facts file.

@@ -41,7 +41,9 @@ check's exit status.
 Two groups report the frame and the clock. **Context** shows each frame field and its state; a field assumed or missing
 reads `unconfirmed`, and says which. For the cold read, give a fresh agent the packet from `grade.py cold PROJECT`
 (frames every half second and words from the first seconds, never the brief) and record its answer with `--record
---assessment ANSWER.json`; a mismatch is a `look`. **Sync** shows whether the cue list is present and fresh against this
+--assessment ANSWER.json`; a mismatch is a `look`. **Blind lineup** ([eyes](eyes.md)) optionally checks
+`blind-pack.json` from `pack.py record` via `check.py --blind-pack` so two cross-family vision readers verify pacing,
+visual clutter, and callout placement against reference cuts. **Sync** shows whether the cue list is present and fresh against this
 version, its binding, every turn's decision, the frame change at each cue (a screen that says a change happened, not
 that it is the intended one), whether the sound follows the list against chance, masking pairs, and the transport check.
 A stale list is a `fail`, and the fix is a re-export from the owner, never an edit of the list.

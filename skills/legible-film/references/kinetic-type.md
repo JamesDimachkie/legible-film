@@ -116,6 +116,11 @@ with a phone, measure only the screen (`--crop`): handheld movement counts as mo
 - **Extruded type** is a stack of copies along depth; cap the count, since every copy costs paint time and memory.
 - **The product's own visual language:** glyph scrambles and code backdrops say "code"; a game or a physical product
   needs its own ([story-and-score](story-and-score.md) §6).
+- **Serif limit, held scale hierarchy, and tracking split:** A serif face sets at most 3 words at a time (`<= 3` words;
+  full sentences stay in sans). On held frames, the primary display line is at least `2x` the pixel size of the
+  secondary line on the same frame (unless the smaller line is a distinct face in italic or small capitals). Display
+  headlines track tight at `-0.03em` to `-0.05em` (full sentences in sans at `-0.02em`), while small uppercase mono
+  labels open wide at `+0.10em` to `+0.16em`.
 - **Glitches read as failure** by default, and a glitch on the product's name or a claim can imply a fault it does
   not have ([sound](sound.md) §14). Use one there only when the concept earns it, the name stays legible on every
   frame, and the person's confirmed taste or their review of it agrees.

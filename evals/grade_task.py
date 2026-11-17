@@ -633,7 +633,39 @@ def scorecard_items(task, workspace, scorecard_path, run=None):
     return results
 
 
-def grade(task, run, fixtures, use_skill_check=False, packet_dir=None, judgment_path=None, scorecard_path=None):
+def blind_pack_check(blind_pack_path, workspace, task=None):
+    """Verify optional double-blind relative lineup output (blind-pack.json from pack.py record), bound to the film
+    being graded: a lineup recorded for another cut (or an earlier one) had passed for this one."""
+    path = Path(blind_pack_path) if blind_pack_path else (workspace / 'blind-pack.json')
+    if not path.is_file():
+        return None
+    try:
+        data = P.load_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        return check_result('blind-pack', 'fail', f'unreadable blind-pack report: {error}', basis='blind-pack')
+    if not isinstance(data, dict) or not data.get('cross_family'):
+        return check_result('blind-pack', 'inconclusive', 'blind lineup requires two cross-family vision readers',
+                            basis='blind-pack')
+    video_rule = next((row for row in (task or {}).get('automatic', []) if row['method'] == 'video'), None)
+    try:
+        video = under(workspace, video_rule['path']) if video_rule else None
+    except ValueError:
+        video = None
+    if video is None or not video.is_file():
+        return check_result('blind-pack', 'inconclusive', 'no delivered film to bind the blind lineup to',
+                            basis='blind-pack')
+    if data.get('film_sha256') != digest(video):
+        return check_result('blind-pack', 'fail', f'the blind lineup was made from another film than {video.name} '
+                            f'(film_sha256 {str(data.get("film_sha256"))[:12]}, delivered {digest(video)[:12]})',
+                            basis='blind-pack')
+    state = 'pass' if data.get('status') == 'pass' else 'fail'
+    detail = (f"ours={data.get('ours_letter')} vs {data.get('yardstick_letter')}; "
+              f"families={data.get('families')}; dims={data.get('dimension_averages')}")
+    return check_result('blind-pack', state, detail, basis='blind-pack')
+
+
+def grade(task, run, fixtures, use_skill_check=False, packet_dir=None, judgment_path=None, scorecard_path=None,
+          blind_pack_path=None):
     """Evaluate checks independently and preserve all missing-evidence states."""
     workspace = run / 'workspace' if (run / 'workspace').is_dir() else run
     response = run / 'final.txt'
@@ -647,6 +679,9 @@ def grade(task, run, fixtures, use_skill_check=False, packet_dir=None, judgment_
     if any(rule['method'] == 'video' for rule in task['automatic']):
         rows.append(skill_check(task, workspace, run, use_skill_check))
     rows.extend(scorecard_items(task, workspace, scorecard_path, run))
+    bp_row = blind_pack_check(blind_pack_path, workspace, task)
+    if bp_row is not None:
+        rows.append(bp_row)
     judgment, reason = load_judgment(task, run, workspace, packet_dir, judgment_path)
     for item in task['review']:
         rows.append(review_item(item, judgment, reason))
@@ -666,12 +701,14 @@ def main():
     parser.add_argument('--packet', type=Path)
     parser.add_argument('--judgment', type=Path)
     parser.add_argument('--scorecard', type=Path)
+    parser.add_argument('--blind-pack', type=Path)
     args = parser.parse_args()
     try:
         task = tasks()[args.task]
         if not args.run.is_dir() or not args.fixtures.is_dir():
             raise ValueError('run and fixture directories must exist')
-        result = grade(task, args.run, args.fixtures, args.skill_check, args.packet, args.judgment, args.scorecard)
+        result = grade(task, args.run, args.fixtures, args.skill_check, args.packet, args.judgment,
+                       args.scorecard, args.blind_pack)
         if args.out:
             P.save_json(args.out, result)
         print(json.dumps(result, indent=2))

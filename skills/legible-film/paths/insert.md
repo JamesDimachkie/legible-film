@@ -16,14 +16,20 @@ inside it, on the host's clock; the host's sound and the picture outside the pas
    or `none`). Done when every anchor has a start time, a frame and an uncertainty.
 2. **Frame.** Inherit the host's context and state what the viewer must understand at each word, one score row per
    anchor, reviewed before you build. Done when each anchor has a meaning line.
-3. **Build the page.** Read [timing](../references/timing.md) §0, and §6 for reading windows. When the kit's blocks draw
-   the insert, read [kit](../references/kit.md); otherwise read [engines](../references/engines.md) §4 for HyperFrames
-   or §12 for Cavalry. When the graphics' look is open, read [look](../references/look.md). The anchors are its turns.
-   In HyperFrames, also write them as `appearsBy` motion assertions. Export `cues.json` from the page as in
-   [create](create.md) step 3, with the host passage's fingerprint and the source-to-host time map. Review each render
-   on word sheets, `frame_sheet.py INSERT --at T1,T2 --words map/ALIAS/words.json --offset INf --out qa/anchors.png` at
-   the anchors and the same with `--every 0.5` over the whole insert. Done when every turn lands within one frame of its
-   anchor estimate, said in those words.
+3. **Build the page.** First render a pre-render world sheet (`look.py world-sheet PROJECT`) so palette contrast,
+   display-to-secondary hierarchy (`>= 2x` on held frames), serif limit (`<= 3` words; sentences in sans), and
+   tracking (`-0.03em..-0.05em` display vs `+0.10em..+0.16em` mono labels) are settled before generating lower-thirds,
+   callouts, or standalone motion blocks. If matching an existing film's cut cadence, pin its rhythm first with
+   `measure.py pin PROJECT REF.mp4`. Read [timing](../references/timing.md) §0, and §6 for reading windows. When the
+   kit's blocks draw the insert, read [kit](../references/kit.md); otherwise read [engines](../references/engines.md) §4
+   for HyperFrames or §12 for Cavalry. When the graphics' look is open, read [look](../references/look.md). The anchors
+   are its turns. In HyperFrames, also write them as `appearsBy` motion assertions. Export `cues.json` and compiled
+   cue constants (`times.gen.ts` / `times.gen.js`) from the page as in [create](create.md) step 3, with the host
+   passage's fingerprint and the source-to-host time map; keep `times.gen.*` synchronized (compile/capture fails
+   immediately on drift). Review each render on word sheets,
+   `frame_sheet.py INSERT --at T1,T2 --words map/ALIAS/words.json --offset INf --out qa/anchors.png` at the anchors and
+   the same with `--every 0.5` over the whole insert, then check rhythm against any pin via `measure.py compare --as
+   refill`. Done when every turn lands within one frame of its anchor estimate, said in those words.
 4. **Composite in context.** In a paper edit, give each spoken line its own `~` cutaway
    ([paper-edit](../references/paper-edit.md) §5 has the `~` lines), each range continuing frame for frame from the
    last, and keep the pauses between lines. For an editor, hand over a master at the exact rate (ProRes 422 HQ when they

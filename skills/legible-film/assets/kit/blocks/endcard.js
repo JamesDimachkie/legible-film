@@ -41,17 +41,17 @@ export const EndCard = block('endcard', (ctx, o) => {
     if (logoNode) items.push({ node: logoNode, h: hgt, gap: u * 3.5 });
   }
   if (o.wordmark) {
-    wordNode = ctx.fitText(g, { string: o.wordmark, fill: o.wordmarkFill ?? (ctx.portrait ? 0.86 : 0.64), maxH: 0.32, weight: 820, width: ctx.portrait ? 87.5 : 100, tracking: -0.035, color: colour });
+    wordNode = ctx.fitText(g, { string: o.wordmark, font: o.font, fill: o.wordmarkFill ?? (ctx.portrait ? 0.86 : 0.64), maxH: 0.32, weight: 820, width: ctx.portrait ? 87.5 : 100, tracking: o.tracking ?? -0.035, color: colour });
     items.push({ node: wordNode, h: wordNode.ink[3] - wordNode.ink[1], gap: u * 6 });
   }
   const small = u * (ctx.portrait ? 5.6 : 4.8);
   let tagNode = null, lineNode = null;
   if (o.tagline) {
-    tagNode = ctx.textNode(g, { string: o.tagline, size: small * 1.2, weight: 760, width: 112.5, tracking: 0.06, color: accent });
+    tagNode = ctx.textNode(g, { string: o.tagline, font: o.taglineFont ?? 'mono', fontStyle: o.taglineStyle, size: small * 1.15, weight: 760, width: 112.5, tracking: o.taglineTracking ?? 0.12, color: accent });
     items.push({ node: tagNode, h: tagNode.ink[3] - tagNode.ink[1], gap: u * 3.4 });
   }
   if (o.line) {
-    lineNode = ctx.textNode(g, { string: o.line, font: 'mono', size: small, weight: 520, tracking: 0, color: colour });
+    lineNode = ctx.textNode(g, { string: o.line, font: o.lineFont ?? 'mono', fontStyle: o.lineStyle, size: small, weight: 520, tracking: o.lineTracking ?? 0.12, color: colour });
     items.push({ node: lineNode, h: lineNode.ink[3] - lineNode.ink[1], gap: 0 });
   }
   const total = items.reduce((a, it, i) => a + it.h + (i < items.length - 1 ? it.gap : 0), 0);

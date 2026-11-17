@@ -37,7 +37,8 @@ export const Type = block('type', (ctx, o) => {
     const weight = s.weight ?? (style === 'kicker' || style === 'snap' ? 860 : 820);
     const width = s.width ?? o.width;
     const layoutOpts = {
-      fill, weight, width, tracking: s.tracking ?? -0.025, color: colour, maxHPer: s.maxH,
+      fill, weight, width, font: s.font ?? o.font, fontStyle: s.fontStyle ?? o.fontStyle, smallCaps: s.smallCaps ?? o.smallCaps,
+      tracking: s.tracking ?? ((s.font ?? o.font) === 'text' ? -0.02 : -0.035), color: colour, maxHPer: s.maxH,
       outline: style === 'outline' ? Math.max(2, ctx.u * (ctx.portrait ? 0.5 : 0.38)) : 0, strokeColor: colour,
     };
     let kicker = null;
@@ -50,8 +51,8 @@ export const Type = block('type', (ctx, o) => {
       const kt = s.kicker || '';
       if (kt) {
         kicker = ctx.textNode(group, {
-          string: kt, font: 'display', size: ctx.u * (ctx.portrait ? 5.2 : 4.6), weight: 640, width: 112.5,
-          tracking: 0.06, color: s.kickerColor ? ctx.colour(s.kickerColor) : (o.kickerAccent !== false ? typeColour(ctx, ground, 'accent') : colour),
+          string: kt, font: s.kickerFont ?? 'mono', size: s.kickerSize ?? ctx.u * (ctx.portrait ? 5.2 : 4.6), weight: 640, width: 112.5,
+          tracking: s.kickerTracking ?? 0.12, color: s.kickerColor ? ctx.colour(s.kickerColor) : (o.kickerAccent !== false ? typeColour(ctx, ground, 'accent') : colour),
         });
         const top = -lay.height / 2 + ctx.u * 4;
         kicker.rest({ y: top - (kicker.ink[3] - kicker.ink[1]) / 2 - ctx.u * 3.2 });

@@ -315,6 +315,7 @@ def run_cue_export_cases(tool, record, j, scripts_dir, skip=None):
     if kit.exists():
         shutil.rmtree(kit)
     code, text = tool('new_film.py', kit)
+    tool('look.py', 'world-sheet', kit)
     code, text = tool('film_check.py', kit, '--size', '640x360', '--browser', browser['chrome'], '--playwright', browser['core'])
     doc = json.loads((kit / 'cues.json').read_text(encoding='utf-8')) if (kit / 'cues.json').is_file() else {}
     state = cue_list.check(kit / 'cues.json') if (kit / 'cues.json').is_file() else None

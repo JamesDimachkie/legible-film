@@ -13,17 +13,24 @@ chooses it). The page is the clock; the cue list, captions and checks are export
    ([project](../references/project.md) §3). Fill what the request gives and ask once for the rest. Done when each
    field is confirmed, assumed or waived with a reason, and only missing fields were asked.
 2. **Look and concept.** When the look is open, read [look](../references/look.md) and settle it first. Read
-   [story-and-score](../references/story-and-score.md) with its [treatment](../assets/templates/treatment.md), then
-   write three concepts that are three different films, choose one, and have a reviewer who did not write it judge the
-   concept and its score ([plan review brief](../assets/templates/plan-review-brief.md) C). When the film makes a claim,
-   read [claims-and-rights](../references/claims-and-rights.md) and [sources](../references/sources.md) before you write
-   it. Then read [timing](../references/timing.md) §0 and write the cue sheet, a clock per section and a decision per
-   turn. When the chosen concept needs paid or generated material (footage, images, music or a voice), stop there and
-   ask for the spend in your reply, with what it buys; generate nothing until the person says yes. Read
-   [generation](../references/generation.md) before the first generation. Done when the sheet names every section's
-   clock and every spend the concept needs has the person's yes.
+   [story-and-score](../references/story-and-score.md) with its [treatment](../assets/templates/treatment.md), name
+   the **world line** (subject × one far thing true of how it works), list its **ties** and undeclared **gifts**, and
+   name every scene boundary (`becomes`, `carried`, `matched`, `door`, or `change of ground` — never bare "next").
+   Write three concepts that are three different films, choose one, and have a reviewer who did not write it judge the
+   concept and its score ([plan review brief](../assets/templates/plan-review-brief.md) C). Render and inspect the
+   pre-render world sheet (`look.py world-sheet PROJECT`) before generating lower-thirds, callouts, or motion blocks.
+   When the film makes a claim, read [claims-and-rights](../references/claims-and-rights.md) and
+   [sources](../references/sources.md) before you write it. Then read [timing](../references/timing.md) §0 and write the
+   cue sheet, a clock per section and a decision per turn. When the chosen concept needs paid or generated material
+   (footage, images, music or a voice), stop there and ask for the spend in your reply, with what it buys; generate
+   nothing until the person says yes. Read [generation](../references/generation.md) before the first generation. Done
+   when the world sheet passes typography checks, the sheet names every section's clock, and every spend has the
+   person's yes.
 3. **Build.** Read [picture](../references/picture.md) as you build, and [timing](../references/timing.md) §5-8 for
-   frame arithmetic, reading windows and holds. When the film is type-led, read [kit](../references/kit.md) and
+   frame arithmetic, reading windows and holds. Enforce the kit typography guardrails: **3-word serif limit** (full
+   sentences stay in sans), **`>= 2x` display-to-secondary scale** on held frames (unless the smaller line is a distinct
+   italic/small-caps face), and **tight display tracking (`-0.03em` to `-0.05em`; sans sentences `-0.02em`) vs. wide
+   mono labels (`+0.10em` to `+0.16em`)**. When the film is type-led, read [kit](../references/kit.md) and
    [kinetic-type](../references/kinetic-type.md); when an interface is on screen,
    [product-demos](../references/product-demos.md); when it uses outside footage, [assets](../references/assets.md);
    when the destination sets its size or length, [formats](../references/formats.md); when flat art moves in depth,
@@ -32,11 +39,12 @@ chooses it). The page is the clock; the cue list, captions and checks are export
    For HyperFrames, open its skill through your host. In Claude Code use the Skill tool with `hyperframes:hyperframes`;
    in Codex use the installed `hyperframes` skill from its skill list ([engines](../references/engines.md) §4 gives
    each host's install). Export with `node film_capture.mjs cues DIR --out DIR/cues.json --source timelines
-   --verify`, or for the kit with `film_check.py DIR --verify-cues`, which writes `DIR/cues.json` through the same
-   export. Both freeze the page with `cue_list.py freeze`, starting from its entry page, and keep
-   `DIR/.lf-frozen/<snapshot_sha256>/` for the render. Done when `cues.json` v2 carries the page fingerprint and the
-   snapshot hash, and every "no frame change" flag is answered by a fixed picture, a cue declared `picture: none`, or
-   a held frame declared `picture: held` with a decision.
+   --verify`, or for the kit with `film_check.py DIR --verify-cues`, which writes `DIR/cues.json` plus compiled
+   cue constants (`times.gen.ts` / `times.gen.js`) through `cue_list.py codegen`. Both freeze the page with
+   `cue_list.py freeze`, starting from its entry page, and keep `DIR/.lf-frozen/<snapshot_sha256>/` for the render.
+   Done when `cues.json` v2 carries the page fingerprint and the snapshot hash, `times.gen.*` matches `cues.json` at
+   compile/load time, and every "no frame change" flag is answered by a fixed picture, a cue declared `picture: none`,
+   or a held frame declared `picture: held` with a decision.
 4. **Sound.** A film silent by the person's decision skips this step: record it with `screen.py decide PROJECT
    --category sound --subject audio --decision "silent by decision: no audio stream" --by person`, and make no music,
    conform or mix. Otherwise read [sound](../references/sound.md), and [assets](../references/assets.md) for outside

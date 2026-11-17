@@ -170,7 +170,7 @@ BLANK = """export default function film(kit) {
 LOW = """export default function film(kit) {
   const Low = kit.block('low', ctx => {
     ctx.ground(ctx.t0, '#000000');
-    const word = ctx.textNode(ctx.group, { string: 'LOW', size: 24, weight: 400, color: '#666666' });
+    const word = ctx.textNode(ctx.group, { string: 'LOW', size: 24, weight: 400, tracking: -0.035, color: '#666666' });
     ctx.text({ id: 'low', role: 'headline', string: 'LOW', nodes: [word], bg: () => '#000000' });
     return { len: 2, camera: () => ({ drift: false }), update() {} };
   });
@@ -190,6 +190,7 @@ def run_kit_cases(tool, record, j, load, lengths):
     """Blank tracked nodes and loop seams in film_check.py; --loop, --web and --res in make_film.py."""
     folder = j('make-films', 'orbit')
     code, out = tool('new_film.py', folder)
+    tool('look.py', 'world-sheet', folder)
     film_js = Path(folder, 'film.js')
     if code not in (0, 1) or not film_js.is_file():
         record('kit cases: new_film.py makes a project', False, out[-200:])

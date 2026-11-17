@@ -303,6 +303,12 @@ def main():
             if problems:
                 raise ValueError('the kept copy differs from the export snapshot (' + '; '.join(problems[:5]) +
                                  '); export the cue list again')
+            for gen_name in ('times.gen.js', 'times.gen.ts'):
+                gen_path = source / gen_name
+                if gen_path.is_file():
+                    sync_errs = cue_list.verify_cue_constants(a.cues, gen_path)
+                    if sync_errs:
+                        raise ValueError('; '.join(sync_errs))
         with tempfile.TemporaryDirectory(prefix='lf-render-', dir=output.parent if output.parent.is_dir() else None) as tmp:
             tmp = Path(tmp)
             frozen = tmp / 'frozen'
@@ -321,6 +327,15 @@ def main():
             hashes = {rel: C.sha256(frozen / rel) for rel in names}
             if record is not None and hashes != record['frozen_files']:
                 raise ValueError('the kept copy changed while it was copied for the render; export again')
+            generated = {}
+            for gen_name in ('times.gen.js', 'times.gen.ts'):
+                gen_src = source / gen_name
+                if gen_src.is_file() and not (frozen / gen_name).exists():
+                    # the constants the page imports are code it runs: verified above against the cue list when one
+                    # is given, and recorded in the receipt with their hash (they had rendered unrecorded). They
+                    # are kept apart from the page's files, whose hashes must rebuild the export's snapshot.
+                    shutil.copyfile(gen_src, frozen / gen_name)
+                    generated[gen_name] = C.sha256(frozen / gen_name)
             digests = {rel: cue_list.file_digest(frozen / rel) for rel in names}
             served = []
             handler = type('ServedRequests', (QuietServer,), {'served': served})
@@ -397,6 +412,7 @@ def main():
                         'source_digests': pre,
                         'vendored': [{'url': u, 'sha256': h} for u, h in sorted(vendored.items())],
                         'snapshot_sha256': record['snapshot_sha256'] if record else None,
+                        'generated': generated,
                         'cues': str(Path(a.cues).resolve()) if a.cues else None,
                         'cues_sha256': listed.sha256 if listed else None,
                         'binding_reasons': (list(record.get('reasons') or []) if record else []) +

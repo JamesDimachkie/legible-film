@@ -341,7 +341,7 @@ export class Film {
   fitText(parent, o) {
     const sw = this.safe[2] - this.safe[0], sh = this.safe[3] - this.safe[1];
     // In a tall frame display type defaults to the condensed width, so a word fills more of the frame.
-    const st = { font: 'display', weight: 820, tracking: -0.02, lineHeight: 1, ...o, width: o.width ?? (this.portrait ? 75 : 100) };
+    const st = { font: 'display', weight: 820, tracking: -0.035, lineHeight: 1, ...o, width: o.width ?? (this.portrait ? 75 : 100) };
     let size = sizeForWidth(o.string, st, sw * (o.fill ?? 0.9));
     const mt = inkMetrics(o.string, st);
     const capH = (mt.inkAsc + mt.inkDesc) || 0.72;

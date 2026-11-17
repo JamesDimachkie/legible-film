@@ -24,9 +24,9 @@ export const Thread = block('thread', (ctx, o) => {
   const fs = u * (o.size ?? (vertical ? 7 : 6.2));
   const nodes = items.map((it, i) => {
     const g = ctx.group.add({ name: `thread-${i + 1}` });
-    const label = ctx.textNode(g, { string: it.label, size: fs, weight: 800, width: 100, tracking: -0.02, color: ink });
+    const label = ctx.textNode(g, { string: it.label, size: fs, weight: 800, width: 100, tracking: it.tracking ?? -0.035, color: ink });
     let sub = null;
-    if (it.sub) sub = ctx.textNode(g, { string: it.sub, font: 'mono', size: fs * 0.42, weight: 500, color: ctx.mix(ink, card, 0.3) });
+    if (it.sub) sub = ctx.textNode(g, { string: it.sub, font: 'mono', size: fs * 0.42, weight: 500, tracking: it.subTracking ?? 0.12, color: ctx.mix(ink, card, 0.3) });
     const w = Math.max(label.w, sub ? sub.w : 0) + fs * 1.3;
     const h = (label.ink[3] - label.ink[1]) + (sub ? fs * 0.75 : 0) + fs * 1.1;
     const box = g.add({ name: 'card', w, h });

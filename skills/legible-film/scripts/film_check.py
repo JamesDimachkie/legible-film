@@ -155,6 +155,17 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def translate_path(self, path):
+        resolved = super().translate_path(path)
+        clean = path.split('?', 1)[0].split('#', 1)[0]
+        if not os.path.isfile(resolved) and clean in ('/times.gen.js', '/times.gen.ts'):
+            base = Path(self.directory).resolve()
+            if base.parent.name == '.lf-frozen':
+                cand = base.parent.parent / clean.lstrip('/')
+                if cand.is_file():
+                    return str(cand)
+        return resolved
+
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store')
         super().end_headers()
@@ -163,7 +174,9 @@ class Quiet(http.server.SimpleHTTPRequestHandler):
 def serve(folder):
     mimetypes.add_type('text/javascript', '.js')
     mimetypes.add_type('text/javascript', '.mjs')
+    mimetypes.add_type('text/javascript', '.ts')
     mimetypes.add_type('font/woff2', '.woff2')
+    mimetypes.add_type('font/ttf', '.ttf')
     handler = functools.partial(Quiet, directory=folder)
     httpd = socketserver.ThreadingTCPServer(('127.0.0.1', 0), handler)
     httpd.daemon_threads = True
@@ -387,6 +400,9 @@ def main():
     ap.add_argument('--file-only', action='store_true', help='load local files directly and block web requests')
     ap.add_argument('--verify-cues', action='store_true', help="screen each turn and contact for a frame change "
                     '(a look, exit 1, when a cue lands on a frame that does not change)')
+    ap.add_argument('--require-world-sheet', action='store_true',
+                    help='hold this film to the world-sheet and typography gates as if its gates.json asked for '
+                         'them: no passing world sheet, or a typography rule broken, is an error')
     a = ap.parse_args()
 
     folder = os.path.abspath(a.film)
@@ -489,7 +505,17 @@ def main():
     fps = info.get('fps', 60)
     written.append('cues.json')
     # The export reads back through the one loader every cue reader uses, so a list it cannot read is caught here.
-    cue_list.check(os.path.join(folder, 'cues.json'))
+    cues_file = os.path.join(folder, 'cues.json')
+    cue_list.check(cues_file)
+    for gen_name in ('times.gen.ts', 'times.gen.js'):
+        gen_path = os.path.join(folder, gen_name)
+        if not os.path.isfile(gen_path):
+            cue_list.compile_cue_constants(cues_file)
+        sync_errs = cue_list.verify_cue_constants(cues_file, gen_path)
+        if sync_errs:
+            errors.extend(sync_errs)
+        elif gen_name not in written:
+            written.append(gen_name)
     export = listed.get('export') or {}
     for reason in listed.get('binding_reasons') or []:
         warnings.append(f'cue list binding unverified: {reason}')
@@ -528,12 +554,72 @@ def main():
         'blanks': blanks, 'rests': rests, 'flashes': flashes, 'smears': info.get('smears', []), 'fast': info.get('fast', []),
         'music': info.get('music'), 'pace': info.get('pace'), 'loop': bool(info.get('loop')),
     })
+    ws_candidates = [
+        Path(folder) / 'qa' / 'world-sheet.png',
+        Path(folder) / 'refs' / 'world-sheet.png',
+        Path(folder).parent / 'refs' / 'world-sheet.png',
+        Path(folder).parent.parent / 'refs' / 'world-sheet.png',
+    ]
+    ws_found = next((p for p in ws_candidates if p.is_file()), None)
+    ws_meta = None
+    if ws_found and ws_found.with_suffix('.json').is_file():
+        try:
+            ws_meta = json.loads(ws_found.with_suffix('.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            ws_meta = None
+    world_sheet = {
+        'present': ws_found is not None,
+        'path': str(ws_found) if ws_found else None,
+        # a sheet without its record was never checked: it read as passing
+        'pass': bool(ws_meta.get('pass')) if isinstance(ws_meta, dict) else False,
+    }
+    # The paths make the world sheet and the typography rules mandatory before blocks are built. The gate travels
+    # with the film: new_film.py writes gates.json into every film it starts, and a film whose gates.json asks for
+    # them (or a check run with --require-world-sheet) fails preflight without a passing sheet or with a typography
+    # rule broken. A film made before the gates keeps passing, and is told how to opt in, so no finished film
+    # stops rendering because a rule arrived after it.
+    gates = {}
+    gates_file = Path(folder) / 'gates.json'
+    if gates_file.is_file():
+        try:
+            gates = json.loads(gates_file.read_text(encoding='utf-8'))
+        except (OSError, ValueError) as error:
+            errors.append(f'gates.json unreadable ({error}): fix it, or delete it to check this film without gates')
+        if not isinstance(gates, dict):
+            errors.append('gates.json must be an object such as {"world_sheet": "required", "typography": "required"}')
+            gates = {}
+    need_sheet = a.require_world_sheet or gates.get('world_sheet') == 'required'
+    need_type = a.require_world_sheet or gates.get('typography') == 'required'
+    world_sheet['required'] = bool(need_sheet)
+    display = [x for x in (an.get('texts') or []) if x.get('role') not in ('caption', 'texture', 'ui')]
+    sheet_fault = None
+    if not world_sheet['present']:
+        sheet_fault = 'world sheet missing: run look.py world-sheet before building/checking blocks'
+    elif not world_sheet['pass']:
+        sheet_fault = (f"world sheet does not pass ({world_sheet['path']}): run look.py world-sheet again and fix "
+                       'what it names')
+    if sheet_fault and need_sheet:
+        errors.append(sheet_fault)
+    elif sheet_fault and display:
+        warnings.append(sheet_fault + ' (a warning for this film; add gates.json, as new_film.py does, to make the '
+                        'world sheet and typography rules blocking)')
+    if need_type:
+        ty_rules = an.get('typography') or {}
+        for v in ty_rules.get('serifViolations') or []:
+            errors.append(f"typography: {v.get('id')} sets {v.get('words')} words in serif (3 at most; set sentences "
+                          'in sans)')
+        for v in ty_rules.get('scaleRatioViolations') or []:
+            errors.append(f"typography: held scale below 2x ({json.dumps(v)[:120]})")
+        for v in ty_rules.get('trackingViolations') or []:
+            errors.append(f"typography: {v.get('id')} {v.get('kind')} tracking {v.get('tracking')}em, expected "
+                          f"{v.get('expected')}em")
+
     analysis = dict(an)
     report = {
         'tool': 'film_check.py', 'version': VERSION, 'film': folder, 'size': f'{w}x{h}', 'runner': res.get('runner'),
         **({'output_size': f'{out_size[0]}x{out_size[1]}', 'res': a.res} if a.res else {}),
         'errors': errors, 'warnings': warnings, 'lint': hits, 'requests_after_ready': late,
-        'determinism': determinism,
+        'determinism': determinism, 'world_sheet': world_sheet,
         'info': info, 'analysis': analysis, 'exports': written,
         'not_checked': ['the delivered file (render it and run the QC battery)', 'motion at playback speed', 'sound']
                        + (['facts, contrast, reading windows, predicted flashing, motion and patterns (no __lf.analyse())']
@@ -549,6 +635,13 @@ def main():
     print(f"{info.get('title', 'film')}: {w}x{h}{delivered}, {info.get('duration')} s, {info.get('frames')} frames "
           f"at {fps} fps ({res.get('runner')})")
     print(f"  texts: {len(texts)} registered, {sum(1 for x in texts if x.get('readStart') is not None)} reach a readable state")
+    ty = an.get('typography') or {}
+    if ty:
+        sv = len(ty.get('serifViolations') or [])
+        rv = len(ty.get('scaleRatioViolations') or [])
+        tv = len(ty.get('trackingViolations') or [])
+        print(f"  typography: {'pass' if ty.get('pass') else 'warn'} (serif >3w: {sv}, scale <2x: {rv}, tracking: {tv})")
+    print(f"  world sheet: {'present (' + world_sheet['path'] + ')' if world_sheet['present'] else 'not generated yet'}")
     inc = fl.get('incomplete') or []
     unmodelled = ', '.join(x['id'] for x in inc[:6])
     print(f"  flash prediction: max {fl.get('max_transitions_in_1s')} opposing transitions in 1 s (limit 6), "
