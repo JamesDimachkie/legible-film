@@ -285,6 +285,10 @@ Checked on 2026-11-05. Each of these is good at something this skill does not tr
 Legible Film is for an agent and a person working on one readable edit: local transcription, no accounts, versions you
 can compare, a page to leave notes in, and checks on the delivered file that say what they could not see.
 
+For the other kind of film, one with no footage, there is [Video Decompiler](https://github.com/JimGHTB12/video-decompiler)
+by the same author: a short launch or brand film drawn entirely in code from a brief, taken apart from a film you admire
+and rendered on your own machine. Its export is an ordinary video file that Legible Film can cut in.
+
 ## What is tested
 
 Fuller tables, the numbers behind them and what stays manual are in [docs/evidence.md](docs/evidence.md).

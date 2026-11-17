@@ -7,6 +7,9 @@ with `new_film.py` from now on carries `gates.json`, which makes its world sheet
 `film_check.py` fails it until `look.py world-sheet` passes and its type keeps the rules. Run the world sheet as the
 next step `new_film.py` prints.
 
+The README now points to [Video Decompiler](https://github.com/JimGHTB12/video-decompiler), the same author's skill for
+films drawn entirely in code, whose export Legible Film can cut in.
+
 **A world sheet before the blocks**
 
 - `look.py world-sheet` draws a 1920 by 1080 sheet of the film's palette, its type at its real sizes and tracking, and a
