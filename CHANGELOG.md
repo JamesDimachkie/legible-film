@@ -1,5 +1,46 @@
 # Changelog
 
+## 2.3.0 (2026-11-17)
+
+**Upgrading from 2.2.** Every 2.2 command works as before, and films made before 2.3 check as they did. A film started
+with `new_film.py` from now on carries `gates.json`, which makes its world sheet and the typography rules blocking:
+`film_check.py` fails it until `look.py world-sheet` passes and its type keeps the rules. Run the world sheet as the
+next step `new_film.py` prints.
+
+The README now points to [Video Decompiler](https://github.com/JimGHTB12/video-decompiler), the same author's skill for
+films drawn entirely in code, whose export Legible Film can cut in.
+
+**A world sheet before the blocks**
+
+- `look.py world-sheet` draws a 1920 by 1080 sheet of the film's palette, its type at its real sizes and tracking, and a
+  serif accent, and checks the rules a film is held to: a serif of three words at most, a held scale of two to one or
+  more, tight display tracking against wide mono labels, and ink and muted text with enough contrast on the ground and
+  the panel. Each check on the sheet is measured; ink the colour of its ground fails.
+- A bundled serif, Fraunces (SIL OFL), upright and italic, for short accents.
+
+**Blind line-ups that stay blind**
+
+- `pack.py` makes a double-blind line-up of a film against references: its letter changes from pack to pack, every frame of
+  the moves, and the key kept outside the folder readers see. `pack.py record` takes two readers' rankings and passes only
+  complete readings from two different model families.
+- `check.py --blind-pack` shows the line-up's result beside the other checks, and calls a line-up made for another render
+  stale.
+
+**Rhythm taken from a film you admire**
+
+- `measure.py` profiles a film's rhythm (holds, events, moves, occupancy, sync with its sound), compares two profiles
+  (`compare --as rebuild` holds events to two frames of the source film), and pins a reference's rhythm to a project
+  (`measure.py pin`). It reads a film a frame at a time, so a long film needs little memory.
+- `cut.py draft --pin`, `cut.py check` and `tighten.py --pin` hold a paper edit to the pinned rhythm.
+
+**Timing constants from the cue list**
+
+- `cue_list.py codegen` writes `times.gen.ts` and `times.gen.js` from the cue list, so a page imports its cue times
+  instead of copying them. Their hash binds the cue list's timing, so a spotted list with the same timing still renders;
+  a module that holds a line the generator did not write, or timing the list does not have, is refused before rendering.
+- `film_render.py` records the generated modules in its receipt, and a render through `project.py` gets them beside the
+  kept page.
+
 ## 2.2.0 (2026-11-05)
 
 **Upgrading from 2.1.** A blocked render now exits 2 instead of 1. `--install transcription` no longer downloads a model:
