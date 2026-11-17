@@ -48,6 +48,12 @@ class FixtureError(RuntimeError):
     """A fixture could not be built with the variant's scripts: an infrastructure error, never a pass."""
 
 
+def _write_lf(path, text):
+    """Write TEXT with LF line ends (Path.write_text takes newline= only from Python 3.10)."""
+    with open(path, 'w', encoding='utf-8', newline='\n') as fh:
+        fh.write(text)
+
+
 def applies(skill_dir):
     """Route checks apply to a candidate variant only (it has paths/)."""
     return (Path(skill_dir) / 'paths').is_dir()
@@ -99,7 +105,7 @@ def build_engine_project(project, skill_dir):
     }
     plan_path = project / 'film' / 'plan.json'
     plan_path.parent.mkdir(parents=True, exist_ok=True)
-    plan_path.write_text(json.dumps(plan, indent=1), encoding='utf-8', newline='\n')
+    _write_lf(plan_path, json.dumps(plan, indent=1))
     run_script(skill_dir, 'project.py', 'add-version', project, '--cues', plan_path, '--file', master, cwd=project)
     versions = sorted(p.name for p in (project / 'cuts').glob('v*') if p.is_dir())
     if not versions:
@@ -125,13 +131,13 @@ def build_paper_project(project, skill_dir):
         folder.mkdir(exist_ok=True)
         transcript = {'version': 1, 'source': alias, 'words': rows,
                       'media': {'sha256': source['sha256'], 'audio_stream': source['audio']['index']}}
-        (folder / 'words.json').write_text(json.dumps(transcript), encoding='utf-8', newline='\n')
+        _write_lf((folder / 'words.json'), json.dumps(transcript))
     first, second = (s['alias'] for s in index['sources'][:2])
     film = ('---\ntitle: Interview cut\nsize: 320x180\nfps: 25\ncaptions: srt\n---\n'
             f'> {first} 0:00.30-0:02.70 a0 a1 a2\n'
             f'> {second} 0:00.30-0:02.70 b0 b1 b2\n'
             f'> {first} 0:03.40-0:06.30 a3 a4 a5\n')
-    (project / 'film.md').write_text(film, encoding='utf-8', newline='\n')
+    _write_lf((project / 'film.md'), film)
     run_script(skill_dir, 'cut.py', 'render', project, cwd=project)
     versions = sorted(p.name for p in (project / 'cuts').glob('v*') if p.is_dir())
     if not versions:

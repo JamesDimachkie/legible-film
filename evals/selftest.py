@@ -23,6 +23,12 @@ HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
 
 
+def _write_lf(path, text):
+    """Write TEXT with LF line ends (Path.write_text takes newline= only from Python 3.10)."""
+    with open(path, 'w', encoding='utf-8', newline='\n') as fh:
+        fh.write(text)
+
+
 def load(name):
     """Load an eval module explicitly so this also works under Python -I."""
     spec = importlib.util.spec_from_file_location('eval_test_' + name, HERE / (name + '.py'))
@@ -315,7 +321,7 @@ def routing_cases(record, root):
     skill = root / '2.0.0' / 'legible-film'
     for rel, text in frozen['files'].items():
         (skill / rel).parent.mkdir(parents=True, exist_ok=True)
-        (skill / rel).write_text(text, encoding='utf-8', newline='\n')
+        _write_lf((skill / rel), text)
     base = str(skill).replace('\\', '/') + '/'
     case = {c['id']: c for c in spec['cases']}
 

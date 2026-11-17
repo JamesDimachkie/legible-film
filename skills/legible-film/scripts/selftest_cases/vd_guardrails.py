@@ -11,6 +11,12 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
+def _write_lf(path, text):
+    """Write TEXT with LF line ends (Path.write_text takes newline= only from Python 3.10)."""
+    with open(path, 'w', encoding='utf-8', newline='\n') as fh:
+        fh.write(text)
+
+
 def _load(name, path):
     spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -70,9 +76,9 @@ def run_vd_guardrails_cases(tool, record, j, scripts_dir, skip=None):
 
     # Browser kit typography checks if Node/Chromium are installed cleanly.
     c_chk, out_chk = tool('film_check.py', str(ws_film), '--size', '640x360')
-    if c_chk == 2 and 'missing' in out_chk.lower():
+    if c_chk == 2 and ('missing' in out_chk.lower() or 'needs node' in out_chk.lower()):
         if skip:
-            skip('vd_guardrails: kit browser typography checks', 'Chromium/Playwright missing', 2)
+            skip('vd_guardrails: kit browser typography checks', 'Node, Chromium or Playwright missing', 2)
     else:
         pref_path = ws_film / 'qa' / 'preflight.json'
         if not pref_path.is_file():
@@ -111,7 +117,7 @@ export default function film(kit) {
   return { title: 'Bad Typo', size: [640, 360], fps: 24, beat: { bpm: T.bpm, offset: 0 }, scenes: [Bad()] };
 }
 """
-            (bad_film / 'film.js').write_text(bad_js.lstrip(), encoding='utf-8', newline='\n')
+            _write_lf((bad_film / 'film.js'), bad_js.lstrip())
             c_bad, out_bad = tool('film_check.py', str(bad_film), '--size', '640x360')
             bad_pref_path = bad_film / 'qa' / 'preflight.json'
             if c_bad not in (0, 1) or not bad_pref_path.is_file():
@@ -153,7 +159,7 @@ export default function film(kit) {
   };
 }
 """
-            (good_serif / 'film.js').write_text(good_serif_js.lstrip(), encoding='utf-8', newline='\n')
+            _write_lf((good_serif / 'film.js'), good_serif_js.lstrip())
             c_gs, out_gs = tool('film_check.py', str(good_serif), '--size', '640x360')
             gs_cues = json.loads((good_serif / 'cues.json').read_text(encoding='utf-8')) if (good_serif / 'cues.json').is_file() else {}
             gs_pref = json.loads((good_serif / 'qa' / 'preflight.json').read_text(encoding='utf-8')) if (good_serif / 'qa' / 'preflight.json').is_file() else {}
@@ -211,8 +217,8 @@ export default function film(kit) {
             ref_l: {'tier': 'freelance', 'pacing': 7, 'visual_clutter': 7, 'callout_placement': 7},
         },
     }
-    Path(j('ra_good.json')).write_text(json.dumps(ra_good), encoding='utf-8', newline='\n')
-    Path(j('rb_good.json')).write_text(json.dumps(rb_good), encoding='utf-8', newline='\n')
+    _write_lf(Path(j('ra_good.json')), json.dumps(ra_good))
+    _write_lf(Path(j('rb_good.json')), json.dumps(rb_good))
     bp_good = Path(j('blind-pack-good.json'))
     c_rec, _ = tool('pack.py', 'record', p1['key_json'], '--lineup-a', j('ra_good.json'),
                     '--lineup-b', j('rb_good.json'), '--out', str(bp_good), '--json')
@@ -231,8 +237,8 @@ export default function film(kit) {
         ref_l: {'tier': 'studio', 'pacing': 9, 'visual_clutter': 9, 'callout_placement': 9},
     })
     rb_bad = dict(rb_good, overall_ranking=[ref_l, ours_l], films=ra_bad['films'])
-    Path(j('ra_bad.json')).write_text(json.dumps(ra_bad), encoding='utf-8', newline='\n')
-    Path(j('rb_bad.json')).write_text(json.dumps(rb_bad), encoding='utf-8', newline='\n')
+    _write_lf(Path(j('ra_bad.json')), json.dumps(ra_bad))
+    _write_lf(Path(j('rb_bad.json')), json.dumps(rb_bad))
     bp_bad = Path(j('blind-pack-bad.json'))
     tool('pack.py', 'record', p1['key_json'], '--lineup-a', j('ra_bad.json'), '--lineup-b', j('rb_bad.json'), '--out', str(bp_bad))
     chk_bad_json = Path(j('checks-bad.json'))
@@ -269,16 +275,16 @@ export default function film(kit) {
         ek = json.loads(ext_key_json.read_text(encoding='utf-8')) if ext_key_json.is_file() else {}
         ek_ours = ek.get('ours_letter', 'A')
         ek_ref = next((l for l in (ek.get('letters') or {}) if l != ek_ours), 'B')
-        Path(j('ek_a.json')).write_text(json.dumps({
+        _write_lf(Path(j('ek_a.json')), json.dumps({
             'model_family': 'anthropic', 'overall_ranking': [ek_ours, ek_ref],
             'films': {ek_ours: {'tier': 'studio', 'pacing': 8, 'visual_clutter': 8, 'callout_placement': 8},
                       ek_ref: {'tier': 'freelance', 'pacing': 7, 'visual_clutter': 7, 'callout_placement': 7}},
-        }), encoding='utf-8', newline='\n')
-        Path(j('ek_b.json')).write_text(json.dumps({
+        }))
+        _write_lf(Path(j('ek_b.json')), json.dumps({
             'model_family': 'google', 'overall_ranking': [ek_ours, ek_ref],
             'films': {ek_ours: {'tier': 'freelance', 'pacing': 8, 'visual_clutter': 8, 'callout_placement': 8},
                       ek_ref: {'tier': 'freelance', 'pacing': 7, 'visual_clutter': 7, 'callout_placement': 7}},
-        }), encoding='utf-8', newline='\n')
+        }))
         ev_bp = Path(j('eval_blind_pack.json'))
         tool('pack.py', 'record', str(ext_key_json), '--lineup-a', j('ek_a.json'), '--lineup-b', j('ek_b.json'), '--out', str(ev_bp))
         r_grd = subprocess.run(
@@ -311,7 +317,7 @@ export default function film(kit) {
     shutil.copytree(pin_proj / 'refs' / 'pin' / 'measure', alt_meas)
     alt_doc = json.loads((alt_meas / 'measure.json').read_text(encoding='utf-8'))
     alt_doc['summary']['events_per_10s'] = (alt_doc['summary'].get('events_per_10s') or 0) + 9.0
-    (alt_meas / 'measure.json').write_text(json.dumps(alt_doc), encoding='utf-8', newline='\n')
+    _write_lf((alt_meas / 'measure.json'), json.dumps(alt_doc))
     c_diff, out_diff = tool('measure.py', 'compare', str(pin_proj / 'refs' / 'pin' / 'measure'),
                             str(alt_meas), '--as', 'refill', '--json')
     record('vd_guardrails: measure.py compare --as refill detects on-rhythm vs off-rhythm',
@@ -331,13 +337,13 @@ export default function film(kit) {
         shutil.copytree(pin_proj / 'refs' / 'pin' / 'measure', src_rb)
         sdoc = json.loads((src_rb / 'measure.json').read_text(encoding='utf-8'))
         sdoc['events'] = [1.25]
-        (src_rb / 'measure.json').write_text(json.dumps(sdoc), encoding='utf-8', newline='\n')
+        _write_lf((src_rb / 'measure.json'), json.dumps(sdoc))
         rb_doc['events'] = [1.85]
-        (rb_meas / 'measure.json').write_text(json.dumps(rb_doc), encoding='utf-8', newline='\n')
+        _write_lf((rb_meas / 'measure.json'), json.dumps(rb_doc))
         c_rb_self, _ = tool('measure.py', 'compare', str(src_rb), str(src_rb), '--as', 'rebuild', '--json')
         c_rb_diff, out_rb_diff = tool('measure.py', 'compare', str(src_rb), str(rb_meas), '--as', 'rebuild', '--json')
     else:
-        (rb_meas / 'measure.json').write_text(json.dumps(rb_doc), encoding='utf-8', newline='\n')
+        _write_lf((rb_meas / 'measure.json'), json.dumps(rb_doc))
         c_rb_diff, out_rb_diff = tool('measure.py', 'compare', str(pin_proj / 'refs' / 'pin' / 'measure'),
                                       str(rb_meas), '--as', 'rebuild', '--json')
     record('vd_guardrails: measure.py compare --as rebuild enforces 2-frame event accuracy',
@@ -385,7 +391,8 @@ export default function film(kit) {
     record('vd_guardrails: cut.py tighten --pin derives pause target from rhythm-pin.json',
            c_tg in (0, 1) and tg_json_path.is_file() and abs(float(tg_doc.get('pause_target_s', -1)) - expected_pause) < 1e-3,
            f'exit={c_tg}, pause_target_s={tg_doc.get("pause_target_s")}, expected={expected_pause}, out={out_tg[:180]}')
-    (pin_proj / 'film.md').write_text(
+    _write_lf(
+        pin_proj / 'film.md',
         '\n'.join([
             '---',
             'title: Pin Test',
@@ -398,7 +405,6 @@ export default function film(kit) {
             '- cam_01 0:00.00-0:02.40',
             '',
         ]),
-        encoding='utf-8', newline='\n',
     )
     c_cut, out_cut = tool('cut.py', 'check', str(pin_proj), '--no-audio', '--json')
     cut_rep = json.loads(out_cut) if c_cut in (0, 1) else {}
@@ -427,28 +433,27 @@ export default function film(kit) {
     for ev in spotted.get('events') or []:
         ev['role'] = 'spotted-role'
         ev['note'] = 'added by spotting'
-    (cg_page / 'cues.spotted.json').write_text(json.dumps(spotted, indent=1), encoding='utf-8', newline='\n')
+    _write_lf((cg_page / 'cues.spotted.json'), json.dumps(spotted, indent=1))
     moved = json.loads(json.dumps(cues_doc))
     if moved.get('events'):
         moved['events'][0]['t'] = round(float(moved['events'][0]['t']) + 0.5, 6)
         moved['events'][0].pop('frame', None)
-    (cg_page / 'cues.moved.json').write_text(json.dumps(moved, indent=1), encoding='utf-8', newline='\n')
+    _write_lf((cg_page / 'cues.moved.json'), json.dumps(moved, indent=1))
     c_sp, out_sp = tool('cue_list.py', 'codegen', str(cg_page / 'cues.spotted.json'), '--verify', '--out-js', str(js_f))
     c_mv, _ = tool('cue_list.py', 'codegen', str(cg_page / 'cues.moved.json'), '--verify', '--out-js', str(js_f))
     js_clean = js_f.read_text(encoding='utf-8')
-    js_f.write_text(js_clean + 'TIMES["open-hit"] = 99;\n', encoding='utf-8', newline='\n')
+    _write_lf(js_f, js_clean + 'TIMES["open-hit"] = 99;\n')
     c_ap, _ = tool('cue_list.py', 'codegen', str(cg_page / 'cues.json'), '--verify')
-    js_f.write_text(js_clean, encoding='utf-8', newline='\n')
+    _write_lf(js_f, js_clean)
     record('vd_guardrails: times.gen binds timing: spotted roles verify, a moved cue and an appended line do not',
            c_sp == 0 and c_mv != 0 and c_ap != 0, f'spotted={c_sp}, moved={c_mv}, appended={c_ap}; {out_sp[:160]}')
 
     # Tamper with times.gen.js and confirm verifier + film_capture.mjs + render_block.cjs fail exit 2 immediately.
-    js_f.write_text(js_f.read_text(encoding='utf-8').replace('"0":', '"__broken":') + '\n// tampered\n',
-                    encoding='utf-8', newline='\n')
+    _write_lf(js_f, js_f.read_text(encoding='utf-8').replace('"0":', '"__broken":') + '\n// tampered\n')
     bad_js_text = js_f.read_text(encoding='utf-8')
     # Replace first numeric time inside CUES_SHA256 / TIMES so hash & times differ reliably.
     tampered = bad_js_text.replace('CUES_SHA256 = "', 'CUES_SHA256 = "0000')
-    js_f.write_text(tampered, encoding='utf-8', newline='\n')
+    _write_lf(js_f, tampered)
     c_v1, _ = tool('cue_list.py', 'codegen', str(cg_page / 'cues.json'), '--verify')
 
     capture_fail = True
@@ -499,14 +504,13 @@ export default function film(kit) {
   };
 }
 """
-        (imp_film / 'film.js').write_text(boot_js.lstrip(), encoding='utf-8', newline='\n')
+        _write_lf((imp_film / 'film.js'), boot_js.lstrip())
         # without gates.json a missing world sheet is a warning; with it, an error; then the sheet is made
         c_ng, out_ng = tool('film_check.py', str(imp_film), '--size', '320x180')
         pf = imp_film / 'qa' / 'preflight.json'
         ng_warned = pf.is_file() and any('world sheet missing' in w for w in
                                          json.loads(pf.read_text(encoding='utf-8')).get('warnings', []))
-        (imp_film / 'gates.json').write_text('{"world_sheet": "required", "typography": "required"}\n',
-                                             encoding='utf-8', newline='\n')
+        _write_lf((imp_film / 'gates.json'), '{"world_sheet": "required", "typography": "required"}\n')
         c_g, out_g = tool('film_check.py', str(imp_film), '--size', '320x180')
         record('vd_guardrails: gates.json makes a missing world sheet an error; a film without it gets a warning',
                c_ng == 0 and ng_warned and c_g == 1 and 'world sheet missing' in out_g,
@@ -518,7 +522,7 @@ export default function film(kit) {
         imp_js = "import { CLOCK, TIMES } from './times.gen.js';\n" + boot_js.lstrip().replace(
             "t: 0.25,", "t: TIMES['land-hit'] ?? (0.25 * (CLOCK.fps / 24)),"
         )
-        (imp_film / 'film.js').write_text(imp_js, encoding='utf-8', newline='\n')
+        _write_lf((imp_film / 'film.js'), imp_js)
         c_ic, out_ic = tool('film_check.py', str(imp_film), '--size', '320x180')
         imp_mp4 = Path(j('imp_out.mp4'))
         c_ir, out_ir = tool('film_render.py', str(imp_film), '--cues', str(imp_film / 'cues.json'),
@@ -528,10 +532,8 @@ export default function film(kit) {
                             '--file', str(imp_mp4), '--receipt', str(imp_mp4) + '.manifest.json')
         imp_man = json.loads((imp_proj / 'cuts' / 'v001' / 'manifest.json').read_text(encoding='utf-8')) if c_ia == 0 else {}
         # Tamper with imp_film/times.gen.js and verify film_render.py --cues refuses exit 2.
-        (imp_film / 'times.gen.js').write_text(
-            (imp_film / 'times.gen.js').read_text(encoding='utf-8').replace('CUES_SHA256 = "', 'CUES_SHA256 = "ffff'),
-            encoding='utf-8', newline='\n',
-        )
+        _write_lf(imp_film / 'times.gen.js',
+                  (imp_film / 'times.gen.js').read_text(encoding='utf-8').replace('CUES_SHA256 = "', 'CUES_SHA256 = "ffff'))
         c_ir_bad, _ = tool('film_render.py', str(imp_film), '--cues', str(imp_film / 'cues.json'),
                            '--size', '320x180', '--preview', '--force', '--out', j('imp_bad.mp4'))
         record('vd_guardrails: live import of ./times.gen.js passes film_check, renders --cues with receipt binding, and refuses tampered constants',
