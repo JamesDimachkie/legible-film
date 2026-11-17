@@ -5,7 +5,7 @@ license: Apache-2.0
 compatibility: "Python 3.9+ with numpy and Pillow (setup.py --install core) and FFmpeg/ffprobe 5.1+ on PATH. Optional: faster-whisper for local transcription; Node 18+ with Playwright and Chromium for the film kit and cue export. No accounts or paid services required."
 metadata:
   author: "James Dimachkie"
-  version: "2.2.0"
+  version: "2.3.0"
 ---
 
 # Legible Film
