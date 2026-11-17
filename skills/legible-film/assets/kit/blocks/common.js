@@ -24,13 +24,13 @@ export function layoutLines(ctx, parent, lines, o = {}) {
   const maxH = o.maxH ?? Math.min(0.46, (0.86 / n) / (1 + gap));
   const nodes = lines.map(s => ctx.fitText(parent, {
     string: s, fill: o.fill ?? 0.92, maxH: (o.maxHPer ?? maxH) * (o.scaleFor ? o.scaleFor(s) : 1),
-    weight: o.weight, width: o.width, tracking: o.tracking, font: o.font, minH: o.minH ?? 0.07,
+    weight: o.weight, width: o.width, tracking: o.tracking, font: o.font, fontStyle: o.fontStyle, smallCaps: o.smallCaps, minH: o.minH ?? 0.07,
     color: o.color, outline: o.outline, strokeColor: o.strokeColor, extrude: o.extrude, maxSize: o.maxSize,
   }));
   if (o.uniform) {
     const size = Math.min(...nodes.map(nd => nd.fontPx));
     nodes.forEach((nd, i) => { nd.el.remove(); nd.parent.children.splice(nd.parent.children.indexOf(nd), 1); });
-    const again = lines.map(s => ctx.textNode(parent, { string: s, size, weight: o.weight ?? 820, width: o.width ?? (ctx.portrait ? 75 : 100), tracking: o.tracking ?? -0.02, color: o.color, outline: o.outline, strokeColor: o.strokeColor, extrude: o.extrude }));
+    const again = lines.map(s => ctx.textNode(parent, { string: s, font: o.font, fontStyle: o.fontStyle, smallCaps: o.smallCaps, size, weight: o.weight ?? 820, width: o.width ?? (ctx.portrait ? 75 : 100), tracking: o.tracking ?? -0.035, color: o.color, outline: o.outline, strokeColor: o.strokeColor, extrude: o.extrude }));
     nodes.splice(0, nodes.length, ...again);
   }
   const caps = nodes.map(nd => nd.ink[3] - nd.ink[1]);

@@ -48,7 +48,7 @@ def copy_file(source, destination, label):
             'sha256': digest(destination)}
 
 
-def packet(task, run, output, sheets=False):
+def packet(task, run, output, sheets=False, blind_pack_against=None):
     """Build a packet without the arm, model, skill instructions or execution trace."""
     workspace = run / 'workspace' if (run / 'workspace').is_dir() else run
     output.mkdir(parents=True, exist_ok=False)
@@ -93,12 +93,38 @@ def packet(task, run, output, sheets=False):
                 raise ValueError('contact sheet failed: ' + (result.stderr + result.stdout)[-500:])
             for image in sorted(directory.glob(f'sheet-{index:02}*.png')):
                 frames.append({'file': 'sheets/' + image.name, 'sha256': digest(image), 'source': row['label']})
+    blind_pack = None
+    if blind_pack_against:
+        vid_row = next((row for row in artifacts if Path(row['file']).suffix.lower() in ('.mp4', '.mov', '.webm')), None)
+        if not vid_row:
+            raise ValueError('--blind-pack-against requested, but no video artifact was found')
+        keys_dir = output.resolve().parent / f'{output.resolve().name}-blind-keys'
+        # the lineup is its own packet, beside this one and never inside it: a reader handed the review packet saw
+        # the delivered film named as the artifact under review next to the lettered lineup, and could tell which
+        # letter was ours, so the lineup was blind in name only
+        lineup_dir = output.resolve().parent / f'{output.resolve().name}-lineup'
+        if lineup_dir.exists():
+            raise ValueError(f'{lineup_dir} already exists; choose a new --out')
+        pack_cmd = [
+            sys.executable, '-I', '-B', str(HERE.parent / 'skills/legible-film/scripts/pack.py'),
+            str(G.under(output, vid_row['file'])),
+            '--out', str(keys_dir),
+            '--reads', str(lineup_dir),
+            '--json',
+        ]
+        for ref in blind_pack_against:
+            pack_cmd += ['--against', str(Path(ref).resolve())]
+        res = subprocess.run(pack_cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if res.returncode:
+            raise ValueError('blind lineup generation failed: ' + (res.stderr + res.stdout)[-500:])
+        blind_pack = json.loads(res.stdout)
     response = run / 'final.txt'
     if response.is_file():
         target = output / 'artifacts' / 'response.txt'
         artifacts.append(copy_file(response, target, 'response'))
     data = {'version': 1, 'packet_id': uuid.uuid4().hex, 'task': task['id'], 'request': task['request'],
-            'inputs': inputs, 'artifacts': artifacts, 'sheets': frames, 'review_criteria': task['review'],
+            'inputs': inputs, 'artifacts': artifacts, 'sheets': frames,
+            'review_criteria': task['review'],
             'scorecard_dimensions': task['scorecard_dimensions'],
             'instructions': ['Use an independent model family or a person.',
                              'Give a state and specific evidence for each criterion.',
@@ -119,13 +145,18 @@ def main():
     parser.add_argument('--run', required=True, type=Path)
     parser.add_argument('--out', required=True, type=Path)
     parser.add_argument('--sheets', action='store_true')
+    parser.add_argument('--blind-pack-against', action='append', metavar='REF',
+                        help='build a double-blind pack.py lineup against reference video(s) alongside the packet')
     args = parser.parse_args()
     try:
         task = G.tasks()[args.task]
         if not args.run.is_dir():
             raise ValueError('run directory does not exist')
-        data = packet(task, args.run, args.out, args.sheets)
+        data = packet(task, args.run, args.out, args.sheets, args.blind_pack_against)
         print(f'packet {data["packet_id"]} written to {args.out}; inspect for identifiers before review')
+        if args.blind_pack_against:
+            print(f'blind lineup written to {args.out.resolve().parent / (args.out.resolve().name + "-lineup")}: give it to '
+                  f'its readers on its own, never with the packet; the key is in {args.out.resolve().name}-blind-keys')
         return 0
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         print(str(error), file=sys.stderr)

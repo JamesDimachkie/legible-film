@@ -2597,8 +2597,53 @@ def stress_item(video):
     return entry
 
 
+def blind_pack_item(bp_path, video_sha256):
+    """Evaluate a blind lineup record (blind-pack.json from pack.py record) against this video's SHA-256."""
+    path = Path(bp_path)
+    if not path.is_file():
+        return item('blind_pack', 'Blind lineup: file missing', 'look', f'no such blind-pack report: {path}')
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as error:
+        return item('blind_pack', 'Blind lineup: unreadable', 'look', f'{path}: {error}')
+    recorded_sha = data.get('film_sha256')
+    if recorded_sha and video_sha256 and recorded_sha != video_sha256:
+        return item('blind_pack', 'Blind lineup stale (made for another render)', 'look',
+                    f'pack recorded {recorded_sha[:12]} vs current file {video_sha256[:12]}; rerun pack.py + pack.py record')
+    if 'cross_family' not in data or 'readers' not in data:
+        return item('blind_pack', 'Blind lineup: awaiting two cross-family readers', 'look',
+                    'run pack.py record after collecting two cross-family lineup readings')
+    status = data.get('status') or 'look'
+    cross = bool(data.get('cross_family'))
+    fams = ', '.join(str(x or '?') for x in (data.get('families') or []))
+    ours = data.get('ours_letter') or '?'
+    yst = data.get('yardstick_letter') or '?'
+    tiers = []
+    ranks = []
+    for k in ('a', 'b'):
+        r = (data.get('readers') or {}).get(k) or {}
+        if r.get('ours_tier'):
+            tiers.append(r['ours_tier'])
+        if r.get('ours_rank'):
+            ranks.append(f"#{r['ours_rank']}")
+    dims = data.get('dimension_averages') or {}
+    dim_str = ', '.join(f'{d} {dims[d]}' for d in ('pacing', 'visual_clutter', 'callout_placement') if dims.get(d) is not None)
+    label = (f"Blind lineup ({fams}): ours {ours} ranks {'/'.join(ranks) or '?'} vs {yst}"
+             + (f" [{', '.join(tiers)}]" if tiers else ''))
+    if status == 'pass' and cross:
+        detail = dim_str or 'two cross-family readers verified pacing, clutter, and callout placement'
+        entry = item('blind_pack', label, 'pass', detail)
+    else:
+        reasons = '; '.join(data.get('reasons') or ['blind lineup needs inspection'])
+        detail = f'{reasons}' + (f' ({dim_str})' if dim_str else '')
+        entry = item('blind_pack', label, 'look', detail)
+    entry['group'] = 'blind_pack'
+    entry['measurement'] = data
+    return entry
+
+
 def check_project(root, version=None, final_file=None, speech=True, target=None, captions=None, profile=None,
-                  stress=False):
+                  stress=False, blind_pack=None):
     """Check a version (or a final file) of a project; write checks.json and update the status. With `captions`, the
     caption items check that sidecar (the one delivered with a final) instead of the version's captions.srt."""
     INVOKED.clear()
@@ -2660,6 +2705,15 @@ def check_project(root, version=None, final_file=None, speech=True, target=None,
     checks['items'] += sync_items
     if stress:
         checks['items'].append(stress_item(video))
+    bp_path = Path(blind_pack) if blind_pack else (folder / 'qa' / 'blind-pack.json')
+    if blind_pack or bp_path.is_file():
+        checks['items'].append(blind_pack_item(bp_path, digest))
+        if bp_path.is_file():
+            try:
+                bp_rel = project_path(root, bp_path)
+            except ValueError:
+                bp_rel = str(bp_path.resolve())
+            inputs.append(P.input_row('blind_pack', bp_path, bp_rel))
     if transcript is not None:
         checks['listening_transcript'] = transcript
     checks['summary'] = summarise(checks['items'])
@@ -3311,6 +3365,11 @@ def check_file(args):
     checks['items'].append(sync)
     if getattr(args, 'stress', False):
         checks['items'].append(stress_item(video))
+    if getattr(args, 'blind_pack', None):
+        bp_path = Path(args.blind_pack)
+        checks['items'].append(blind_pack_item(bp_path, digest))
+        if bp_path.is_file():
+            inputs.append(P.input_row('blind_pack', bp_path, str(bp_path.resolve())))
     checks['summary'] = summarise(checks['items'])
     checks['sha256'] = digest
     checks['inputs_base'] = 'given'
@@ -3424,6 +3483,7 @@ def main():
                         help='re-hash the inputs and tools a checks file recorded: current (0) or what changed (1)')
     parser.add_argument('--strict', action='store_true', help='treat unconfirmed or unassessed context and sync as looks')
     parser.add_argument('--stress', action='store_true', help='screen delivery and a low-bitrate proxy')
+    parser.add_argument('--blind-pack', help='blind-pack.json from pack.py record for cross-family lineup verification')
     add_file_arguments(parser)
     args = parser.parse_args()
     P.safe_output()
@@ -3444,7 +3504,7 @@ def main():
             if root is None:
                 raise ValueError('no project folder here; give one, or use --file for a single video')
             checks = check_project(root, args.version, args.final, not args.no_speech, args.loudness, args.captions,
-                                   args.caption_profile, args.stress)
+                                   args.caption_profile, args.stress, args.blind_pack)
         print_checks(checks)
         summary = checks['summary']
         strict_items = any(entry.get('group') in ('context', 'sync') and

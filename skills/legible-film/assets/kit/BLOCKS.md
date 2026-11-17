@@ -34,8 +34,8 @@ Films written for 1.2.0 still run: its block, style, hit, join, effect and sound
 | `music` | `{stop, drop}` film times; an end card sets `stop`, a Type shot with `drop: true` sets `drop` |
 | `texture` | `{kind: 'dots' \| 'rows', spacing, dot, words, maxDiff: 8, alpha}`: a sparse world texture that moves with the camera. Its alpha is set per ground so the light-dark difference is `maxDiff` cd/m2 (8 by default, under the 20 cd/m2 pattern criterion) |
 | `safe` | `{x, top, bottom}` margins as fractions (defaults 0.06/0.08/0.08 wide; 0.07/0.10/0.17 tall). Reels ads ask for about 0.06/0.14/0.35 |
-| `fonts` | `{display: {url, family, weight: '200 900', stretch: '75% 125%'}, text, mono}`: a supplied brand font replaces the kit's |
-| `captions`, `overlays` | screen-space blocks that run across scenes (Caption) |
+| `fonts` | `{display: {url, family, weight: '200 900', stretch: '75% 125%'}, text, mono, serif}`: a supplied brand font replaces the kit's (`serif` sets `<= 3` words; full sentences stay in sans) |
+| `captions`, `overlays` | screen-space blocks that run across scenes (Caption); `analyse()` also checks held display-to-secondary ratio (`>= 2x`, unless distinct italic/small-caps) and tracking (`-0.03..-0.05em` display, `-0.02em` sans sentence, `+0.10..+0.16em` mono label) |
 
 Every scene takes `len` (its length), `start` (an absolute start, otherwise it follows the previous
 scene), `enter` (`cut`, `whip-h`, `whip-v`, `zoom`), `exit` (`cut`, `dive`, `shrink`) and

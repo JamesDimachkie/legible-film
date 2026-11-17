@@ -773,6 +773,13 @@ def backup_name(path):
 def tighten_project(args, cut):
     """Generate and check a paper edit, removal report and listening reel."""
     root = cut.load_project(args.project)
+    pin = cut.load_rhythm_pin(root, explicit=getattr(args, 'pin', None)) if hasattr(cut, 'load_rhythm_pin') else None
+    if getattr(args, 'pause', None) is None:
+        if pin and isinstance(pin.get('recommended_cut_settings'), dict):
+            raw_pause = float(pin['recommended_cut_settings'].get('pause_target_s') or 0.35)
+            args.pause = round(min(0.85, max(0.15, raw_pause)), 3)
+        else:
+            args.pause = 0.35
     source_map = cut.SourceMap(root)
     alias = args.alias
     if alias not in source_map.sources:
@@ -962,6 +969,8 @@ def tighten_project(args, cut):
                                                        reel if made_reel else None, reel_info, args.silence_only,
                                                        sound_assessed, args.music_bed, cut))
         cut.project.save_json(data_path, {'version': 1, 'source': alias, 'pause_target_s': args.pause,
+                                         **({'rhythm_pin': pin.get('_path'),
+                                             'pinned_targets': pin.get('recommended_cut_settings')} if pin else {}),
                                          'removals': removals, 'untranscribed_sound': unknown,
                                          'untranscribed_sound_assessed': sound_assessed,
                                          'skipped': skipped, 'reel': str(reel) if made_reel else None,
@@ -973,6 +982,11 @@ def tighten_project(args, cut):
     sound_summary = ('untranscribed sound not assessed' if not sound_assessed
                      else f'{len(unknown)} untranscribed sound prompts')
     print(f'wrote {output}; {len(removals)} removals, {sound_summary}')
+    if pin:
+        rec = pin.get('recommended_cut_settings') or {}
+        sm = pin.get('summary') or {}
+        print(f"pinned rhythm: median_hold={sm.get('median_hold_s')}s, events/10s={sm.get('events_per_10s')}, "
+              f"pause_target={args.pause}s, punch_every={rec.get('punch_every_s')}s")
     print(f'report: {report}')
     if made_reel:
         print(f'reel: {reel}')
@@ -1036,7 +1050,11 @@ def quick_file(args):
     os.environ['HF_HUB_OFFLINE'] = '1'
     os.environ['TRANSFORMERS_OFFLINE'] = '1'
     run_tool('map.py', 'run', folder, '--alias', 'int_01', '--words', mode)
-    command = ['tighten', folder, 'int_01', '--pause', args.pause]
+    command = ['tighten', folder, 'int_01']
+    if args.pause is not None:
+        command += ['--pause', args.pause]
+    if getattr(args, 'pin', None):
+        command += ['--pin', Path(args.pin).resolve()]
     if args.fillers:
         command += ['--fillers', args.fillers]
     if args.punch_in is not None:
@@ -1073,7 +1091,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('file')
     parser.add_argument('--out')
-    parser.add_argument('--pause', type=float, default=0.35)
+    parser.add_argument('--pause', type=float, default=None, help='target pause in seconds (default 0.35, or derived from --pin)')
+    parser.add_argument('--pin', help='rhythm-pin.json from measure.py pin to derive target pause')
     parser.add_argument('--fillers', help='named or comma-separated words and phrases; off by default')
     parser.add_argument('--punch-in', type=float, help='alternate this zoom on each line; off by default')
     parser.add_argument('--music-bed', action='store_true', help='keep pauses and fillers when a bed is present')

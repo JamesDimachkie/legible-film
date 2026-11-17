@@ -1795,7 +1795,7 @@ def screen_turns(master, schedule, events):
     return out
 
 
-def run_render(cmd, copy_dir, out, min_free_gib, wait_min):
+def run_render(cmd, copy_dir, out, min_free_gib, wait_min, cues_file=None, page_dir=None):
     """Run an engine CMD with {page} and {out} filled, under the heavy lock, with outbound network blocked."""
     lock_module = _sibling('with_lock')
     lock = lock_module.HeavyLock(min_free_gib=min_free_gib, wait_min=wait_min, label='add-version')
@@ -1819,6 +1819,38 @@ def run_render(cmd, copy_dir, out, min_free_gib, wait_min):
         env[key] = url
     env['NO_PROXY'] = env['no_proxy'] = 'localhost,127.0.0.1,::1'
     env.update(LF_BLOCK_PROXY=url, LF_BLOCK_LOG=str(log), HF_CLI_TELEMETRY_DISABLED='1', DO_NOT_TRACK='1')
+    if cues_file:
+        cp = Path(cues_file).resolve()
+        env['LF_CUES_FILE'] = str(cp)
+        for cand_dir in [Path(page_dir).resolve() if page_dir else None, cp.parent]:
+            if cand_dir is None:
+                continue
+            for name_gen in ('times.gen.js', 'times.gen.ts'):
+                cand = cand_dir / name_gen
+                if cand.is_file():
+                    env['LF_CUES_GEN'] = str(cand)
+                    break
+            if 'LF_CUES_GEN' in env:
+                break
+    if page_dir:
+        env['LF_PAGE_DIR'] = str(Path(page_dir).resolve())
+    if env.get('LF_CUES_GEN') and cues_file:
+        # the page imports ./times.gen.js, which the kept copy leaves out (it is an export): an engine given {page}
+        # failed to load it. Verified against the cue list, it goes into a copy of the kept page made for this render
+        # (the kept copy itself stays as frozen), and the engine is given that copy.
+        cl = _sibling('cue_list')
+        gen = Path(env['LF_CUES_GEN'])
+        drift = cl.verify_cue_constants(cues_file, gen)
+        if drift:
+            raise Refused('the timing constants do not match the cue list: ' + '; '.join(drift[:3]))
+        staged = Path(tempfile.mkdtemp(prefix='lf-page-'))
+        import atexit
+        atexit.register(shutil.rmtree, staged, True)
+        shutil.copytree(copy_dir, staged / 'page')
+        for name_gen in ('times.gen.js', 'times.gen.ts'):
+            if (gen.parent / name_gen).is_file():
+                shutil.copyfile(gen.parent / name_gen, staged / 'page' / name_gen)
+        filled = cmd.replace('{page}', _quote(staged / 'page')).replace('{out}', _quote(out))
     # npm and npx run offline: a cached engine resolves from the cache, one that is not cached fails, and no
     # registry lookup reaches the block (npm stops on the sink's refusal, where it would fall back offline).
     env.update(npm_config_offline='true', npm_config_update_notifier='false', npm_config_audit='false',
@@ -1965,7 +1997,8 @@ def add_version(args):
                 raise Refused('the kept copy differs from the export snapshot (' + '; '.join(problems[:5]) +
                               '); export again')
             out.parent.mkdir(parents=True, exist_ok=True)
-            ran = run_render(args.render, copy_dir, out, args.min_free_gib, args.wait_min)
+            ran = run_render(args.render, copy_dir, out, args.min_free_gib, args.wait_min,
+                             cues_file=args.cues, page_dir=page)
             if ran['returncode']:
                 raise Refused(f"the render command exited {ran['returncode']}: " + ran['output'].strip()[-600:])
             if not out.is_file() or out.stat().st_mtime < ran['started'] - 1:

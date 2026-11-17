@@ -16,18 +16,18 @@ export const Name = block('name', (ctx, o) => {
   const near = isAccent ? ctx.mix(ctx.pal.accentDeep, ground, 0.15) : ctx.mix(ctx.pal.accent, ground, 0.1);
   const far = isAccent ? ctx.mix(ctx.pal.accentDeep, ground, 0.7) : ctx.mix(ctx.pal.accentDeep, ground, 0.6);
   const nameNode = ctx.fitText(g, {
-    string: o.name, fill: o.fill ?? 0.9, maxH: 0.36, weight: o.weight ?? 880, width: o.width ?? (ctx.portrait ? 75 : 112.5), tracking: -0.02, color: colour,
+    string: o.name, font: o.font, fill: o.fill ?? 0.9, maxH: 0.36, weight: o.weight ?? 880, width: o.width ?? (ctx.portrait ? 75 : 112.5), tracking: o.tracking ?? -0.035, color: colour,
     extrude: { depth: o.depth ?? 0.26, layers: 26, near, far, rx: 8, ry: -12 },
   });
   const cap = nameNode.ink[3] - nameNode.ink[1];
   const small = ctx.u * (ctx.portrait ? 5 : 4.3);
   let kNode = null, sNode = null;
   if (o.kicker) {
-    kNode = ctx.textNode(g, { string: o.kicker, size: small, weight: 660, width: 112.5, tracking: 0.08, color: accent });
+    kNode = ctx.textNode(g, { string: o.kicker, font: o.kickerFont ?? 'mono', size: small, weight: 660, width: 112.5, tracking: o.kickerTracking ?? 0.12, color: accent });
     kNode.rest({ y: -cap / 2 - small * 1.6 });
   }
   if (o.sub) {
-    sNode = ctx.textNode(g, { string: o.sub, font: 'mono', size: small * 1.05, weight: 560, tracking: 0.02, color: o.subColor ? ctx.colour(o.subColor) : ctx.typeOn(ground) });
+    sNode = ctx.textNode(g, { string: o.sub, font: o.subFont ?? 'mono', fontStyle: o.subStyle, size: small * 1.05, weight: 560, tracking: o.subTracking ?? 0.12, color: o.subColor ? ctx.colour(o.subColor) : ctx.typeOn(ground) });
     sNode.rest({ y: cap / 2 + small * 1.7 });
   }
   // Light sweep: a soft band of light crossing the face once, after the landing.

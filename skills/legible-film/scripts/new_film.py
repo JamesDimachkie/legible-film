@@ -124,6 +124,10 @@ def main():
         if os.path.isfile(tfacts):
             with open(tfacts, encoding='utf-8') as f:
                 write_new(os.path.join(out, 'facts.json'), f.read(), written, kept)
+        # the gates travel with the film: film_check.py holds a film with this file to a passing world sheet and to
+        # the typography rules, as errors; films made before it keep them as warnings
+        write_new(os.path.join(out, 'gates.json'),
+                  json.dumps({'world_sheet': 'required', 'typography': 'required'}, indent=1) + '\n', written, kept)
         for sub in ('qa', 'assets'):
             os.makedirs(os.path.join(out, sub), exist_ok=True)
     except OSError as e:
@@ -141,8 +145,10 @@ def main():
     print(f'  3. Preview: {serve}')
     print('     then open http://127.0.0.1:8000/')
     print('     (keys: space play, , . frame, arrows beat, 0-9 jump, S safe area, R reading states, L luminance).')
+    sheet = project.python_command([here / 'look.py', 'world-sheet', out])
+    print(f'  4. World sheet (required before preflight passes): {sheet}')
     check = project.python_command([here / 'film_check.py', out, '--size', '1920x1080'])
-    print(f'  4. Preflight: {check}')
+    print(f'     Preflight: {check}')
     print('     and again with --size 1080x1920.')
     print('  5. Render with film_render.py, then run the QC battery on the delivered file.')
     if a.json:

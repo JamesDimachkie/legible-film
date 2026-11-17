@@ -6,7 +6,7 @@
 import { evaluate, findFact, inScreen } from './engine.js';
 import { mul, apply, matScale } from './node.js';
 import { contrast, luminance, isRed, hex, parse, over, mix } from './color.js';
-import { lettersShown } from './text.js';
+import { lettersShown, FAMILIES, wordCount, isSerifFont } from './text.js';
 import { motionReport, patternRisk, PATTERN_THRESHOLDS } from './motion.js';
 import { flashPredictor } from './flashmap.js';
 
@@ -69,6 +69,9 @@ export function analyse(film, opts = {}) {
   const patternHits = patterns.map(() => ({ frames: 0, first: null, worst: null }));
   let prevCam = null;
   const camHist = [];
+  const scaleSeen = new Map();
+  let prevHeld = new Map();
+  const maxPxSeen = new Array(texts.length).fill(0);
 
   const fp = opts.flash === false ? null : flashPredictor(film);
   for (let k = 0; k < n; k++) {
@@ -97,10 +100,12 @@ export function analyse(film, opts = {}) {
     let frameRed = isRed(ground);
     // Text and plates change the frame's mean luminance roughly by their ink area.
     const shown = [];
+    const curHeld = new Map();
+    const inFastWin = film.reg.fast.some(w => t >= w[0] && t <= w[1]) || film.reg.smears.some(w => t >= w[0] && t <= w[1]);
     texts.forEach((tx, i) => {
       const s = st[i];
       const sc = tx.scene >= 0 ? film.scenes[tx.scene] : { active: true };
-      let present = false, readable = true, minPx = Infinity, colour = null, boxes = [];
+      let present = false, readable = true, minPx = Infinity, maxPx = 0, colour = null, boxes = [];
       for (const node of tx.nodes) {
         const a = node.alpha();
         const vis = sc && sc.active && a > 0.02 && lettersShown(node) > 0 && node.revealWords > 0;
@@ -110,12 +115,24 @@ export function analyse(film, opts = {}) {
         boxes.push(b);
         const px = node.fontPx * Math.sqrt(Math.abs(M[0] * M[3] - M[1] * M[2]));
         minPx = Math.min(minPx, px);
+        maxPx = Math.max(maxPx, px);
         colour = colour || (node.stroke > 0 ? node.strokeColor : node.color) || film.typeOn(ground);
         const ok = vis && a >= 0.98 && lettersShown(node) >= 1 && node.revealWords >= node.wordEls.length &&
           Math.abs(node.ownScale() - 1) <= 0.02 && node.blurChain() <= 0.35 &&
           b[0] >= S[0] - tol && b[1] >= S[1] - tol && b[2] <= S[2] + tol && b[3] <= S[3] + tol;
         if (!ok) readable = false;
         if (vis) shown.push({ b, colour: (node.stroke > 0 ? null : colour), a });
+      }
+      if (present) maxPxSeen[i] = Math.max(maxPxSeen[i], maxPx);
+      if (present && readable && !inFastWin && tx.role !== 'caption' && tx.role !== 'texture' && tx.role !== 'ui' && boxes.length) {
+        const st0 = tx.nodes[0]?.style || {};
+        const fam = FAMILIES[st0.font || 'display'] || st0.font || 'display';
+        const bx = boxes[0];
+        curHeld.set(tx.id, {
+          id: tx.id, role: tx.role, px: maxPx, cx: (bx[0] + bx[2]) / 2, cy: (bx[1] + bx[3]) / 2,
+          fontRole: st0.font || 'display', fontFam: fam,
+          distinctFaceOptOut: (st0.fontStyle === 'italic' || st0.smallCaps === true),
+        });
       }
       if (present && readable) {
         for (const occ of film.occluders) {
@@ -133,6 +150,34 @@ export function analyse(film, opts = {}) {
         s.cur.end = t; s.cur.minPx = Math.min(s.cur.minPx, minPx);
       } else if (s.cur) { s.runs.push(s.cur); s.cur = null; }
     });
+    // Check held display-to-secondary scale hierarchy (>= 2.0x unless secondary is a distinct face in italic or small caps).
+    const heldNow = [];
+    for (const [tid, cur] of curHeld.entries()) {
+      const prev = prevHeld.get(tid);
+      if (prev && Math.abs(cur.px - prev.px) < 1.0 && Math.hypot(cur.cx - prev.cx, cur.cy - prev.cy) < 2.5) heldNow.push(cur);
+    }
+    if (heldNow.length >= 2) {
+      const sorted = heldNow.slice().sort((a, b) => b.px - a.px);
+      const primary = sorted[0];
+      if (primary.px >= H * 0.052) {
+        for (let j = 1; j < sorted.length; j++) {
+          const sec = sorted[j];
+          const distinctOptOut = sec.fontFam !== primary.fontFam && sec.distinctFaceOptOut;
+          if (distinctOptOut) continue;
+          const ratio = primary.px / Math.max(1, sec.px);
+          if (ratio < 1.98) {
+            const pk = `${primary.id}::${sec.id}`;
+            if (!scaleSeen.has(pk)) {
+              scaleSeen.set(pk, {
+                t: r3(t), primaryId: primary.id, secondaryId: sec.id,
+                primaryPx: Math.round(primary.px), secondaryPx: Math.round(sec.px), ratio: +ratio.toFixed(2),
+              });
+            }
+          }
+        }
+      }
+    }
+    prevHeld = curHeld;
     for (const p of film.plates) {
       if (p.node.alpha() < 0.02 || !(inScreen(p.node) || film.scenes.some(x => x.active && isUnder(p.node, x.group)))) continue;
       const b = clipTo(bbox(inScreen(p.node) ? p.node.matrix() : mul(cam.M, p.node.matrix()), p.node), W, H);
@@ -370,12 +415,64 @@ export function analyse(film, opts = {}) {
     warnings.push(`pattern: ${p.id} meets the Ofcom regular-pattern criteria on ${p.risk_frames} frame(s) from ${p.first_s.toFixed(2)} s: ${w.pairs.toFixed(0)} light-dark pairs, ${w.diff_cdm2.toFixed(1)} cd/m2 difference (darker ${w.dark_cdm2.toFixed(1)} cd/m2), ${Math.round(w.area * 100)}% of the screen, ${w.motion}; a photosensitivity risk`);
   }
 
+  // Typography guardrails (BOARD / WORLD): 3-word serif limit, >= 2x held display-to-secondary scale,
+  // tight display tracking (-0.03..-0.05em, sentences in sans -0.02em) vs wide mono labels (+0.10..+0.16em).
+  const serifViolations = [], trackingViolations = [];
+  texts.forEach((tx, i) => {
+    if (tx.role === 'caption' || tx.role === 'texture') return;
+    const node = tx.nodes[0];
+    if (!node || !node.style) return;
+    const st0 = node.style;
+    const fontKey = st0.font || 'display';
+    const fam = FAMILIES[fontKey] || fontKey;
+    const wc = wordCount(tx.string);
+    const px = maxPxSeen[i] || node.fontPx || 0;
+    const tr = st0.tracking ?? 0;
+    const serif = fontKey === 'serif' || isSerifFont(fam);
+    if (serif && wc > 3) {
+      const v = { t: out[i]?.in ?? 0, id: tx.id, text: tx.string, words: wc, font: fam };
+      serifViolations.push(v);
+      warnings.push(`typography: ${tx.id} serif text "${tx.string}" has ${wc} words (WORLD limit is <= 3 words in serif; set sentences in sans)`);
+    }
+    const minDisplayPx = H * 0.052;
+    const maxMonoPx = H * 0.05;
+    if (fontKey !== 'mono' && px >= minDisplayPx) {
+      const lo = -0.055;
+      const hi = wc > 3 && !serif ? -0.015 : -0.025;
+      if (tr < lo || tr > hi) {
+        trackingViolations.push({ id: tx.id, kind: wc > 3 && !serif ? 'sentence' : 'display', tracking: tr, expected: wc > 3 && !serif ? [-0.05, -0.02] : [-0.05, -0.03], fontPx: Math.round(px) });
+        warnings.push(`typography: ${tx.id} display tracking is ${tr}em at ${Math.round(px)}px (expected ${wc > 3 && !serif ? '-0.02em to -0.05em' : '-0.03em to -0.05em'})`);
+      }
+    } else if (fontKey === 'mono' && tx.role !== 'ui' && px > 0 && px <= maxMonoPx && (st0.smallCaps || (tx.string === tx.string.toUpperCase() && /[A-Z]/.test(tx.string)))) {
+      if (tr < 0.095 || tr > 0.165) {
+        trackingViolations.push({ id: tx.id, kind: 'mono-label', tracking: tr, expected: [0.10, 0.16], fontPx: Math.round(px) });
+        warnings.push(`typography: ${tx.id} mono label tracking is ${tr}em (expected +0.10em to +0.16em)`);
+      }
+    }
+  });
+  const scaleRatioViolations = [...scaleSeen.values()];
+  for (const sv of scaleRatioViolations) {
+    warnings.push(`typography: t=${sv.t}s display-to-secondary scale ratio is ${sv.ratio}x (${sv.primaryId} ${sv.primaryPx}px / ${sv.secondaryId} ${sv.secondaryPx}px; WORLD requires >= 2.0x on held frames)`);
+  }
+  const typography = {
+    serifMaxWords: 3,
+    minScaleRatio: 2.0,
+    displayTrackingRange: [-0.05, -0.03],
+    sentenceTracking: -0.02,
+    monoLabelTrackingRange: [0.10, 0.16],
+    serifViolations,
+    scaleRatioViolations,
+    trackingViolations,
+    pass: !serifViolations.length && !scaleRatioViolations.length && !trackingViolations.length,
+  };
+
   return {
     texts: out,
     loop,
     motion,
     patterns: { thresholds: PATTERN_THRESHOLDS, items: patternOut },
     grounds: { fps, luminance: lum.map(v => +v.toFixed(4)), red },
+    typography,
     flash: {
       max_transitions_in_1s: gT, at_s: gAt, window: fr ? fr.gb.window : null, red_max_transitions_in_1s: rT, red_at_s: rAt,
       method: fr ? `flash_scan.py's window method on a ${fr.scan_size[0]}x${fr.scan_size[1]} raster of grounds, plates, tracked nodes, windows, type and effect canvases` : 'whole-frame ground series',

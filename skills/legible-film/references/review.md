@@ -117,7 +117,7 @@ Two blind reviewers working from frames, transcripts and measurements each found
 merged out of order, the flashes of other shots and the holes in the sound; a frame-by-frame inspection of an
 overcut teaser confirmed every point its owner had raised. The agents that made those cuts had reviewed their own.
 
-**When**, for a designed film: a first wave after the person approves the story and shape, before polish; a
+**When**, for a designed film: a first wave after the person approves the story and shape, before polish; a double-blind relative lineup ([eyes](eyes.md), `pack.py` + `pack.py record`) before handing a cut or launch film to the person so two cross-family vision models rank pacing, visual clutter, and callout placement against reference cuts.
 verification wave on the cut that addresses it, by the same reviewers, each given their own earlier report; another
 wave only for a substantially new cut or when the person asks. A panel on every fix pass is wasted effort.
 

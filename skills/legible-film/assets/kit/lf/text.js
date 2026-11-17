@@ -5,25 +5,46 @@
 import { Node } from './node.js';
 import { mix } from './color.js';
 
-export const FAMILIES = { display: 'LF Display', text: 'LF Text', mono: 'LF Mono' };
+export const FAMILIES = { display: 'LF Display', text: 'LF Text', mono: 'LF Mono', serif: 'LF Serif' };
 
 export const DEFAULT_FONTS = {
   display: { url: 'fonts/MonaSansVF.woff2', weight: '200 900', stretch: '75% 125%' },
   text: { url: 'fonts/MonaSansVF.woff2', weight: '200 900', stretch: '75% 125%' },
   mono: { url: 'fonts/GeistMonoVF.woff2', weight: '100 900', stretch: '100%' },
+  serif: { url: 'fonts/FrauncesVF.ttf', italicUrl: 'fonts/FrauncesVF-Italic.ttf', weight: '100 900', stretch: '100%' },
 };
+
+export function wordCount(string) {
+  return String(string || '').trim().split(/\s+/).filter(Boolean).length;
+}
+
+export function isSerifFont(fontValue) {
+  const s = String(fontValue || '').trim();
+  if (!s) return false;
+  if (s === 'serif') return true;
+  if (/sans/i.test(s) || /^LF (Display|Text|Mono)$/i.test(s)) return false;
+  return /serif|playfair|instrument|garamond|caslon|baskerville|georgia|times|fraunces/i.test(s);
+}
 
 // Load every face before anything is measured. Brand fonts in the spec replace these.
 export async function loadFonts(base, fonts = {}) {
   const all = { ...DEFAULT_FONTS, ...fonts };
   const loaded = [];
   for (const [role, f] of Object.entries(all)) {
-    const desc = { weight: f.weight || '100 900', stretch: f.stretch || '100%', style: 'normal' };
-    const face = new FontFace(f.family || FAMILIES[role], `url(${new URL(f.url, base).href})`, desc);
+    if (!f || !f.url) continue;
+    const desc = { weight: f.weight || '100 900', stretch: f.stretch || '100%', style: f.style || 'normal' };
+    const family = f.family || FAMILIES[role] || (role === 'serif' ? 'LF Serif' : `LF ${role}`);
+    const face = new FontFace(family, `url(${new URL(f.url, base).href})`, desc);
     await face.load();
     document.fonts.add(face);
     loaded.push(face);
-    if (f.family) FAMILIES[role] = f.family;
+    if (f.italicUrl) {
+      const italicFace = new FontFace(family, `url(${new URL(f.italicUrl, base).href})`, { ...desc, style: 'italic' });
+      await italicFace.load();
+      document.fonts.add(italicFace);
+      loaded.push(italicFace);
+    }
+    FAMILIES[role] = family;
   }
   await document.fonts.ready;
   return loaded;
@@ -59,9 +80,12 @@ function stretchKeyword(pct) {
 
 export function styleCss(st) {
   const fam = FAMILIES[st.font || 'display'] || st.font;
+  const fallback = st.font === 'serif' || isSerifFont(fam) ? ', Georgia, "Times New Roman", serif' : '';
   return [
-    `font-family:"${fam}"`, `font-size:${st.size}px`, `font-weight:${st.weight ?? 800}`,
+    `font-family:"${fam}"${fallback}`, `font-size:${st.size}px`, `font-weight:${st.weight ?? 800}`,
     `font-stretch:${st.width ?? 100}%`, `line-height:${st.lineHeight ?? 1}`,
+    ...(st.fontStyle ? [`font-style:${st.fontStyle}`] : []),
+    ...(st.smallCaps ? ['font-variant:small-caps'] : []),
     `letter-spacing:${st.tracking ?? 0}em`, 'white-space:pre', 'font-kerning:normal',
     ...(st.direction ? [`direction:${st.direction}`] : []),
     'font-optical-sizing:auto', 'font-feature-settings:"tnum" 1' + (st.features ? ',' + st.features : ''),
@@ -72,7 +96,8 @@ export function styleCss(st) {
 export function inkMetrics(string, st) {
   const c = ctx2d();
   const fam = FAMILIES[st.font || 'display'] || st.font;
-  c.font = `${st.weight ?? 800} 200px "${fam}"`;
+  const italic = st.fontStyle === 'italic' ? 'italic ' : '';
+  c.font = `${italic}${st.weight ?? 800} 200px "${fam}"`;
   try { c.fontStretch = stretchKeyword(st.width ?? 100); } catch (e) { /* older engines */ }
   const m = c.measureText(string || 'H');
   return {

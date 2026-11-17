@@ -67,10 +67,9 @@ the list. Until a named person listens, the sound is unheard. The contract in fu
 
 ## Every path ends the same way
 
-After the build, [loop](references/loop.md) runs four stages. **Check** the delivered file with `check.py`, context
-and sync groups included ([qc](references/qc.md) lists each check). **Screen** it with the person
-([review](references/review.md) for the reviewers). **Revise** only what they asked; a retime re-exports the cue list.
-**Deliver** with a report whose Context and Sync sections print the checks' states.
+After the build, [loop](references/loop.md) runs four stages. **Check** with `check.py` ([qc](references/qc.md),
+[eyes](references/eyes.md) blind lineups). **Screen** with the person ([review](references/review.md)). **Revise**
+what they asked; retime re-exports cues. **Deliver** with Context and Sync check states in the report.
 
 ## Hard limits
 

@@ -57,7 +57,12 @@ class HeavyLock:
 
     def __init__(self, path=None, min_free_gib=3.0, wait_min=20.0, poll_s=20.0, probe=None, say=print,
                  label='with_lock'):
-        self.path = Path(path) if path else default_lock()
+        if path:
+            self.path = Path(path)
+        elif os.environ.get(ENV_PATH):
+            self.path = Path(os.environ[ENV_PATH])
+        else:
+            self.path = default_lock()
         self.min_bytes = float(min_free_gib) * 1024 ** 3
         self.wait_s = float(wait_min) * 60
         self.poll_s = max(0.05, float(poll_s))

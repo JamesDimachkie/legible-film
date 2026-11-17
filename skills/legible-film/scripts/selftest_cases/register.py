@@ -497,6 +497,7 @@ def run_register_cases(tool, record, j, scripts_dir, skip=None):
                code == 0 and manifest(root / 'project-gsap', 'v001')['identity']['render_trace'] == 'traced', text[-300:])
     kit = root / 'kit'
     tool('new_film.py', kit)
+    tool('look.py', 'world-sheet', kit)
     code, text, kit_list = check_page(kit)
     rk = root / 'renders' / 'kit.mp4'
     code_r, text_r = render(kit, rk, '--size', '320x180') if kit_list else (2, text)

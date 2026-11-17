@@ -80,8 +80,13 @@ Contents: [1. When to use it](#1-when-to-use-it) · [2. Set up](#2-set-up) · [3
   §8); the Type block warns when a run of flips crowds the limit.
 - **Tall frames:** blocks lay out in frame units, take the condensed width and stack; check the tall stills rather
   than assuming. A shot can give its own tall line breaks (`tall`).
-- **Supplied brand wins:** pass the brand's fonts (`fonts`) and colours (`palette`); the bundled fonts (Mona Sans and
-  Geist Mono, SIL OFL) are defaults.
+- **Supplied brand wins:** pass the brand's fonts (`fonts`, including `serif` when used as `<= 3`-word accents) and
+  colours (`palette`); the bundled fonts (Mona Sans and Geist Mono, SIL OFL) are defaults. Set the pre-render world
+  sheet (`look.py world-sheet my-film`) before building blocks. A film started with `new_film.py` carries
+  `gates.json`, and `film_check.py` then fails it without a passing world sheet or with a typography rule broken; a film
+  without that file gets the same findings as warnings. `analyse()` checks the `<= 3`-word serif limit, `>= 2x`
+  held display-to-secondary scale hierarchy (unless distinct italic/small-caps), and tight display (`-0.03..-0.05em`,
+  sans sentences `-0.02em`) vs wide mono label (`+0.10..+0.16em`) tracking.
 - **The frame:** a kit film outside a project carries the same `frame` keys as `film.md` (what, audience, why,
   `knows_by`, and each field's state; [project](project.md) §3). `film_check.py` warns when they are missing, and
   `make_film.py` copies them into the delivery report.

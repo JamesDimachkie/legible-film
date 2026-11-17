@@ -17,16 +17,16 @@ export const Number_ = block('number', (ctx, o) => {
   const colour = typeColour(ctx, ground, o.color);
   const accent = typeColour(ctx, ground, 'accent');
   const g = ctx.group;
-  const valueNode = ctx.fitText(g, { string: value, fill: o.fill ?? 0.7, maxH: 0.5, weight: 860, tracking: -0.03, color: colour });
+  const valueNode = ctx.fitText(g, { string: value, font: o.font, fill: o.fill ?? 0.7, maxH: 0.5, weight: 860, tracking: o.tracking ?? -0.035, color: colour });
   const capV = valueNode.ink[3] - valueNode.ink[1];
   const small = ctx.u * (ctx.portrait ? 5 : 4.4);
   let labelNode = null, qualNode = null;
   if (o.label) {
-    labelNode = ctx.textNode(g, { string: o.label, size: small, weight: 640, width: 112.5, tracking: 0.04, color: colour });
+    labelNode = ctx.textNode(g, { string: o.label, font: o.labelFont ?? 'mono', size: small, weight: 640, width: 112.5, tracking: o.labelTracking ?? 0.12, color: colour });
     labelNode.rest({ y: capV / 2 + small * 1.3 });
   }
   if (o.qualifier && f.label_beside_value) {
-    qualNode = ctx.textNode(g, { string: f.label_beside_value, size: small * 0.82, weight: 560, width: 100, tracking: 0.02, color: accent, anchor: [0, 0.5] });
+    qualNode = ctx.textNode(g, { string: f.label_beside_value, font: o.qualifierFont ?? 'text', fontStyle: o.qualifierStyle ?? 'italic', size: small * 0.82, weight: 560, width: 100, tracking: o.qualifierTracking ?? -0.02, color: accent, anchor: [0, 0.5] });
     qualNode.rest({ x: valueNode.w / 2 + small * 0.8, y: -capV / 2 + small * 0.5 });
     if (qualNode.x + qualNode.w > ctx.safe[2] - ctx.W / 2) { qualNode.ax = 0.5; qualNode.rest({ x: 0, y: (labelNode ? labelNode.y : capV / 2) + small * 1.5 }); }
   }

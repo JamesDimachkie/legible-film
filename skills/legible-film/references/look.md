@@ -52,6 +52,10 @@ reference for later rounds.
 ## 3. Study them
 
 - Look at every image reference at full size, and draw the set with `look.py board PROJECT` to see it whole.
+- Before generating lower-thirds, callouts, or standalone motion blocks, render and inspect the **world sheet**
+  (`look.py world-sheet PROJECT`, writing `refs/world-sheet.png` or `qa/world-sheet.png`) showing the world line
+  (subject × far thing), palette contrast, reference thumbnails, and typography specimen (`<= 3`-word serif limit,
+  `>= 2x` held display-to-secondary scale, `-0.03em..-0.05em` display tracking vs `+0.10em..+0.16em` mono labels).
 - Study a video reference over its range, frame by frame: `frame_sheet.py refs/V01.mp4 --every 0.25 --out
   refs/V01-rhythm.png` for its rhythm, `--around T --span 1.2 --rate 30` at each cut or transition, `motion_scan.py`
   for its pace in numbers. List what it does under Study in look.md, apart from the person's own words: timecode,

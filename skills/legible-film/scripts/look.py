@@ -7,6 +7,7 @@
   look.py set PROJECT ID [--take TEXT] [--leave TEXT] [--mode close|own] [--range A-B] [--note TEXT]
   look.py show PROJECT [--json]
   look.py board PROJECT [--out FILE]
+  look.py world-sheet TARGET [--out FILE] [--world-line TEXT] [options]
   look.py compare PROJECT ID (--image FILE | --at SECONDS [--version vNNN]) [--blind] [--out FILE]
 
 init writes look.md from the template (expectations, what to avoid, the bar, decisions) and refs/; it keeps a
@@ -343,6 +344,284 @@ def compare(root, ident, image_path, at, version, out, blind=False):
     return found
 
 
+def _parse_hex(color):
+    s = str(color or '').strip().lstrip('#')
+    if len(s) == 3:
+        s = ''.join(ch * 2 for ch in s)
+    if not re.fullmatch(r'[0-9a-fA-F]{6}', s):
+        raise ValueError(f'expected a 6-digit hex colour, not {color!r}')
+    return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _rel_luminance(rgb):
+    def chan(c):
+        x = c / 255.0
+        return x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4
+    r, g, b = (chan(v) for v in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _contrast_ratio(rgb_a, rgb_b):
+    la, lb = _rel_luminance(rgb_a), _rel_luminance(rgb_b)
+    return round((max(la, lb) + 0.05) / (min(la, lb) + 0.05), 2)
+
+
+def _draw_tracked(draw, xy, text, font, px, tracking_em, fill, max_w=None):
+    """Draw TEXT with letter-spacing TRACKING_EM (in ems of PX), one glyph at a time, as the film would set it: the
+    sheet had drawn display type untracked and faked mono tracking with inserted spaces, then certified both."""
+    x, y = xy
+    step = tracking_em * px
+    for ch in str(text):
+        w = draw.textlength(ch, font=font)
+        if max_w is not None and x + w > xy[0] + max_w:
+            break
+        draw.text((x, y), ch, fill=fill, font=font)
+        x += w + step
+    return x - xy[0]
+
+
+INK_MIN = 4.5      # WCAG AA for body text: the ink on its ground, where the sheet draws it
+MUTED_MIN = 3.0    # WCAG AA for large text: the secondary line is set at display sizes in muted
+
+
+def _font(size, role='sans'):
+    size = max(10, int(round(size)))
+    fonts_dir = HERE.parent / 'assets' / 'kit' / 'fonts'
+    assets_fonts = HERE.parent / 'assets' / 'fonts'
+    if role == 'mono':
+        candidates = [fonts_dir / 'GeistMonoVF.woff2', 'consola.ttf', 'DejaVuSansMono.ttf', 'Menlo.ttc']
+    elif role == 'serif':
+        candidates = [fonts_dir / 'FrauncesVF.ttf', 'georgia.ttf', 'times.ttf', 'DejaVuSerif.ttf', 'Georgia.ttf']
+    else:
+        candidates = [fonts_dir / 'MonaSansVF.woff2', assets_fonts / 'Inter-Latin-400.woff2',
+                      'segoeui.ttf', 'arial.ttf', 'DejaVuSans.ttf', 'Helvetica.ttc']
+    for cand in candidates:
+        try:
+            return ImageFont.truetype(str(cand), size=size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _world_target(target):
+    """Accept either a project root (film.md / cuts) or a standalone kit film folder."""
+    p = Path(target)
+    proj = project.find_project(target)
+    if proj is not None:
+        return proj.resolve(), 'project'
+    if p.is_dir() and ((p / 'film.js').is_file() or (p / 'index.html').is_file()):
+        return p.resolve(), 'kit'
+    raise ValueError(f'{target} is neither a project folder nor a kit film folder')
+
+
+def _read_spec_hints(root, kind):
+    hints = {'title': root.name, 'brand': '#2F9E6B', 'world_line': ''}
+    for fname in ('treatment.md', 'look.md', 'BOARD.md', 'film.js'):
+        p = root / fname
+        if not p.is_file():
+            continue
+        txt = p.read_text(encoding='utf-8', errors='replace')
+        if fname == 'film.js':
+            m = re.search(r"title:\s*['\"]([^'\"]+)['\"]", txt)
+            if m:
+                hints['title'] = m.group(1)
+            m = re.search(r"brand:\s*['\"](#[0-9a-fA-F]{3,6})['\"]", txt)
+            if m:
+                hints['brand'] = m.group(1)
+            m = re.search(r"what:\s*['\"]([^'\"]+)['\"]", txt)
+            if m and not hints['world_line']:
+                hints['world_line'] = m.group(1)
+        else:
+            m = re.search(r'^-\s*(?:World(?:\s+line)?|Visual world|Tone[^:]*)\s*:\s*(.+)$', txt, re.MULTILINE | re.IGNORECASE)
+            if m and not hints['world_line']:
+                hints['world_line'] = m.group(1).strip()
+    return hints
+
+
+def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg='#0D1016', fg='#F4F1EA',
+                muted='#9BA3B0', serif_words='Let it stand.', display_text='SHIP CLEAN.',
+                display_px=132, secondary_text='Every cue lands on one clock.', secondary_px=48,
+                mono_label='SECTION 01 · WORLD SHEET', display_tracking=-0.035, mono_tracking=0.12,
+                distinct_secondary=False):
+    """Build a 1920x1080 pre-render world sheet and validate BOARD/WORLD typographic guardrails."""
+    root, kind = _world_target(target)
+    hints = _read_spec_hints(root, kind)
+    title_val = title or hints['title']
+    brand_hex = brand or hints['brand']
+    wl_val = world_line if world_line is not None else (hints['world_line'] or f'{title_val} x brass proofreader table')
+
+    # Guardrail 1: 3-word serif limit.
+    serif_tokens = [w for w in str(serif_words or '').strip().split() if w]
+    if len(serif_tokens) > 3:
+        raise ValueError(
+            f'serif accent "{serif_words}" has {len(serif_tokens)} words '
+            '(WORLD guardrail limits serif type to <= 3 words; set full sentences in sans)'
+        )
+
+    # Guardrail 2: >= 2x display-to-secondary scale hierarchy on held frames.
+    if display_px <= 0 or secondary_px <= 0:
+        raise ValueError('display_px and secondary_px must be positive')
+    scale_ratio = round(display_px / secondary_px, 2)
+    if scale_ratio < 2.0 and not distinct_secondary:
+        raise ValueError(
+            f'display-to-secondary scale ratio is {scale_ratio}x ({display_px}px / {secondary_px}px); '
+            'WORLD guardrail requires >= 2.0x on held frames unless the smaller line is a distinct italic/small-caps face'
+        )
+
+    # Guardrail 3: tight display tracking vs wide mono labels.
+    display_wc = len([w for w in str(display_text or '').split() if w])
+    max_display_tr = -0.02 if display_wc > 3 else -0.03
+    if not (-0.05 <= display_tracking <= max_display_tr):
+        raise ValueError(
+            f'display tracking {display_tracking}em is outside WORLD range [-0.05, {max_display_tr}]em'
+        )
+    if not (0.10 <= mono_tracking <= 0.16):
+        raise ValueError(
+            f'mono label tracking {mono_tracking}em is outside WORLD range [0.10, 0.16]em'
+        )
+
+    bg_rgb, fg_rgb = _parse_hex(bg), _parse_hex(fg)
+    muted_rgb, brand_rgb = _parse_hex(muted), _parse_hex(brand_hex)
+    panel_rgb = tuple(min(255, c + 14) if sum(bg_rgb) < 384 else max(0, c - 14) for c in bg_rgb)
+    border_rgb = tuple(int(0.75 * bg_rgb[i] + 0.25 * fg_rgb[i]) for i in range(3))
+
+    out_path = Path(out) if out else (root / ('refs' if kind == 'project' else 'qa') / 'world-sheet.png')
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    W, H = 1920, 1080
+    img = Image.new('RGB', (W, H), bg_rgb)
+    draw = ImageDraw.Draw(img)
+
+    # Header band: World line and BOARD boundary vocabulary.
+    draw.rectangle((0, 0, W, 118), fill=panel_rgb)
+    draw.line((0, 118, W, 118), fill=border_rgb, width=2)
+    f_mono_sm = _font(18, 'mono')
+    f_mono_md = _font(22, 'mono')
+    f_head = _font(36, 'sans')
+    f_body = _font(24, 'sans')
+
+    draw.text((56, 22), f'WORLD SHEET · {title_val.upper()}', fill=brand_rgb, font=f_mono_sm)
+    draw.text((56, 52), f'World: {wl_val}', fill=fg_rgb, font=f_head)
+    draw.text((W - 760, 26), 'BOUNDARIES: becomes · carried · matched · door · change of ground', fill=muted_rgb, font=f_mono_sm)
+    draw.text((W - 760, 62), 'TYPOGRAPHY: serif <= 3w · held scale >= 2.0x · track -0.035 / +0.12', fill=muted_rgb, font=f_mono_sm)
+
+    # Left column (x=56..700): Palette & Ref Stills.
+    draw.rectangle((56, 152, 700, 620), fill=panel_rgb, outline=border_rgb, width=2)
+    draw.text((84, 174), 'PALETTE & ROOM CONTRAST', fill=muted_rgb, font=f_mono_sm)
+    swatches = [
+        ('GROUND', bg, bg_rgb),
+        ('INK', fg, fg_rgb),
+        ('MUTED', muted, muted_rgb),
+        ('ACCENT', brand_hex, brand_rgb),
+    ]
+    sy = 218
+    for name, hx, rgb in swatches:
+        draw.rectangle((84, sy, 180, sy + 64), fill=rgb, outline=border_rgb, width=2)
+        c_bg = _contrast_ratio(rgb, bg_rgb)
+        draw.text((202, sy + 6), f'{name}   {hx.upper()}', fill=fg_rgb, font=f_mono_md)
+        draw.text((202, sy + 36), f'vs ground {c_bg}:1', fill=muted_rgb, font=f_mono_sm)
+        sy += 90
+
+    # Ref thumbnails box (x=56..700, y=648..1024).
+    draw.rectangle((56, 648, 700, 1024), fill=panel_rgb, outline=border_rgb, width=2)
+    draw.text((84, 670), 'REFERENCE / ROOM STRIP', fill=muted_rgb, font=f_mono_sm)
+    ref_thumbs = []
+    if (root / 'refs' / 'index.json').is_file():
+        rows = [r for r in read_index(root)['refs'] if r.get('kind') in ('image', 'video')][:4]
+        with tempfile.TemporaryDirectory(prefix='lf-ws-') as td:
+            for r in rows:
+                try:
+                    im, shown = reference_image(root, r, td)
+                    ref_thumbs.append((im, shown))
+                except (OSError, ValueError):
+                    pass
+    if ref_thumbs:
+        tw, th = 286, 150
+        for idx, (im, shown) in enumerate(ref_thumbs[:4]):
+            thumb = im.copy()
+            thumb.thumbnail((tw, th))
+            tx = 84 + (idx % 2) * 304
+            ty = 710 + (idx // 2) * 158
+            img.paste(thumb, (tx, ty))
+            draw.text((tx + 6, ty + 6), shown, fill=(255, 255, 255), font=f_mono_sm)
+    else:
+        draw.text((84, 730), 'Add visual refs with look.py add or inspect qa/', fill=muted_rgb, font=f_body)
+        draw.text((84, 768), 'Verify frame richness before generating blocks.', fill=muted_rgb, font=f_body)
+
+    # Right column (x=736..1864): Scale Hierarchy & Tracking Specimen.
+    draw.rectangle((736, 152, 1864, 1024), fill=panel_rgb, outline=border_rgb, width=2)
+    draw.text((776, 174), 'TYPOGRAPHY SPECIMEN & GUARDRAILS', fill=muted_rgb, font=f_mono_sm)
+
+    # Wide-tracked mono kicker, at its tracking.
+    _draw_tracked(draw, (776, 224), str(mono_label).upper(), _font(22, 'mono'), 22, mono_tracking, brand_rgb, max_w=1060)
+
+    # Display headline at real scale (>= 2x secondary), at its tracking.
+    disp_px = min(display_px, 148)
+    _draw_tracked(draw, (776, 276), str(display_text), _font(disp_px, 'sans'), disp_px, display_tracking, fg_rgb,
+                  max_w=1060)
+
+    # Secondary sans sentence.
+    f_sec = _font(min(secondary_px, 72), 'sans')
+    draw.text((776, 470), str(secondary_text), fill=muted_rgb, font=f_sec)
+
+    # Serif accent (<= 3 words).
+    draw.line((776, 590, 1820, 590), fill=border_rgb, width=2)
+    draw.text((776, 616), f'SERIF ACCENT ({len(serif_tokens)}/3 WORDS MAX)', fill=muted_rgb, font=f_mono_sm)
+    draw.text((776, 654), str(serif_words), fill=fg_rgb, font=_font(64, 'serif'))
+
+    # Guardrail verification strip, each line from what was measured: the contrast line had read PASS for ink the
+    # colour of its ground (1.0:1). The specimen is drawn on the panel and the film on the ground, so both count.
+    ink_c = min(_contrast_ratio(fg_rgb, bg_rgb), _contrast_ratio(fg_rgb, panel_rgb))
+    muted_c = min(_contrast_ratio(muted_rgb, bg_rgb), _contrast_ratio(muted_rgb, panel_rgb))
+    contrast_ok = ink_c >= INK_MIN and muted_c >= MUTED_MIN
+    verdict = lambda ok: 'PASS' if ok else 'FAIL'
+    draw.line((776, 780, 1820, 780), fill=border_rgb, width=2)
+    checks_lines = [
+        f'1. Serif limit:        {len(serif_tokens)} word(s) <= 3 max               PASS',
+        f'2. Scale hierarchy:    {display_px}px / {secondary_px}px = {scale_ratio}x (>= 2.0x)  PASS',
+        f'3. Tracking split:     display {display_tracking:+.3f}em | mono {mono_tracking:+.2f}em   PASS',
+        f'4. Contrast:           ink {ink_c}:1 (>= {INK_MIN}) | muted {muted_c}:1 (>= {MUTED_MIN})  {verdict(contrast_ok)}',
+    ]
+    # the checks are drawn in a colour that reads on the panel whatever the ink is, so a failing sheet stays legible
+    check_rgb = (255, 255, 255) if _rel_luminance(panel_rgb) < 0.18 else (0, 0, 0)
+    cy = 812
+    for line in checks_lines:
+        draw.text((776, cy), line, fill=check_rgb, font=f_mono_md)
+        cy += 44
+
+    img.save(out_path)
+    meta = {
+        'tool': 'look.py world-sheet',
+        'target': str(root),
+        'kind': kind,
+        'title': title_val,
+        'world_line': wl_val,
+        'out': str(out_path),
+        'serif_words': serif_words,
+        'serif_word_count': len(serif_tokens),
+        'serif_max_words': 3,
+        'display_px': display_px,
+        'secondary_px': secondary_px,
+        'scale_ratio': scale_ratio,
+        'min_scale_ratio': 2.0,
+        'display_tracking': display_tracking,
+        'mono_tracking': mono_tracking,
+        'palette': {'bg': bg, 'fg': fg, 'muted': muted, 'brand': brand_hex},
+        'contrast_fg_bg': _contrast_ratio(fg_rgb, bg_rgb),
+        'contrast_ink': ink_c,
+        'contrast_muted': muted_c,
+        'pass': contrast_ok,
+        **({} if contrast_ok else {'fails': [m for ok, m in (
+            (ink_c >= INK_MIN, f'ink {ink_c}:1 needs {INK_MIN}:1 on the ground and the panel'),
+            (muted_c >= MUTED_MIN, f'muted {muted_c}:1 needs {MUTED_MIN}:1 on the ground and the panel')) if not ok]}),
+    }
+    project.save_json(out_path.with_suffix('.json'), meta)
+    return meta
+
+
 def show(root):
     """The references, and whether any line under Expectations in look.md has an answer."""
     data = read_index(root)
@@ -383,6 +662,25 @@ def parser():
     drawing = sub.add_parser('board', help='every reference in one labelled image')
     drawing.add_argument('project')
     drawing.add_argument('--out', help='image to write (default refs/board.png)')
+    ws = sub.add_parser('world-sheet', help='mandatory pre-render world sheet (palette, typography scale, refs)')
+    ws.add_argument('project', help='project folder or kit film folder')
+    ws.add_argument('--out', help='image to write (default refs/world-sheet.png or qa/world-sheet.png)')
+    ws.add_argument('--title', help='film title')
+    ws.add_argument('--world-line', help='subject x far thing')
+    ws.add_argument('--brand', help='accent hex colour')
+    ws.add_argument('--bg', default='#0D1016', help='ground hex colour')
+    ws.add_argument('--fg', default='#F4F1EA', help='foreground ink hex colour')
+    ws.add_argument('--muted', default='#9BA3B0', help='muted hex colour')
+    ws.add_argument('--serif-words', default='Let it stand.', help='serif accent (<= 3 words)')
+    ws.add_argument('--display-text', default='SHIP CLEAN.', help='primary display line')
+    ws.add_argument('--display-px', type=int, default=132, help='primary display px size')
+    ws.add_argument('--secondary-text', default='Every cue lands on one clock.', help='secondary sans sentence')
+    ws.add_argument('--secondary-px', type=int, default=48, help='secondary sans px size')
+    ws.add_argument('--mono-label', default='SECTION 01 · WORLD SHEET', help='mono uppercase label')
+    ws.add_argument('--display-tracking', type=float, default=-0.035, help='display tracking em (-0.05..-0.03)')
+    ws.add_argument('--mono-tracking', type=float, default=0.12, help='mono label tracking em (0.10..0.16)')
+    ws.add_argument('--distinct-secondary', action='store_true', help='allow closer scale ratio for distinct italic/small-caps secondary face')
+    ws.add_argument('--json', action='store_true')
     comparing = sub.add_parser('compare', help='a reference beside a still of the film, with colour measured')
     comparing.add_argument('project')
     comparing.add_argument('id', help='R01 or V01')
@@ -401,6 +699,23 @@ def main():
     args = parser().parse_args()
     project.safe_output()
     try:
+        if args.command == 'world-sheet':
+            found = world_sheet(
+                args.project, out=args.out, title=args.title, world_line=args.world_line,
+                brand=args.brand, bg=args.bg, fg=args.fg, muted=args.muted,
+                serif_words=args.serif_words, display_text=args.display_text, display_px=args.display_px,
+                secondary_text=args.secondary_text, secondary_px=args.secondary_px,
+                mono_label=args.mono_label, display_tracking=args.display_tracking,
+                mono_tracking=args.mono_tracking, distinct_secondary=args.distinct_secondary,
+            )
+            if args.json:
+                print(json.dumps(found, indent=1))
+            else:
+                print(f"Wrote {found['out']} (world: {found['world_line']}; scale {found['scale_ratio']}x; serif {found['serif_word_count']}/3 words)")
+            if not found['pass']:
+                print('world sheet FAILS: ' + '; '.join(found['fails']), file=sys.stderr)
+                return 1
+            return 0
         root = root_for(args.project)
         if args.command == 'init':
             init(root)
