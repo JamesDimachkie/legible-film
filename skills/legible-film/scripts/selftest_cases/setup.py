@@ -140,9 +140,9 @@ def check_spatial(record, setup, j, scripts_dir):
            str(args))
     script = Path(scripts_dir) / 'setup.py'
     denied = subprocess.run([sys.executable, '-I', str(script), '--install', 'spatial', '--json'],
-                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding='utf-8', errors='replace')
     orphan = subprocess.run([sys.executable, '-I', str(script), '--download', '--yes', '--json'],
-                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding='utf-8', errors='replace')
     record('setup: spatial install requires consent and download requires the spatial group',
            denied.returncode == 2 and 'Not installed' in denied.stdout and orphan.returncode == 2
            and '--install spatial' in orphan.stdout, denied.stdout + orphan.stdout)
@@ -403,7 +403,7 @@ def run_setup_cases(tool, record, j, scripts_dir):
     record('setup: named gaps explain limits and fixes', all(gaps[name]['fix'] for name in
            ('ffmpeg', 'libass', 'FFmpeg whisper', 'faster-whisper')), str(gaps))
     result = subprocess.run([sys.executable, '-I', str(Path(scripts_dir) / 'setup.py'), '--install',
-                             'transcription', '--json'], stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                             'transcription', '--json'], stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding='utf-8', errors='replace')
     with mock.patch.object(setup, 'dedicated_python', return_value=Path(scripts_dir) / 'no-such-env' / 'python'):
         present = setup.core_present()
     with mock.patch.object(setup, 'dedicated_python', return_value=Path(setup.__file__)):

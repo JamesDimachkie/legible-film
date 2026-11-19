@@ -110,7 +110,7 @@ def check_transcript_protection_and_cleanup(tool, record, j, scripts_dir):
     child = subprocess.Popen([sys.executable, '-I', '-c', child_code, str(Path(scripts_dir) / 'map.py'), str(root)],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     child_out, child_error = child.communicate(timeout=30)
-    child_pid = int(child_out.decode('ascii').strip())
+    child_pid = int(child_out.decode('utf-8', 'replace').strip())
     crashed = json.loads((root / 'status.json').read_text(encoding='utf-8')).get('running', [])
     status_code, status_text = tool('project.py', 'status', root)
     record('map: an abruptly exited mapper no longer owns the status line',
@@ -353,7 +353,7 @@ def last_frame_end(path, selector, frame):
     """Where a stream's decoded frames really end, read frame by frame, for the known answer."""
     result = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', selector, '-show_entries',
                              'frame=best_effort_timestamp_time', '-of', 'csv=p=0', str(path)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
     return float(result.stdout.split()[-1].strip(',')) + frame
 
 

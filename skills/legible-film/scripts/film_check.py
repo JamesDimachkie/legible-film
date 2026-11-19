@@ -68,12 +68,29 @@ import threading
 from pathlib import Path
 from fractions import Fraction
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 _project_spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
 project = importlib.util.module_from_spec(_project_spec)
 _project_spec.loader.exec_module(project)
 _cue_spec = importlib.util.spec_from_file_location('lf_cue_list', Path(__file__).with_name('cue_list.py'))
 cue_list = importlib.util.module_from_spec(_cue_spec)
 _cue_spec.loader.exec_module(cue_list)
+
+
+# which film a world sheet belongs to, judged with the standard library: look.py needs numpy and Pillow, and exits 2
+# without them, which had stopped this check
+_world_spec_spec = importlib.util.spec_from_file_location('lf_world_spec', Path(__file__).with_name('world_spec.py'))
+world_spec = importlib.util.module_from_spec(_world_spec_spec)
+_world_spec_spec.loader.exec_module(world_spec)
+
 
 VERSION = '1.0'
 LINT = [
@@ -243,7 +260,7 @@ def frame_keys(folder):
     if any((parent / 'film.md').is_file() and (parent / 'cuts').is_dir() for parent in [here, *here.parents]):
         return None   # inside a project: film.md carries the frame
     try:
-        text = Path(folder, 'film.js').read_text(encoding='utf-8')
+        text = Path(folder, 'film.js').read_text(encoding='utf-8-sig', errors='replace')
     except OSError:
         return None
     block = re.search(r'\bframe\s*:\s*\{', text)
@@ -270,7 +287,7 @@ def run_page(a, folder, w, h):
             res = {}
             for cmd in ('info', 'analyse'):
                 p = subprocess.run([node, capture, cmd, '--url', url, '--size', f'{w}x{h}'] + (['--browser', a.browser] if a.browser else []) + (['--playwright', a.playwright] if a.playwright else []),
-                                   capture_output=True, text=True, timeout=300)
+                                   capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300)
                 if p.returncode != 0:
                     reason = (p.stderr.strip().splitlines() or ['?'])[-1]
                     if cmd == 'analyse' and '__lf.analyse is not implemented' in p.stderr:
@@ -285,9 +302,10 @@ def run_page(a, folder, w, h):
             with open(script, 'w', encoding='utf-8') as f:
                 f.write(RUNNER)
             p = subprocess.run([node, script, url, str(w), str(h), a.playwright or os.environ.get('LF_PLAYWRIGHT_MODULE', ''), find_chromium(a.browser) or ''],
-                               capture_output=True, text=True, timeout=300, cwd=os.getcwd())
+                               capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=300,
+                               cwd=os.getcwd())
             try:
-                res = json.loads(p.stdout.strip().splitlines()[-1])
+                res = json.loads((p.stdout or '').strip().splitlines()[-1])
             except (ValueError, IndexError):
                 raise RuntimeError('the page runner printed no result: ' + (p.stderr.strip()[-400:] or 'no output'))
             if res.get('error'):
@@ -386,6 +404,7 @@ def determinism_probe(url, width, height, info, node, playwright, browser):
 
 
 def main():
+    project.safe_output()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('film', help='the film folder (index.html, film.js, lf/, blocks/)')
     ap.add_argument('--size', default=None, help='WxH, for example 1080x1920 (default: the spec size)')
@@ -423,7 +442,7 @@ def main():
             return 2
         w, h = int(m.group(1)), int(m.group(2))
     elif os.path.isfile(os.path.join(folder, 'film.js')):
-        with open(os.path.join(folder, 'film.js'), encoding='utf-8') as f:
+        with open(os.path.join(folder, 'film.js'), encoding='utf-8-sig', errors='replace') as f:
             m = re.search(r'size:\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]', f.read())
         if m:
             w, h = int(m.group(1)), int(m.group(2))
@@ -440,8 +459,8 @@ def main():
         print(f'film_check.py: could not export the cue list at {w}x{h}: {e}', file=sys.stderr)
         return 2
     if listed is None:
-        print(f'film_check.py: could not export the cue list at {w}x{h}: ' + (cue_text.splitlines() or ['?'])[-1],
-              file=sys.stderr)
+        said = (cue_text.splitlines() or [f'film_capture.mjs exited {cue_code} and printed nothing, writing no cues.json'])
+        print(f'film_check.py: could not export the cue list at {w}x{h}: ' + said[-1], file=sys.stderr)
         return 2
     kept = os.path.join(folder, '.lf-frozen', listed['picture']['snapshot_sha256'])
     try:
@@ -554,25 +573,38 @@ def main():
         'blanks': blanks, 'rests': rests, 'flashes': flashes, 'smears': info.get('smears', []), 'fast': info.get('fast', []),
         'music': info.get('music'), 'pace': info.get('pace'), 'loop': bool(info.get('loop')),
     })
-    ws_candidates = [
-        Path(folder) / 'qa' / 'world-sheet.png',
-        Path(folder) / 'refs' / 'world-sheet.png',
-        Path(folder).parent / 'refs' / 'world-sheet.png',
-        Path(folder).parent.parent / 'refs' / 'world-sheet.png',
-    ]
-    ws_found = next((p for p in ws_candidates if p.is_file()), None)
-    ws_meta = None
-    if ws_found and ws_found.with_suffix('.json').is_file():
-        try:
-            ws_meta = json.loads(ws_found.with_suffix('.json').read_text(encoding='utf-8'))
-        except (OSError, ValueError):
-            ws_meta = None
+    # Look for a world sheet only in the film's own qa/ and in the refs/ of its enclosing project (at any depth).
+    # A sheet sitting in a non-project folder above the film is not a candidate.
+    proj_root = world_spec.find_project(folder)
+    ws_candidates = [Path(folder) / 'qa' / 'world-sheet.png']
+    if proj_root is not None:
+        ws_candidates.append(Path(proj_root) / 'refs' / 'world-sheet.png')
+
+    def sheet_record(png):
+        meta = world_spec._read_json(png.with_suffix('.json'))
+        return meta if isinstance(meta, dict) else None
+
+    found = [(p, sheet_record(p)) for p in ws_candidates if p.is_file()]
+    # a sheet counts for this film when its record names this film (or the project holding it) and the title and
+    # world line it drew still match what the film states now: for a kit film, the title the running page reports
+    # (world_spec.sheet_owner)
+    owners = [(p, m, world_spec.sheet_owner(p, m, folder, info.get('title'))) for p, m in found]
+    owned = [(p, m) for p, m, (verdict, _) in owners if verdict == 'own']
+    stale = [(str(p), diffs, world_spec.redraw_advice(p, m, diffs, info.get('title')))
+             for p, m, (verdict, diffs) in owners if verdict == 'values']
+    ws_found, ws_meta = (owned or found or [(None, None)])[0]
     world_sheet = {
-        'present': ws_found is not None,
+        'present': bool(owned),
         'path': str(ws_found) if ws_found else None,
         # a sheet without its record was never checked: it read as passing
-        'pass': bool(ws_meta.get('pass')) if isinstance(ws_meta, dict) else False,
+        'pass': bool(ws_meta.get('pass')) if owned and isinstance(ws_meta, dict) else False,
     }
+    if found and not owned:
+        world_sheet['other_films'] = [str(p) for p, _ in found]
+        if stale:
+            world_sheet['other_values'] = [{'path': p, 'differences': [{'value': k, 'drawn': a, 'now': b}
+                                                                       for k, a, b in diffs], 'redraw': command}
+                                           for p, diffs, command in stale]
     # The paths make the world sheet and the typography rules mandatory before blocks are built. The gate travels
     # with the film: new_film.py writes gates.json into every film it starts, and a film whose gates.json asks for
     # them (or a check run with --require-world-sheet) fails preflight without a passing sheet or with a typography
@@ -582,8 +614,10 @@ def main():
     gates_file = Path(folder) / 'gates.json'
     if gates_file.is_file():
         try:
-            gates = json.loads(gates_file.read_text(encoding='utf-8'))
-        except (OSError, ValueError) as error:
+            raw_gates = gates_file.read_bytes()
+            gates_txt = raw_gates.decode('utf-16') if raw_gates.startswith((b'\xff\xfe', b'\xfe\xff')) else raw_gates.decode('utf-8-sig')
+            gates = json.loads(gates_txt)
+        except (OSError, UnicodeDecodeError, ValueError) as error:
             errors.append(f'gates.json unreadable ({error}): fix it, or delete it to check this film without gates')
         if not isinstance(gates, dict):
             errors.append('gates.json must be an object such as {"world_sheet": "required", "typography": "required"}')
@@ -594,7 +628,11 @@ def main():
     display = [x for x in (an.get('texts') or []) if x.get('role') not in ('caption', 'texture', 'ui')]
     sheet_fault = None
     if not world_sheet['present']:
-        sheet_fault = 'world sheet missing: run look.py world-sheet before building/checking blocks'
+        sheet_fault = 'world sheet missing: run look.py world-sheet before building/checking blocks' + (
+            f" (the sheet at {stale[0][0]} was drawn for another film or before this film changed: "
+            f"{world_spec.describe(stale[0][1])}). {stale[0][2]}" if stale else
+            f" (the sheet at {world_sheet['other_films'][0]} was drawn for another film; run look.py world-sheet again)"
+            if world_sheet.get('other_films') else '')
     elif not world_sheet['pass']:
         sheet_fault = (f"world sheet does not pass ({world_sheet['path']}): run look.py world-sheet again and fix "
                        'what it names')
@@ -604,7 +642,13 @@ def main():
         warnings.append(sheet_fault + ' (a warning for this film; add gates.json, as new_film.py does, to make the '
                         'world sheet and typography rules blocking)')
     if need_type:
-        ty_rules = an.get('typography') or {}
+        ty_rules = an.get('typography')
+        lists = ('serifViolations', 'scaleRatioViolations', 'trackingViolations')
+        if not isinstance(ty_rules, dict) or not all(isinstance(ty_rules.get(k), list) for k in lists):
+            # an analyser that reports no typography (the 2.2 kit's, or none at all) had passed the required gate
+            errors.append("typography: the page's analyser reported no typography data, so the required rules were not "
+                          "checked; update the film's lf/ folder from the kit (assets/kit/lf)")
+            ty_rules = {}
         for v in ty_rules.get('serifViolations') or []:
             errors.append(f"typography: {v.get('id')} sets {v.get('words')} words in serif (3 at most; set sentences "
                           'in sans)')

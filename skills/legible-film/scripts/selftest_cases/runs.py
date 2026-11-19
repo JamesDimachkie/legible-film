@@ -110,7 +110,8 @@ def run_runs_cases(tool, record, j, scripts_dir, skip=None):
              "sound:'required',role:'key',sync:'attack',...(run?{run:true}:{})}))}});"
              "const out={};for(const run of [true,false]){const f=mk(run);tidyCues(f);out[run]=f.reg.cues.length;}"
              "console.log(JSON.stringify(out));")
-    r = subprocess.run([node, '--input-type=module', '-e', probe], capture_output=True, text=True)
+    r = subprocess.run([node, '--input-type=module', '-e', probe], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
     try:
         counts = json.loads(r.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):

@@ -25,6 +25,15 @@ import tempfile
 import threading
 
 import os
+
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
 try:
     import numpy as np
 except ImportError as missing:
@@ -162,7 +171,7 @@ def main():
                 capture_output=True,
             )
             if r.returncode:
-                raise RuntimeError(r.stderr.decode()[-1000:])
+                raise RuntimeError(r.stderr.decode('utf-8', 'replace')[-1000:])
             return np.frombuffer(r.stdout, np.uint8).reshape(-1, 180, 320, 3)
 
         f = decode(work / "cut.mkv")
@@ -180,14 +189,14 @@ def main():
         r = subprocess.run(
             base + ["--out", str(work / "sharp.mkv"), "--lossless", "--preview", "--no-dither"],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         sharp = decode(work / "sharp.mkv") if not r.returncode else None
         record(
             "frame-locked HUD agrees across sub-samples",
             sharp is not None and np.array_equal(f[:, :35, :60], sharp[:, :35, :60]),
         )
-        r = subprocess.run(base + ["--out", str(work / "colour.mp4")], capture_output=True, text=True)
+        r = subprocess.run(base + ["--out", str(work / "colour.mp4")], capture_output=True, text=True, encoding='utf-8', errors='replace')
         record("H.264 render completed", r.returncode == 0, r.stderr[-300:] if r.returncode else "")
         r = subprocess.run(
             [
@@ -210,7 +219,7 @@ def main():
                 str(work / "colour-qc.json"),
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         record(
             "encoded frame count, colour tags, brand patch, level, faststart, absent audio",
@@ -234,7 +243,7 @@ def main():
                 *opts,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         record("page seek error fails render with exit 1", r.returncode == 1 and "synthetic seek failure" in r.stderr)
         r = subprocess.run(
@@ -254,7 +263,7 @@ def main():
                 *opts,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         record("console error fails render with exit 1", r.returncode == 1 and "synthetic console failure" in r.stderr)
         r = subprocess.run(
@@ -274,7 +283,7 @@ def main():
                 *opts,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         record(
             "rejected page readiness fails render with exit 1",
@@ -288,7 +297,8 @@ def main():
             + "console.log(JSON.stringify([0,.01,.015,.4833333333,.499,.9]"
             + ".map(t=>sampleTimes(t,i,360,4,32))));"
         )
-        r = subprocess.run([node, "--input-type=module", "-e", script], capture_output=True, text=True)
+        r = subprocess.run([node, "--input-type=module", "-e", script], capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
         import importlib.util
 
         spec = importlib.util.spec_from_file_location("render_common", HERE / "render_common.py")
@@ -338,7 +348,7 @@ def main():
                 *opts,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         portrait = work / "film_1080x1920.mp4"
         check = subprocess.run(
@@ -357,7 +367,7 @@ def main():
                 "4.2",
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         record(
             "render --size portrait: default size name, encode dimensions, frame count and actual-size level",
@@ -382,13 +392,13 @@ def main():
                 *opts,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         square = work / "film_120x120.mp4"
         check = subprocess.run(
             [sys.executable, "-I", str(HERE / "qc_file.py"), str(square), "--spec", "120x120@60", "--frames", "2"],
             capture_output=True,
-            text=True,
+            text=True, encoding='utf-8', errors='replace',
         )
         record(
             "render --size square: --res 120 sets the output short side (120x120)",

@@ -36,7 +36,8 @@ def read_masks(path, width, height):
 def probe(path):
     """Read actual decoded-frame count and stream properties."""
     result = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-count_frames', '-show_streams',
-                             '-of', 'json', str(path)], capture_output=True, text=True)
+                             '-of', 'json', str(path)], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace')
     if result.returncode:
         raise RuntimeError(result.stderr)
     return json.loads(result.stdout)['streams'][0]

@@ -589,7 +589,8 @@ const assert=require('assert');
 })().catch(e=>{console.error(e);process.exit(1)});
 ''', encoding='ascii')
     page = (root.parent / 'screen-regression/screening/index.html').as_uri()
-    result = subprocess.run([node, str(script), module, str(chrome), page], capture_output=True, text=True, timeout=40)
+    result = subprocess.run([node, str(script), module, str(chrome), page], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace', timeout=40)
     try:
         cases = json.loads(result.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
@@ -659,7 +660,7 @@ def browser_token_cases(record, root, pages, module, node, chrome):
     script.write_text(TOKEN_SWEEP, encoding='ascii')
     for label, page in pages:
         result = subprocess.run([node, str(script), module, str(chrome), page.as_uri()], capture_output=True,
-                                text=True, timeout=90)
+                                text=True, encoding='utf-8', errors='replace', timeout=90)
         try:
             out = json.loads(result.stdout.strip().splitlines()[-1])
         except (ValueError, IndexError):
@@ -836,7 +837,7 @@ const assert = require('assert');
 })().catch(e=>{console.error(e);process.exit(1)});
 ''', encoding='ascii')
     browser = subprocess.run([node, str(script), module, str(chrome), (root / 'screening/index.html').as_uri()],
-                             capture_output=True, text=True, timeout=30)
+                             capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
     record('screen: notes to readers sit in place in the script, and a paused seek brings its line into view',
            browser.returncode == 0, browser.stderr[-500:])
 
@@ -914,6 +915,7 @@ def check_room_keys(record, root, module, node, chrome, url):
     script = root / 'keys-case.cjs'
     script.write_text(KEYS_CASE, encoding='ascii')
     result = subprocess.run([node, str(script), module, str(chrome), url], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace',
                             timeout=60)
     record('screen: J, K, L, arrows, Home and End move the film; ? opens the key legend; no key acts in a box',
            result.returncode == 0, result.stderr[-600:])
@@ -1041,7 +1043,7 @@ def run_screen_cases(tool, record, j, scripts_dir, skip=None):
     stale_pid = 1073741823
     info_path.write_text(json.dumps({'pid': stale_pid, 'url': 'stale'}), encoding='utf-8')
     proc = subprocess.Popen([sys.executable, str(Path(scripts_dir) / 'screen.py'), 'serve', str(root), '--port', '0'],
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
     try:
         deadline = time.monotonic() + 15
         info = {}
@@ -1070,7 +1072,7 @@ def run_screen_cases(tool, record, j, scripts_dir, skip=None):
         base, token = url.split('/screening/index.html?t=')
         try:
             duplicate = subprocess.run([sys.executable, str(Path(scripts_dir) / 'screen.py'), 'serve', str(root)],
-                                       capture_output=True, text=True, timeout=10)
+                                       capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=10)
             refused = duplicate.returncode == 2 and 'already running' in duplicate.stderr.lower()
             duplicate_detail = duplicate.stderr[-300:]
         except subprocess.TimeoutExpired:
@@ -1209,7 +1211,7 @@ def run_screen_cases(tool, record, j, scripts_dir, skip=None):
 })().catch(e=>{console.error(e);process.exit(1)});
 ''', encoding='ascii')
             browser = subprocess.run([node, str(live_script), module, str(chrome), url], capture_output=True,
-                                     text=True, timeout=30)
+                                     text=True, encoding='utf-8', errors='replace', timeout=30)
             record('screen: the N key opens an empty note, a repeat ends on pause; the live browser posts the note',
                    browser.returncode == 0,
                    browser.stderr[-500:])
@@ -1222,7 +1224,7 @@ def run_screen_cases(tool, record, j, scripts_dir, skip=None):
             other_info_path = other / 'screening/server.json'
             other_proc = subprocess.Popen([sys.executable, str(Path(scripts_dir) / 'screen.py'), 'serve',
                                            str(other), '--port', '0'], stdout=subprocess.PIPE,
-                                          stderr=subprocess.PIPE, text=True)
+                                          stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
             try:
                 deadline = time.monotonic() + 15
                 other_info = {}
@@ -1257,7 +1259,7 @@ const assert=require('assert');
                 if room_started(other_info):
                     other_url = other_proc.stdout.readline().strip()
                     two = subprocess.run([node, str(two_script), module, str(chrome), url, other_url],
-                                         capture_output=True, text=True, timeout=30)
+                                         capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
                     two_ok, detail = two.returncode == 0, two.stderr[-500:]
                 else:
                     two_ok, detail = False, str(other_info)
@@ -1334,7 +1336,7 @@ const assert=require('assert');
 })().catch(e => {console.error(e); process.exit(1)});
 ''', encoding='ascii')
         browser = subprocess.run([node, str(script), module, str(chrome), (root / 'screening/index.html').as_uri()],
-                                 capture_output=True, text=True, timeout=30)
+                                 capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
         record('screen: static line click seeks playback', browser.returncode == 0, browser.stderr[-500:])
         script.write_text('''const {chromium} = require(process.argv[2]);
 const assert = require('assert');
@@ -1383,7 +1385,7 @@ const assert = require('assert');
 })().catch(e=>{console.error(e);process.exit(1)});
 ''', encoding='ascii')
         browser = subprocess.run([node, str(script), module, str(chrome), (root / 'screening/index.html').as_uri()],
-                                 capture_output=True, text=True, timeout=30)
+                                 capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30)
         record('screen: static presentation and review controls', browser.returncode == 0, browser.stderr[-500:])
         record('screen: frame observation does not report the frame before a seek',
                browser.returncode == 0 and 'FRAME_OBSERVATION_OK' in browser.stdout, browser.stderr[-500:])

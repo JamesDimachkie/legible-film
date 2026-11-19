@@ -103,13 +103,17 @@ def packet(task, run, output, sheets=False, blind_pack_against=None):
         # the delivered film named as the artifact under review next to the lettered lineup, and could tell which
         # letter was ours, so the lineup was blind in name only
         lineup_dir = output.resolve().parent / f'{output.resolve().name}-lineup'
-        if lineup_dir.exists():
-            raise ValueError(f'{lineup_dir} already exists; choose a new --out')
+        # the fault-finder's pictures of ours alone go beside it, never into the readers' folder: an unlettered sheet
+        # there matched one letter byte for byte
+        alone_dir = output.resolve().parent / f'{output.resolve().name}-alone'
+        if lineup_dir.exists() or alone_dir.exists():
+            raise ValueError(f'{lineup_dir} or {alone_dir} already exists; choose a new --out')
         pack_cmd = [
             sys.executable, '-I', '-B', str(HERE.parent / 'skills/legible-film/scripts/pack.py'),
             str(G.under(output, vid_row['file'])),
             '--out', str(keys_dir),
             '--reads', str(lineup_dir),
+            '--alone-reads', str(alone_dir),
             '--json',
         ]
         for ref in blind_pack_against:
@@ -156,7 +160,8 @@ def main():
         print(f'packet {data["packet_id"]} written to {args.out}; inspect for identifiers before review')
         if args.blind_pack_against:
             print(f'blind lineup written to {args.out.resolve().parent / (args.out.resolve().name + "-lineup")}: give it to '
-                  f'its readers on its own, never with the packet; the key is in {args.out.resolve().name}-blind-keys')
+                  f'its readers on its own, never with the packet; the key is in {args.out.resolve().name}-blind-keys, and '
+                  f"the fault-finder's pictures of the film alone in {args.out.resolve().name}-alone")
         return 0
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         print(str(error), file=sys.stderr)

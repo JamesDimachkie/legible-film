@@ -8,7 +8,8 @@
 Measures hold durations, event density, occupancy, edge detail, ink bands, easing curve fit,
 camera/scene vs flat-sheet motion, vignette tendency, and audio-onset sync lift. Works with
 OpenCV when installed or falls back cleanly to pure NumPy + Pillow.
-Exit 0 on success (on-rhythm), 1 when compare detects off-rhythm metrics, 2 on error.
+Exit 0 on success (on-rhythm), 1 when compare detects off-rhythm metrics or cannot decide (inconclusive: a rebuild
+compare sampled too coarsely to hold events to two source frames), 2 on error.
 """
 import argparse
 import importlib.util
@@ -20,6 +21,15 @@ import sys
 import tempfile
 from fractions import Fraction
 from pathlib import Path
+
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
 
 try:
     import numpy as np
@@ -666,7 +676,13 @@ def compare_dirs(source_dir, other_dir, mode='refill', beats=None):
     if mode == 'rebuild':
         src_fps = float(a.get('fps') or a.get('analysed_fps') or 30.0)
         coarse = min(float(a.get('analysed_fps') or src_fps), float(b.get('analysed_fps') or src_fps))
-        frame_tol = max(2.0 / max(1.0, src_fps), 1.0 / max(1.0, coarse)) + 1e-6
+        two_frames, step = 2.0 / max(1.0, src_fps), 1.0 / max(1.0, coarse)
+        # events sampled coarser than two source frames cannot be held to two frames: the tolerance had widened to one
+        # sample, so 60 fps profiles sampled at 8 fps passed "within 2 frames" with an event 7.5 frames late
+        resolvable = step <= two_frames + 1e-6
+        # an event further off than two frames plus one sample is a miss at any sampling; only an offset within that
+        # is left undecided (an event 2 s late at 8 fps had read "measure again")
+        frame_tol = (two_frames if resolvable else two_frames + step) + 1e-6
         ev_a, ev_b = sorted(a.get('events') or []), sorted(b.get('events') or [])
         i = j = 0
         matched, missing, extra = [], [], []
@@ -683,8 +699,15 @@ def compare_dirs(source_dir, other_dir, mode='refill', beats=None):
                 j += 1
         missing.extend(ev_a[i:])
         extra.extend(ev_b[j:])
-        rows.append({'metric': 'events_within_2_frames', 'source': len(ev_a), 'other': len(matched),
-                     'delta': len(missing), 'tol': 0, 'status': 'ok' if not missing and len(extra) <= max(2, round(0.15 * len(ev_a))) else 'off'})
+        row = {'metric': 'events_within_2_frames', 'source': len(ev_a), 'other': len(matched),
+               'delta': len(missing), 'tol': 0, 'status': 'ok' if not missing and len(extra) <= max(2, round(0.15 * len(ev_a))) else 'off'}
+        if not resolvable and row['status'] == 'ok':
+            needed = src_fps / 2.0
+            row['status'] = 'inconclusive'
+            row['note'] = (f'events sampled every {step * src_fps:.1f} source frames cannot be held to two; '
+                           + (f'measure both films with --fps {needed:g} or finer' if needed <= FPS_CAP else
+                              f'a {src_fps:g} fps source needs sampling above the {FPS_CAP:g} fps measure.py reads'))
+        rows.append(row)
         for key in ('events_per_10s', 'median_hold_s', 'median_move_s', 'occupancy'):
             va, vb = a['summary'].get(key), b['summary'].get(key)
             if va is not None and vb is not None:
@@ -713,9 +736,11 @@ def compare_dirs(source_dir, other_dir, mode='refill', beats=None):
                          'status': 'ok' if abs(len(ba) - len(bb)) <= 1 else 'off'})
 
     off_metrics = [r['metric'] for r in rows if r['status'] == 'off']
+    undecided = [r['metric'] for r in rows if r['status'] == 'inconclusive']
     return {
         'mode': mode,
-        'status': 'off-rhythm' if off_metrics else 'on-rhythm',
+        'status': 'off-rhythm' if off_metrics else 'inconclusive' if undecided else 'on-rhythm',
+        'inconclusive_metrics': undecided,
         'off_count': len(off_metrics),
         'off_metrics': off_metrics,
         'rows': rows,
@@ -826,9 +851,10 @@ def main(argv=None):
                 print(json.dumps(res, indent=1))
             else:
                 for r in res['rows']:
-                    print(f"  {r['status']:3s} {r['metric']}: source {r['source']} vs other {r['other']} (delta {r['delta']}, tol {r['tol']})")
+                    print(f"  {r['status']:3s} {r['metric']}: source {r['source']} vs other {r['other']} (delta {r['delta']}, tol {r['tol']})"
+                          + (f"; {r['note']}" if r.get('note') else ''))
                 print(f"{res['status']}: {res['off_count']} of {len(res['rows'])} off")
-            return 1 if res['off_count'] else 0
+            return 1 if res['off_count'] or res['status'] == 'inconclusive' else 0
 
         if args and args[0] == 'pin':
             ap = argparse.ArgumentParser(prog='measure.py pin',

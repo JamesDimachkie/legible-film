@@ -2,6 +2,8 @@
 """Load a cue list (cues.json v1 or v2), check it against the picture it was exported from, and fingerprint pictures.
 
   python cue_list.py cues.json [--owner PATH] [--json]       the list's state against its owner
+  python cue_list.py codegen cues.json [--out-ts FILE] [--out-js FILE] [--verify] [--json]
+                                                            write or check times.gen.ts and times.gen.js
   python cue_list.py fingerprint page|picture|paper PATH [--json] [--timing-out FILE]
   python cue_list.py freeze PAGE [--json] [--offline] [--entry index.html]
                                                             keep a frozen copy of a page for export and render
@@ -79,6 +81,15 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
 
 DIGEST = 'lf1'
 TEXT_EXTENSIONS = ('.html', '.js', '.css', '.json', '.md', '.svg', '.csv', '.txt')
@@ -652,29 +663,58 @@ def _run(command):
     return r.stdout
 
 
-def parse_rate(value):
-    """A frame rate as a Fraction: a number, 'N/D' or 'N'; NTSC decimals (29.97, 23.976) mean N*1000/1001."""
+_ASCII_DECIMAL = re.compile(r'^[+-]?(?:[0-9]+\.?[0-9]*(?:[eE][+-]?[0-9]+)?|\.[0-9]+(?:[eE][+-]?[0-9]+)?)$')
+
+
+def _beyond_max_frame(digits):
+    """A string of ASCII digits names a whole number past MAX_FRAME (leading zeros aside; compared by length first,
+    as Python 3.11+ refuses int() on more than 4300 digits)."""
+    significant = digits.lstrip('0')
+    return len(significant) > len(str(MAX_FRAME)) or int(significant or '0') > MAX_FRAME
+
+
+# Every refusal of a frame rate or size reads the same in cue_list.py and cue_gen.cjs: none prints a number in its own
+# language's float format (Python writes 3.0226124694072083e-05 where JavaScript writes 0.000030226124694072083).
+RATE_UNREADABLE = 'fps must be a positive number or a rational string such as "24000/1001"'
+
+
+def _read_rate(value):
+    """The frame rate VALUE names, as a Fraction: a number, 'N/D' or 'N'; NTSC decimals (29.97, 23.976) mean
+    N*1000/1001. It may be zero (0.0001 limits to 0 at denominator 1001). cue_gen.cjs parseRate, line for line."""
     if isinstance(value, bool) or value is None:
-        raise CueListError(f'fps must be a positive number or a rational string, not {value!r}')
+        raise CueListError(RATE_UNREADABLE)
+    if isinstance(value, str):
+        # a whole-number part past MAX_FRAME: Python reads it exactly and Node rounds it, so the two had built
+        # different rates from "216172782113820900/9007199254742537"
+        text = value.strip(' \t\n\r\f\v')
+        if re.fullmatch(r'[0-9]+(/[0-9]+)?', text) and any(_beyond_max_frame(part) for part in text.split('/')):
+            raise CueListError(f'fps {text} has a numerator or denominator beyond {MAX_FRAME}, the largest whole '
+                               'number cue_list.py and the Node checks both read exactly: write it with smaller numbers')
     try:
         if isinstance(value, str):
-            text = value.strip()
-            rate = fractions.Fraction(text) if re.fullmatch(r'\d+(/\d+)?', text) else None
-            if rate is None:
-                value = float(text)
-        if not isinstance(value, str):
-            number = float(value)
-            if not math.isfinite(number) or number <= 0:
+            text = value.strip(' \t\n\r\f\v')
+            # the parts read without their leading zeros: Python 3.11+ refuses int() on more than 4300 digits
+            if re.fullmatch(r'[0-9]+(/[0-9]+)?', text):
+                return fractions.Fraction(*(int(part.lstrip('0') or '0') for part in text.split('/')))
+            if not _ASCII_DECIMAL.match(text):
                 raise ValueError
-            ntsc = number * 1001 / 1000
-            if abs(number - round(number)) > 1e-9 and abs(ntsc - round(ntsc)) < 0.01:
-                rate = fractions.Fraction(round(ntsc) * 1000, 1001)
-            else:
-                rate = fractions.Fraction(number).limit_denominator(1001)
-    except (ValueError, ZeroDivisionError):
-        raise CueListError(f'fps must be a positive number or a rational string, not {value!r}') from None
+            value = float(text)
+        number = float(value)
+        if not math.isfinite(number) or number <= 0:
+            raise ValueError
+        ntsc = number * 1001 / 1000
+        if abs(number - round(number)) > 1e-9 and abs(ntsc - round(ntsc)) < 0.01:
+            return fractions.Fraction(round(ntsc) * 1000, 1001)
+        return fractions.Fraction(number).limit_denominator(1001)
+    except (TypeError, ValueError, ZeroDivisionError, OverflowError):
+        raise CueListError(RATE_UNREADABLE) from None
+
+
+def parse_rate(value):
+    """A frame rate as a positive Fraction (see _read_rate)."""
+    rate = _read_rate(value)
     if rate <= 0:
-        raise CueListError(f'fps must be positive, not {value!r}')
+        raise CueListError('fps must be positive (a rate under 1/2002 counts as 0)')
     return rate
 
 
@@ -968,11 +1008,20 @@ def read_document(path):
     except json.JSONDecodeError as error:
         raise CueListError(f'cannot read cue file {path}: invalid JSON at line {error.lineno}, column '
                            f'{error.colno}') from None
+    except ValueError:   # Python reads no whole number of more than 4300 digits; it had ended in a traceback
+        raise CueListError(f'cannot read cue file {path}: a whole number in it has too many digits to read') from None
     return doc, sha256_bytes(raw)
 
 
 def _finite(value):
     return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
+# An id the generated modules cannot hold: times.gen.js writes TIMES, FRAMES and SECTIONS as object literals, where the
+# key "__proto__" sets the object's prototype instead of making an entry, so the film read no such cue while every
+# check passed. The id is refused rather than written another way, so the modules stay plain JSON constants.
+RESERVED_IDS = {'__proto__': 'the id "__proto__" cannot be a key in the generated timing modules (an object literal '
+                             'takes it as the prototype and the film loses the cue); rename it'}
 
 
 def validate_v2(doc, fps):
@@ -995,6 +1044,8 @@ def validate_v2(doc, fps):
             continue
         if sid in section_ids:
             problems.append(f'section {sid!r}: ids must be unique')
+        if sid in RESERVED_IDS:
+            problems.append(f'section {sid!r}: {RESERVED_IDS[sid]}')
         section_ids.add(sid)
         a, b = section.get('a'), section.get('b')
         if not (_finite(a) and _finite(b) and 0 <= a < b):
@@ -1007,20 +1058,22 @@ def validate_v2(doc, fps):
             problems.append(f'section {sid!r}: gain_db must map a bus name to a number')
     ids, follows = set(), set()
     for ev in events:
-        if isinstance(ev, dict) and ev.get('scale') == 'follow':
-            follows.add(str(ev.get('id')))
+        if isinstance(ev, dict) and ev.get('scale') == 'follow' and _id_text(ev.get('id')):
+            follows.add(_id_text(ev.get('id')))   # as the id is read below: 1.0 is "1", and a span names it so
     for i, ev in enumerate(events):
         if not isinstance(ev, dict):
             problems.append(f'event {i} is not an object')
             continue
-        eid = ev.get('id')
-        if isinstance(eid, bool) or not isinstance(eid, (str, int)) or eid == '':
-            problems.append(f'event {i}: id must be text or an integer')
+        eid = _id_text(ev.get('id'))
+        if eid is None or eid == '':
+            problems.append(f'event {i}: ' + ('an id must not be empty' if eid == '' else ID_RULE))
             continue
         name = f'event {eid!r}'
-        if str(eid) in ids:
+        if eid in ids:
             problems.append(f'{name}: ids must be unique')
-        ids.add(str(eid))
+        if eid in RESERVED_IDS:
+            problems.append(f'{name}: {RESERVED_IDS[eid]}')
+        ids.add(eid)
         if 't' in ev:
             if not (_finite(ev['t']) and ev['t'] >= 0):
                 problems.append(f'{name}: t must be a time in seconds, 0 or more')
@@ -1062,9 +1115,9 @@ def validate_v2(doc, fps):
         for key in ('run', 'hero', 'enabled'):
             if key in ev and not isinstance(ev[key], bool):
                 problems.append(f'{name}: {key} must be true or false')
-        if 'section' in ev and ev['section'] not in section_ids:
+        if 'section' in ev and not (isinstance(ev['section'], str) and ev['section'] in section_ids):   # a list there had been a traceback
             problems.append(f"{name}: section {ev['section']!r} is not a section id")
-        if 'span' in ev and str(ev['span']) not in follows:
+        if 'span' in ev and _id_text(ev['span']) not in follows:
             problems.append(f"{name}: span {ev['span']!r} names no follow event")
         if 'picture' in ev and not isinstance(ev['picture'], str):
             problems.append(f'{name}: picture must be text')
@@ -1376,13 +1429,101 @@ def sanitize_cue_ident(cue_id):
     return f'CUE_{cleaned or "ITEM"}'
 
 
+def _round6(value):
+    rounded = round(value, 6)
+    return 0.0 if rounded == 0 else rounded
+
+
+# Python and the Node checks (cue_gen.cjs) build the same constants for every cue list both accept: within these
+# bounds, far outside any real film, both compute the same numbers, and past them both refuse with the same message.
+# Both read a frame rate from 1 to 1000 as the same double, and a width and height from 1 to 32768 exactly. A time up to 10^9 s
+# (about 31.7 years) is an exact whole number of microseconds in a double (10^15 < 2^53), so both round it to six
+# decimals alike; beyond 10^15 s they had disagreed. A frame number written into a list is held to 2^53 - 1: past it,
+# Python writes the exact integer and JavaScript the shortest decimal that reads back to the same double.
+MIN_FPS, MAX_FPS = 1, 1000
+MAX_SIDE = 32768
+MAX_CUE_SECONDS = 10 ** 9
+MAX_FRAME = 2 ** 53 - 1
+# A cue's id is text, or a number with a whole value within MAX_FRAME either way, written as that whole number
+# (1 and 1.0 alike: JSON.parse gives Node one number for both). Past it Node rounds the number Python keeps exact, so
+# Python had generated a module both Node checks refuse; cue_gen.cjs idText, line for line.
+ID_RULE = (f'an id must be text, or a whole number from -{MAX_FRAME} to {MAX_FRAME}; write any other id as text, in '
+           'double quotes')
+
+
+def _id_text(value):
+    """The text an id stands for, or None when it breaks ID_RULE."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float) and not (math.isfinite(value) and value.is_integer()):
+        return None
+    return str(int(value)) if abs(value) <= MAX_FRAME else None
+
+
+def _name(value, label, cp_name):
+    """VALUE where a cue list gives a name that CUES_SHA256 covers as it is written (a cue's scale and section, a
+    section's clock): text, or nothing. Anything else is refused: Python and Node write a number differently (1.0
+    against 1), so "section": 1.0 had built a module both Node checks refuse. A role and a picture note are not in the
+    hash and stay as the list gives them. cue_gen.cjs nameText."""
+    if value is None or isinstance(value, str):
+        return value
+    raise CueListError(f'{cp_name}: {label} must be text, in double quotes')
+
+
+def _quoted(text):
+    """str(TEXT) in double quotes as JSON.stringify writes it in cue_gen.cjs: other characters as they are, control
+    characters and lone surrogates escaped."""
+    return re.sub('[\ud800-\udfff]', lambda m: f'\\u{ord(m.group()):04x}',
+                  json.dumps(str(text), ensure_ascii=False))
+
+
+def _cue_time(seconds, cp_name):
+    """SECONDS, refused past MAX_CUE_SECONDS either way (cue_gen.cjs cueTime, word for word)."""
+    if abs(seconds) > MAX_CUE_SECONDS:
+        raise CueListError(f'{cp_name}: a cue time is beyond {MAX_CUE_SECONDS} s (about 31.7 years), the longest '
+                           'cue_list.py and the Node checks agree on')
+    return seconds
+
+
+def _finite_num(value, label, cp_name):
+    if isinstance(value, bool):
+        raise CueListError(f'{cp_name}: {label} must be a finite number')
+    if isinstance(value, (int, float)):
+        try:
+            num = float(value)
+        except OverflowError:   # an integer too large for a float, such as 10**400
+            raise CueListError(f'{cp_name}: {label} must be a finite number') from None
+    elif isinstance(value, str):
+        text = value.strip(' \t\n\r\f\v')
+        if not _ASCII_DECIMAL.match(text):
+            raise CueListError(f'{cp_name}: {label} must be a finite number')
+        num = float(text)
+    else:
+        raise CueListError(f'{cp_name}: {label} must be a finite number')
+    if not math.isfinite(num):
+        raise CueListError(f'{cp_name}: {label} must be a finite number')
+    return num
+
+
+def _frame_at(seconds_times_fps):
+    """The frame nearest a time, a half frame rounding up: the kit engine's Math.round(t * fps), and the rule the two
+    Node checks (cue_gen.cjs) apply. Python's round() takes a half frame to the even one, so a cue at 1.1875 s at
+    24 fps was generated as frame 28 while the page and both Node checks put it on 29."""
+    if not math.isfinite(seconds_times_fps) or abs(seconds_times_fps) > MAX_FRAME:
+        raise CueListError('cue time overflows frame count')
+    whole = math.floor(seconds_times_fps)
+    return int(whole) + (1 if seconds_times_fps - whole >= 0.5 else 0)
+
+
 def _cues_constants_data(cues_path):
-    """Build deterministic constant structures from cues.json."""
+    """Build deterministic constant structures from cues.json. cue_gen.cjs mirrors this function line for line for the
+    two Node checks; a change here is a change there, and the self-test runs one table of cases through all three."""
     cp = Path(cues_path).resolve()
     if not cp.is_file():
         raise CueListError(f'no such cue list: {cp}')
     raw = cp.read_bytes()
-    cues_sha = hashlib.sha256(raw).hexdigest()
     try:
         doc = json.loads(raw.decode('utf-8'))
     except (UnicodeDecodeError, ValueError) as error:
@@ -1390,51 +1531,93 @@ def _cues_constants_data(cues_path):
     if not isinstance(doc, dict):
         raise CueListError(f'{cp} must contain a JSON object')
 
-    fps = float(parse_rate(doc['fps'])) if doc.get('fps') is not None else 60.0
+    fps = float(_read_rate(doc['fps'])) if doc.get('fps') is not None else 60.0
+    if not MIN_FPS <= fps <= MAX_FPS:
+        raise CueListError(f'{cp.name}: fps must be from {MIN_FPS} to {MAX_FPS} frames a second, the range cue_list.py '
+                           'and the Node checks are held to agree on')
     exp = doc.get('export') if isinstance(doc.get('export'), dict) else {}
-    size_str = str(exp.get('size') or doc.get('size') or '1920x1080')
-    m = re.fullmatch(r'(\d+)x(\d+)', size_str)
-    width, height = (int(m.group(1)), int(m.group(2))) if m else (1920, 1080)
+    # only text is a size, here and in cue_gen.cjs: Node had read a list holding "800x600" as that size (its String()
+    # of a list is the text inside) where Python took the default, so the two hashed different clocks
+    size = exp.get('size') or doc.get('size') or '1920x1080'
+    size_str = size if isinstance(size, str) else ''
+    # ASCII digits only, as in cue_gen.cjs (Python's \d also takes other scripts' digits); the sides compared by
+    # length first, as Python 3.11+ refuses int() on more than 4300 digits
+    m = re.fullmatch(r'([0-9]+)x([0-9]+)', size_str)
+    if m and not all(len(part.lstrip('0')) <= len(str(MAX_SIDE)) and 1 <= int(part.lstrip('0') or '0') <= MAX_SIDE
+                     for part in m.groups()):
+        raise CueListError(f'{cp.name}: size {size_str} must have a width and height from 1 to {MAX_SIDE}')
+    width, height = (int(m.group(1).lstrip('0') or '0'), int(m.group(2).lstrip('0') or '0')) if m else (1920, 1080)
     dur_s = exp.get('duration') or doc.get('duration')
+    # a "sections" or "events" that is no list holds none, as in cue_gen.cjs (a number there had been a traceback)
+    raw_sections = doc['sections'] if isinstance(doc.get('sections'), list) else []
+    raw_events = doc['events'] if isinstance(doc.get('events'), list) else []
     if dur_s is None and isinstance(doc.get('sections'), list) and doc['sections']:
-        dur_s = max((float(s.get('b') or 0) for s in doc['sections'] if isinstance(s, dict)), default=0.0)
+        dur_s = max((_finite_num(s.get('b') or 0, 'section b', cp.name)
+                     for s in doc['sections'] if isinstance(s, dict)), default=0.0)
     if dur_s is None and isinstance(doc.get('events'), list) and doc['events']:
-        dur_s = max((float(e.get('t_end') or e.get('t') or 0) for e in doc['events'] if isinstance(e, dict)), default=0.0)
-    dur_s = round(float(dur_s or 0.0), 6)
-    dur_frames = int(round(dur_s * fps)) if dur_s else 0
+        dur_s = max((_finite_num(e.get('t_end') or e.get('t') or 0, 'event time', cp.name)
+                     for e in doc['events'] if isinstance(e, dict)), default=0.0)
+    dur_s = _cue_time(_round6(_finite_num(dur_s or 0.0, 'duration', cp.name)), cp.name)
+    dur_frames = _frame_at(dur_s * fps) if dur_s else 0
 
     pic = doc.get('picture') if isinstance(doc.get('picture'), dict) else {}
     pic_sha = str(pic.get('sha256') or '')
-    clock_obj = {'fps': int(fps) if fps.is_integer() else round(fps, 6), 'width': width, 'height': height,
+    clock_obj = {'fps': int(fps) if fps.is_integer() else _round6(fps), 'width': width, 'height': height,
                  'duration_s': dur_s, 'duration_frames': dur_frames}
 
+    # a section's id is text, as the cue list reader has always held it to; a cue's is text or a whole number
+    for i, x in enumerate(raw_sections):
+        if isinstance(x, dict) and 'id' in x and not isinstance(x['id'], str):
+            raise CueListError(f"{cp.name}: section {i}: a section's id must be text, in double quotes")
+    for i, x in enumerate(raw_events):
+        if isinstance(x, dict) and 'id' in x and _id_text(x['id']) is None:
+            raise CueListError(f'{cp.name}: event {i}: {ID_RULE}')
+    reserved = sorted({_id_text(x['id']) for x in raw_sections + raw_events
+                       if isinstance(x, dict) and 'id' in x and _id_text(x['id']) in RESERVED_IDS})
+    if reserved:
+        raise CueListError(f'{cp.name}: ' + '; '.join(RESERVED_IDS[r] for r in reserved))
+
     sections_map = {}
-    for sec in doc.get('sections') or []:
+    for sec in raw_sections:
         if isinstance(sec, dict) and 'id' in sec:
-            a_t = round(float(sec.get('a') or 0.0), 6)
-            b_t = round(float(sec.get('b') or 0.0), 6)
-            sections_map[str(sec['id'])] = {
+            a_t = _cue_time(_round6(_finite_num(sec.get('a') or 0.0, f"section {_quoted(_id_text(sec['id']))} a", cp.name)), cp.name)
+            b_t = _cue_time(_round6(_finite_num(sec.get('b') or 0.0, f"section {_quoted(_id_text(sec['id']))} b", cp.name)), cp.name)
+            sections_map[_id_text(sec['id'])] = {
                 'a': a_t, 'b': b_t,
-                'a_frame': int(round(a_t * fps)), 'b_frame': int(round(b_t * fps)),
-                'clock': sec.get('clock'),
+                'a_frame': _frame_at(a_t * fps), 'b_frame': _frame_at(b_t * fps),
+                'clock': _name(sec.get('clock'), f"section {_quoted(sec['id'])} clock", cp.name),
             }
 
     times_map, frames_map, cues_list, named_cues = {}, {}, [], {}
     used_idents = set()
-    for ev in doc.get('events') or []:
+    for ev in raw_events:
         if not isinstance(ev, dict) or 'id' not in ev:
             continue
-        cid = str(ev['id'])
-        t_val = round(float(ev.get('t') if ev.get('t') is not None else float(ev.get('frame') or 0) / fps), 6)
-        f_val = int(ev['frame']) if isinstance(ev.get('frame'), int) else int(round(t_val * fps))
+        cid = _id_text(ev['id'])
+        if ev.get('frame') is not None:
+            _frame_at(_finite_num(ev['frame'], f'event {_quoted(cid)} frame', cp.name))   # a frame past MAX_FRAME is refused
+        if ev.get('t') is not None:
+            t_val = _round6(_finite_num(ev['t'], f'event {_quoted(cid)} t', cp.name))
+        else:
+            t_val = _round6(_finite_num(ev.get('frame') or 0, f'event {_quoted(cid)} frame', cp.name) / fps)
+        t_val = _cue_time(t_val, cp.name)
+        # a whole-number frame is the frame, written 5 or 5.0 (JSON gives Node one number for both; a 5.0 had been
+        # worked out again from its rounded time, and at a high frame rate landed elsewhere)
+        given = ev.get('frame')
+        f_val = (int(given) if isinstance(given, (int, float)) and not isinstance(given, bool)
+                 and float(given).is_integer() else _frame_at(t_val * fps))
         entry = {
             'id': cid,
             't': t_val,
             'frame': f_val,
-            'scale': ev.get('scale', 'contact'),
+            'scale': _name(ev.get('scale', 'contact'), f'event {_quoted(cid)} scale', cp.name),
             **({'role': ev['role']} if ev.get('role') else {}),
-            **({'section': ev['section']} if ev.get('section') else {}),
+            # held to text before it is passed over as empty: 0, false and [] are refused, as for scale and clock
+            **({'section': sec} if (sec := _name(ev.get('section'), f'event {_quoted(cid)} section', cp.name)) else {}),
             **({'note': ev['picture']} if ev.get('picture') else {}),
+            # a silence's end is timing: a shortened silence had verified against modules that still held the long one
+            **({'t_end': _cue_time(_round6(_finite_num(ev['t_end'], f'event {_quoted(cid)} t_end', cp.name)), cp.name)}
+               if ev.get('t_end') is not None else {}),
         }
         times_map[cid] = t_val
         frames_map[cid] = f_val
@@ -1465,7 +1648,13 @@ def _cues_constants_data(cues_path):
     }
 
 
-TIMING_KEYS = ('id', 't', 'frame', 'scale', 'section')
+TIMING_KEYS = ('id', 't', 'frame', 'scale', 'section', 't_end')
+
+
+def cue_timing_sha256(cues_path):
+    """The hash of a cue list's timing, as CUES_SHA256 in the modules codegen writes: a render receipt records it so
+    a render made before a cue moved cannot bind the moved list."""
+    return _cues_constants_data(cues_path)['CUES_SHA256']
 
 
 def _timing_of(entry):
@@ -1493,6 +1682,37 @@ def _render_constants_source(data, typescript=True):
     return '\n'.join(lines) + '\n'
 
 
+def timing_modules(cues_file, page_dir=None):
+    """The generated timing modules a render takes: those in the page folder, else those beside the cue list. One rule
+    for film_render.py and project.py (run_render stages them, the receipt check compares them): film_render.py had
+    looked in the page folder alone, so a film whose modules sit beside an external cue list could not load them."""
+    for folder in ([Path(page_dir).resolve()] if page_dir else []) + [Path(cues_file).resolve().parent]:
+        found = [folder / name for name in ('times.gen.js', 'times.gen.ts') if (folder / name).is_file()]
+        if found:
+            return found
+    return []
+
+
+def format_cues_gen_env(paths):
+    """Encode one or more timing-module paths for LF_CUES_GEN as a JSON list so ':' and ';' in paths never split."""
+    return json.dumps([str(p) for p in paths])
+
+
+def parse_cues_gen_env(raw):
+    """Decode LF_CUES_GEN: a JSON list of module paths, or a single bare path."""
+    text = str(raw or '')
+    if not text.strip():
+        return []
+    if text.lstrip().startswith('['):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list) and all(isinstance(x, str) and x for x in parsed):
+                return parsed
+        except ValueError:
+            pass
+    return [text]
+
+
 def compile_cue_constants(cues_path, out_ts=None, out_js=None):
     """Compile cues.json into deterministic times.gen.ts and times.gen.js constant modules."""
     cp = Path(cues_path).resolve()
@@ -1502,6 +1722,8 @@ def compile_cue_constants(cues_path, out_ts=None, out_js=None):
     for target, ts_flag in ((ts_path, True), (js_path, False)):
         target.parent.mkdir(parents=True, exist_ok=True)
         txt = _render_constants_source(data, typescript=ts_flag)
+        if target.is_file() and target.read_bytes() == txt.encode('utf-8'):
+            continue   # unchanged: rewriting it on every export made an unchanged render look older than its timing
         tmp = target.with_name(f'.tmp.{target.name}.{os.getpid()}')
         tmp.write_bytes(txt.encode('utf-8'))
         tmp.replace(target)
@@ -1529,7 +1751,12 @@ def _parse_generated_exports(gen_path):
 
 def verify_cue_constants(cues_path, gen_path):
     """Return a list of drift/mismatch messages between cues.json and times.gen.ts/.js ([] if synced)."""
-    expected = _cues_constants_data(cues_path)
+    try:
+        expected = _cues_constants_data(cues_path)
+    except CueListError as error:
+        if not Path(cues_path).is_file():
+            raise
+        return [str(error)]   # a list no module can hold (an id "__proto__"): every module is out of sync with it
     gp = Path(gen_path)
     if not gp.is_file():
         return [f'{gp} does not exist']
@@ -1593,6 +1820,8 @@ def main(argv=None):
                 elif all_problems:
                     for prob in all_problems:
                         print(f'cue_list.py codegen: {prob}', file=sys.stderr)
+                    if not any('rename it' in prob for prob in all_problems):
+                        print('cue_list.py codegen: out of sync; run cue_list.py codegen', file=sys.stderr)
                 else:
                     print(f'{cp}: generated constants in sync ({len(targets)} file(s))')
                 return 2 if all_problems else 0
@@ -1654,7 +1883,7 @@ def main(argv=None):
               ('; '.join(found['reasons']) or f"{len(found['files'])} file(s): nothing that leaves the page"))
         return 0
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument('cues', help='a cues.json (v1 or v2), or the word fingerprint, freeze or scan')
+    p.add_argument('cues', help='a cues.json (v1 or v2), or the word codegen, fingerprint, freeze or scan')
     p.add_argument('--owner', help='a page folder, a video file or a cuts/vNNN folder')
     p.add_argument('--json', action='store_true')
     a = p.parse_args(argv)

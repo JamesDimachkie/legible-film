@@ -63,6 +63,15 @@ import tempfile
 from fractions import Fraction
 from pathlib import Path
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
 project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
@@ -115,7 +124,7 @@ def probe(path):
     """Read format and stream facts."""
     require_tool('ffprobe')
     result = subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(path)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode:
         raise ValueError('ffprobe: ' + (result.stderr.strip() or 'could not read media'))
     return json.loads(result.stdout)
@@ -220,7 +229,8 @@ def scan_picture(path):
     """Decode the picture once with FFmpeg scdet: (scene cut candidates, where the decoded frames end or None)."""
     import re
     run = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-i', str(path), '-vf', 'scdet=threshold=10',
-                          '-an', '-progress', 'pipe:1', '-f', 'null', '-'], capture_output=True, text=True, check=True)
+                          '-an', '-progress', 'pipe:1', '-f', 'null', '-'], capture_output=True, text=True,
+                         encoding='utf-8', errors='replace', check=True)
     times = [float(x) for x in re.findall(r'lavfi\.scd\.time:\s*([\d.]+)', run.stderr)]
     ends = re.findall(r'out_time_us=(\d+)', run.stdout)
     return times, (int(ends[-1]) / 1e6 if ends and int(ends[-1]) else None)
@@ -234,7 +244,8 @@ def last_frame_end(path, facts, decoded):
         result = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', 'v:0', '-read_intervals',
                                  f'{origin + max(0.0, decoded - 2.0):.6f}', '-show_entries',
                                  'frame=best_effort_timestamp_time,duration_time,pkt_duration_time', '-of', 'json',
-                                 str(path)], capture_output=True, text=True, timeout=600)
+                                 str(path)], capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', timeout=600)
         rows = [row for row in json.loads(result.stdout or '{}').get('frames', [])
                 if 'best_effort_timestamp_time' in row]
         last = rows[-1]
@@ -361,7 +372,7 @@ def audio_map(path, has_audio, length, stream=None):
                           '-map', f"0:{info['index']}",
                           '-af', clock + f',ebur128,silencedetect=noise={SILENCE_DB}dB:d=0.1',
                           '-f', 'null', '-'],
-                         capture_output=True, text=True, check=True)
+                         capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     loudness = re.findall(r'I:\s*(-?[\d.]+) LUFS', run.stderr)
     if loudness:
         result['integrated_lufs'] = float(loudness[-1])
@@ -1300,7 +1311,7 @@ def run(root, aliases, words_mode, ggml_model=None, engine=None, quality=None, r
                     try:
                         cmd = [sys.executable, str(SCRIPTS / 'frame_sheet.py'), str(path), '--at',
                                ','.join(str(t) for t in times), '--width', '240', '--out', temporary]
-                        subprocess.run(cmd, check=True, capture_output=True, text=True)
+                        subprocess.run(cmd, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
                         os.replace(temporary, sheet)
                     finally:
                         Path(temporary).unlink(missing_ok=True)
@@ -1614,7 +1625,6 @@ def main():
     speak.add_argument('--rename', action='append', metavar='OLD=NEW', help='rename a speaker across the transcript; '
                        'repeat')
     args = parser.parse_args()
-    project.safe_output()
     try:
         if args.command == 'add':
             add(args.project, args.files, args.role, args.copy, args.stream)

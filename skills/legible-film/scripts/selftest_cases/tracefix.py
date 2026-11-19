@@ -54,7 +54,7 @@ def fixture_clock(path):
     ffprobe = os.environ.get('FFPROBE') or shutil.which('ffprobe') or 'ffprobe'
     command = [ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_frames', '-show_entries',
                'frame=best_effort_timestamp:stream=time_base:format=start_time', '-of', 'json', str(path)]
-    result = subprocess.run(command, check=True, capture_output=True, text=True)
+    result = subprocess.run(command, check=True, capture_output=True, text=True, encoding='utf-8', errors='replace')
     probe = json.loads(result.stdout)
     start = Fraction(probe['format']['start_time'])
     tick = Fraction(probe['streams'][0]['time_base'])

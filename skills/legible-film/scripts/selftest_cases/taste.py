@@ -52,7 +52,7 @@ def run_taste_cases(tool, record, j, scripts_dir):
         return
     video = subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-f', 'lavfi', '-i',
                             'color=c=blue:s=160x90:r=10:d=2', '-an', '-c:v', 'mpeg4', str(media)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
     mapped, map_output = run_cli(scripts, 'map.py', 'add', root, media, '--role', 'other')
     if video.returncode or mapped:
         record('taste: generated media registers in the project', False, video.stderr + map_output)

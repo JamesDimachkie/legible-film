@@ -247,7 +247,7 @@ def run_cases(scripts, work, record):
         raise
     r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_packets','-show_streams',
                         '-show_entries','stream=width,height,profile,level,avg_frame_rate,time_base,bit_rate:packet=dts,size',
-                        '-of','json',path],capture_output=True,text=True,check=True)
+                        '-of','json',path],capture_output=True,text=True, encoding='utf-8', errors='replace',check=True)
     data = json.loads(r.stdout)
     stream = data['streams'][0]
     packets = [(int(p['dts'])*Fraction(stream['time_base']),int(p['size'])*8) for p in data['packets']]
@@ -282,7 +282,8 @@ def run_cases(scripts, work, record):
         encoder.close()
         rate = encoder.command[encoder.command.index('-r')+1]
         r = subprocess.run(['ffprobe','-v','error','-select_streams','v:0','-show_entries',
-                            'stream=avg_frame_rate','-of','json',path],capture_output=True,text=True)
+                            'stream=avg_frame_rate','-of','json',path],capture_output=True,text=True,
+                           encoding='utf-8', errors='replace')
         actual = json.loads(r.stdout)['streams'][0]['avg_frame_rate']
         record(f'encoder rate: {fps} uses explicit {expected}',rate == expected and actual == expected)
     spec = importlib.util.spec_from_file_location('kit_skip_cases',scripts/'kit_selftest.py')

@@ -12,7 +12,8 @@ from pathlib import Path
 def hashes(path):
     """Return hashes of each decoded RGB output frame."""
     result = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), '-fps_mode', 'passthrough',
-                             '-pix_fmt', 'rgb24', '-f', 'framemd5', '-'], capture_output=True, check=True, text=True)
+                             '-pix_fmt', 'rgb24', '-f', 'framemd5', '-'], capture_output=True, check=True, text=True,
+                            encoding='utf-8', errors='replace')
     return [line.split(',')[-1].strip() for line in result.stdout.splitlines()
             if line and not line.startswith('#')]
 

@@ -1,5 +1,182 @@
 # Changelog
 
+## 2.3.1 (2026-11-18)
+
+**Upgrading from 2.3.0.** Run `cue_list.py codegen` again and render again for any film whose cue list has a cue with
+an end time (a silence, such as a kit `EndCard`'s reading silence, a `follow` span, or anything else that carries
+`t_end`), or a cue, a section boundary or the film's end exactly half way between two frames whose frame number 2.3.0
+rounded down (it rounded a half to the even frame; 2.3.1 rounds every half up, as the kit engine does), or a time
+written `-0.0`: 2.3.0 wrote wrong or unbound timing for those, so its timing modules and its render receipts no longer
+match, before `codegen` or after it. A half-frame time 2.3.0 already rounded up (such as 0.0625 s at 24 fps, frame 2)
+keeps its frame, and its receipt still binds. Other 2.3.0 render receipts still bind while their cue timing is unchanged, registered with
+`cues.json` or with the `cues.spotted.json` spotted from it: a `film_render.py` receipt through the timing modules it
+recorded, and a `make_film.py` deliverable's receipt, which recorded none, while the film's `cues.json` is still the
+very file it rendered; once that file has changed, render the deliverable again with 2.3.1, which records the timing.
+
+Run `pack.py record` again for any `blind-pack.json` written by 2.3.0: 2.3.0 omitted the line-up letter list and
+per-reader rankings that `check.py --blind-pack` now checks. Pass `--family-a` or `--family-b` (`anthropic`, `openai`,
+`google`, `meta`, `mistral` or `xai`) to `pack.py record` when a reader's model name is not in the vendor table:
+unlisted names no longer count as their own vendor. Give `pack.py record` each line-up reading as the JSON object the
+brief asks for, in a UTF-8 file (a byte-order mark is fine): a prose or Markdown reading, or a file in another
+encoding, is no longer read, and is recorded as incomplete with what to ask the reader for.
+
+Rename any cue or section whose id is `__proto__`: JavaScript object literals in `times.gen.js` lose that key, so it
+is now refused. Write a section's id in double quotes if it is a number: `cue_list.py codegen` had built such a list,
+which no tool that reads a v2 cue list took, and now refuses it too.
+
+When drawing a world sheet again, pass `--world-line` if the film relied on `frame.what` or a `Tone`
+line (`look.py world-sheet` takes an implicit world line only from the first bullet in `treatment.md`, `look.md` or
+`BOARD.md` whose label begins with the word `World` or `Visual world`, in any case: `- World: …` and `- World line: …`,
+but also any other label after `World` up to the colon, so `- World population: eight billion` is read as the world
+line "eight billion"), and `--title` if the film's title is computed when it runs (`film_check.py` compares the
+sheet's title with the running film's and names the `--title` to give). Existing 2.3.0 world sheets at
+their original path and 2.3.0 projects and versions continue as before.
+
+**Timing and render receipts**
+
+- Render receipts now bind the exact cue timing and generated modules rendered. `film_render.py` and `project.py
+  add-version --render` sample the cue timing hash before the render starts, read `times.gen.js` and `times.gen.ts`
+  from the page folder (or else beside `--cues`), verify each staged copy, record `cues_timing_sha256` and each
+  module's hash in the receipt (`make_film.py` keeps both across encoded deliverables), and refuse when either changes
+  during or after the render. A 2.3.0 receipt, which has no `cues_timing_sha256`, binds the `--cues` list (`cues.json`
+  or the `cues.spotted.json` spotted from it) when what it recorded proves that list's timing: its recorded timing
+  modules, still on disk and holding that timing, or, when it recorded none, the very `cues.json` it names, still
+  holding that timing (see Upgrading above).
+- `project.py add-version --render` verifies and stages every generated module before taking the shared render lock,
+  passes every staged path in `LF_CUES_GEN` (as a JSON list of paths) to the `render_block.cjs` preload, and releases
+  the lock on every refusal.
+- Without `--render` or `--receipt`, `project.py add-version` checks that the timing modules hold the cue list's
+  timing and compares the master's age with the page files and timing modules (`cue_list.py codegen` no longer rewrites
+  an unchanged module, and a byte-rewritten `cues.json` with the same timing does not age a render). A page render with
+  neither timing modules nor a receipt registers as `unverified` (exit 1), naming the missing link.
+- Python (`cue_list.py`) and both Node checks (`film_capture.mjs --cues-gen` and `render_block.cjs`) now share one
+  specification through `cue_gen.cjs`: a time half way between two frames (a cue's, a section boundary, the film's
+  end) rounds up to match the kit engine, `-0.0` normalises to `0.0`, every cue's `t_end` (a silence's, a `follow`
+  span's) is part of the timing and `CUES_SHA256`, a whole-number frame written `5.0` is frame 5 as `5` is, malformed
+  times or frame rates (and numbers too large for a float) exit 2 with a plain message instead of a traceback, drift
+  refusals tell the user to run `cue_list.py codegen`, and the id `__proto__` is refused everywhere with instructions
+  to rename it. Both hold a cue list to limits far outside any real film, chosen so the two compute the same numbers:
+  a frame rate from 1 to 1000 frames a second, a `size` width and height from 1 to 32768, cue times within 10^9 s
+  (about 31.7 years) and a frame number written into the list within 2^53-1, with a frame rate written as a fraction
+  held to a numerator and denominator within 2^53-1. Past them the two had built different constants, or only one of
+  them had refused; now both refuse with the same message. No refusal prints a number in either language's own float
+  format (each had written one its own way, such as `3.0226124694072083e-05` against `0.000030226124694072083`): a
+  refusal quotes the file's own text where it names a value, and a cue's id as JSON does. A cue's id is text, or a
+  whole number within 2^53-1 either way, standing for that number's digits (`1` and `1.0` both for `"1"`, and a `span`
+  names a follow cue the same way); any other id (such as `9007199254740993`, `1e20`, `1.5`, `true`, an array or an
+  object) is refused by both, and by the cue list reader, saying to write it as text: Python had kept
+  `9007199254740993` exactly where Node rounded it, so it generated a module both Node checks refused. The other names
+  the timing hash covers are text: a section's id, and a cue's `scale` and `section` and a section's `clock` where
+  they are given. Both now refuse anything else there, as the cue list reader always refused a section id that is not
+  text: the two write a number differently (`1.0` against `1`), so a cue with `"section": 1.0` had built a module both
+  Node checks refused. A cue's `role` and `picture` note are not in the hash and stay as the list gives them. Only
+  text is a `size`: one that is anything else, or written with digits other than ASCII ones, is no size to either (the
+  default 1920 by 1080), where Node had read a list holding `"800x600"` as that size and Python had not. Very long
+  zero-padded numbers are read without error; a cue list holding a whole number of more than 4300 digits is refused
+  in words by the cue list reader, and `codegen` takes a `sections` or `events` that is no list as holding none, as
+  the Node checks do, where each had ended in a traceback.
+
+**Blind line-ups**
+
+- With `--against`, `pack.py` writes `alone/` into a separate random folder outside `--reads` (`--alone-reads`, by
+  default `<reads>-alone` beside the resolved `--reads` folder), refuses an `--alone-reads` inside or holding
+  `--reads`, and refuses a drive-root or `/` `--reads` in plain words. `evals/judge_packet.py` writes `<out>-alone`
+  beside `<out>-lineup`.
+- `pack.py` maps model and product names to their vendor (`anthropic`, `openai`, `google`, `meta`, `mistral`, `xai`,
+  including Sol and Terra under OpenAI and Carbon and Antigravity under Google); an unknown model name has no vendor
+  until `--family-a` or `--family-b` supplies one.
+- A line-up reading is one JSON object: `model_family`, `overall_ranking` (every line-up letter once) and `films`
+  keyed by letter, each with a `tier` (`beginner`, `hobbyist`, `freelance` or `studio`) and `pacing`,
+  `visual_clutter` and `callout_placement` as numbers from 1 to 10. `strongest`, `weakest` and `tells` (text) and
+  `steals` (a list) are for people: the tool does not check them, and they may be left out. The brief `pack.py` writes,
+  `pack.py record --help` and `references/eyes.md` show the same text and example. `pack.py record` reads that object
+  from the whole response or from the one fenced block in it, ignores keys it does not know, and reads nothing else:
+  a response with no JSON or two blocks, a key named twice, `NaN` or `Infinity` anywhere, a letter not in the line-up
+  or ranked twice, another tier, or a score that is text, a boolean or outside 1 to 10 leaves the reading incomplete,
+  with a message saying what is wrong and what to ask the reader for.
+- `pack.py record` stores the line-up letters and each reader's ranking; `check.py --blind-pack` (tracked by
+  `check.py --verify`) and `evals/grade_task.py` compute the verdict from the readings through `pack.py` rather than
+  trusting `status` or `cross_family`: a report without the checked video's `film_sha256` is stale, repeated letters
+  are rejected, both readers must come from different vendors, rank every letter once, give ours a tier from the four
+  and score ours from 1 to 10 on `pacing`, `visual_clutter` and `callout_placement`, and the line-up is marked `look`
+  when both put ours in `beginner`/`hobbyist` or below the yardstick on rank or any dimension. A hand-edited report
+  whose letters, rankings, families, dimension averages or reasons are of the wrong type is a `look` naming what is
+  damaged, not a traceback.
+
+**World sheets and typography gates**
+
+- `film_check.py` fails a required typography gate (`gates.json` or `--require-world-sheet`) when the page's analyser
+  returns no typography lists (as 2.2's kit runtime did), and decodes non-ASCII page output and UTF-8 BOMs cleanly on
+  Windows.
+- World-sheet values and ownership live in `world_spec.py` (standard library only, so `film_check.py` needs neither
+  `numpy` nor `Pillow`). `film_check.py` looks for a sheet only in the film's `qa/` or its enclosing project's `refs/`
+  at any depth, and a sheet's `.json` record names its film or project by a path relative to the sheet, so a film or
+  project moved with its sheet keeps it. The record also keeps the title and world line the sheet drew and where each
+  came from, and `film_check.py` compares them with what the film states now: a kit film's title with the title its
+  running page reports, a project's with its `status.json` title (which must also be the one it had when the sheet was
+  drawn, even when `--title` was given), and the world line with the `World line` stated now. A sheet that shows the
+  folder's name passes only while the film states no title, and a default world line only while none is stated. A
+  refusal says what the sheet shows and what the film states now, and to draw it again with `look.py world-sheet`,
+  giving the folder and, when the title was read from `film.js` or fell back to the folder's name, the title the film
+  runs with, each on a line of its own, exactly as they are, the title to pass with `--title`. When `--title` is not
+  given, `look.py` reads the title from `film.js` only to choose what to draw; a title it cannot read (one computed
+  when the film runs) needs `--title`. The check tells you that a sheet sits in this film's or its project's place and
+  names it, and that the title and world line it shows are the ones the film has now. It is a guard against the usual
+  accident, a film folder copied to start another film or retitled, not a proof of which film a sheet was drawn for:
+  it does not notice a changed brand (the running page does not report one), a value you gave on the command line, a
+  copy whose title and world line are unchanged, or a sheet copied from another project started without `--title`
+  whose folder has the same name.
+- `look.py world-sheet` draws display and secondary lines whole at the pixel sizes requested (without the 148/72 px
+  caps, the 10 px floor or panel clipping), widens or lengthens the sheet past 1920 by 1080 when needed, and refuses a
+  specimen that would exceed 7680 by 4320.
+
+**Rhythm comparison and setup**
+
+- `measure.py compare --as rebuild` no longer widens its two-source-frame tolerance to one coarse sample: when sampling
+  is coarser than two source frames, offsets within two source frames plus one sample report `inconclusive` (exit 1,
+  naming the `--fps` needed or `measure.py`'s 30 fps cap), while larger offsets remain `off-rhythm`.
+- Corrected 2.3.0's changelog note on `measure.py` memory: profiling reads video one frame at a time, whereas
+  `measure.py pin` also scans the reference at 320 by 180 in memory (about 1 GB for ten minutes at 30 fps) and audio is
+  decoded in memory whole even when `--from` or `--to` is set.
+- `setup.py` checks every current helper script in `scripts/` and clears its import probe cache after installing into
+  an active virtual environment (`setup.py --install core`).
+- The full self-test passes on FFmpeg 7 and 8: its HDR speed fixtures gave the scale filter the colour matrix
+  `bt2020nc`, which FFmpeg 7.0 to 8.0 do not take (5.1, 6.1 and 9 do), so the speed cases stopped there. They now
+  use `bt2020`, which every supported FFmpeg takes. The scripts give the scale filter only fixed names, and pass a
+  stream's own colour names to `setparams`, which takes every name `ffprobe` prints except `reserved`, which they
+  never pass.
+- Every script sets its output up before anything else it does, a missing package's message included: printed to a
+  pipe or a file, its output is UTF-8; on a console that cannot show a character, a stand-in is printed. A program
+  that reads these scripts' piped output reads UTF-8; on Windows that output had been in the console's code page.
+- Every script reads what FFmpeg, ffprobe, Node and the skill's own scripts print as UTF-8, with a stand-in for a byte
+  that is not; the few system tools that print in the console's code page (PowerShell, `cmd`, `vm_stat`) are read in
+  the locale's encoding, also with stand-ins. On Windows with Python not in UTF-8 mode, a folder whose name's UTF-8
+  bytes include one cp1252 cannot decode (such as `Árbol 東京 😁`) had ended `map.py add`, `transcribe.py` and
+  `tighten.py` in a traceback, left `check.py`'s comparison of captions with speech skipped as "could not run", and
+  turned an unreadable file into a traceback in `compare_versions.py`, `frame_sheet.py` and `motion_scan.py`; an
+  accented, CJK or emoji folder or title had also crashed `new_film.py`, `cue_list.py` (and so `film_check.py`'s cue
+  export) and `film_render.py`. The self-test runs those scripts, and the project, render, register, check and
+  line-up steps, in folders named with accented, CJK and emoji characters and with such bytes, Python not in UTF-8
+  mode: none ends in a traceback, and an unreadable file is refused in words (exit 2).
+- `film_capture.mjs` started from a path through a link (a skill installed by a symbolic link or a Windows junction,
+  or copied under macOS's `/var`, which links to `/private/var`) did nothing and exited 0, so `film_check.py`, which
+  starts it by the path it was given, could not export a cue list or check the page; it now runs wherever it is
+  started from, and `film_check.py` says when it printed nothing.
+- A frame's screenshot in a page render is held to `LF_FRAME_TIMEOUT_MS` (60 s by default), the limit seeking and
+  painting the frame already had, instead of Playwright's own 30 s; when it fails, the message names the frame, its time
+  in the film, how long the call waited and how many frames came before it. `LF_READY_TIMEOUT_MS` and
+  `LF_FRAME_TIMEOUT_MS` are now documented (`film_capture.mjs --help`, the kit reference).
+
+**Known**
+
+- On Windows, a page check or render run straight after many others can lose one of the page's file requests to a
+  Windows socket error (Chromium's `net::ERR_NO_BUFFER_SPACE`). The film then never starts: the step waits 30 s and
+  stops, with `window.__lf did not appear within 30 s` or `page.waitForFunction: Timeout 30000ms exceeded`. Run the
+  step again. This was seen a few times on GitHub's Windows test machines, where the self-test runs dozens of checks
+  and renders one after another, and not in ordinary use. 2.3.0 serves the page the same way (one connection for each
+  of a page's sixty or so files); a later release will reuse a few connections and name the request that failed.
+
+
 ## 2.3.0 (2026-11-17)
 
 **Upgrading from 2.2.** Every 2.2 command works as before, and films made before 2.3 check as they did. A film started
@@ -30,7 +207,7 @@ films drawn entirely in code, whose export Legible Film can cut in.
 
 - `measure.py` profiles a film's rhythm (holds, events, moves, occupancy, sync with its sound), compares two profiles
   (`compare --as rebuild` holds events to two frames of the source film), and pins a reference's rhythm to a project
-  (`measure.py pin`). It reads a film a frame at a time, so a long film needs little memory.
+  (`measure.py pin`). Profiling reads the picture a frame at a time; `pin` and the sound are not streamed (see 2.3.1).
 - `cut.py draft --pin`, `cut.py check` and `tighten.py --pin` hold a paper edit to the pinned rhythm.
 
 **Timing constants from the cue list**

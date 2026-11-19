@@ -106,6 +106,15 @@ import sys
 import tempfile
 import time
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 HERE = Path(__file__).resolve().parent
 sys.dont_write_bytecode = True
 _project_spec = importlib.util.spec_from_file_location('lf_project', HERE / 'project.py')
@@ -418,7 +427,8 @@ def doctor(a, sizes, need_aac=True):
         add('Node', False, 'not found (PATH, NODE or --node)', fix_for('node'))
     else:
         try:
-            v = subprocess.run([node, '--version'], capture_output=True, text=True, timeout=60).stdout.strip()
+            v = subprocess.run([node, '--version'], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace', timeout=60).stdout.strip()
             major = int(re.match(r'v?(\d+)', v).group(1))
             add('Node', major >= 18, v + ('' if major >= 18 else ' (18 or newer needed)'), fix_for('node'))
         except (OSError, AttributeError, ValueError, subprocess.TimeoutExpired) as exc:
@@ -617,8 +627,10 @@ def picture_entry(step, path):
     return _RENDER.picture_entry(step, path)
 
 
-RECEIPT_KEYS = ('source_fingerprint', 'snapshot_sha256', 'cues', 'cues_sha256', 'digest', 'frozen', 'source_digests',
-                'vendored', 'binding_reasons', 'render_trace')
+# what the render consumed travels with every file made from it: an encode's receipt had dropped the generated timing
+# modules, so add-version could not tell which ones the render read
+RECEIPT_KEYS = ('source_fingerprint', 'snapshot_sha256', 'cues', 'cues_sha256', 'cues_timing_sha256', 'generated',
+                'digest', 'frozen', 'source_digests', 'vendored', 'binding_reasons', 'render_trace')
 
 
 def receipt_for(manifest_path, step, path):
@@ -1333,7 +1345,7 @@ class Make:
         """The encoded size of a file as WxH, read back with ffprobe (what was made, not what was asked)."""
         r = subprocess.run([find_tool('ffprobe', self.a.ffprobe), '-v', 'error', '-select_streams', 'v:0',
                             '-show_entries', 'stream=width,height', '-of', 'csv=p=0:s=x', str(path)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
         return r.stdout.strip() or None
 
     def web(self, size, render, sound, info):
@@ -1398,7 +1410,7 @@ class Make:
         from PIL import Image
         ffprobe, ffmpeg = find_tool('ffprobe', self.a.ffprobe), find_tool('ffmpeg', self.a.ffmpeg)
         r = subprocess.run([ffprobe, '-v', 'error', '-show_streams', '-of', 'json', str(webm)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
         streams = json.loads(r.stdout or '{}').get('streams', []) if not r.returncode else []
         video = next((s for s in streams if s.get('codec_type') == 'video'), {})
         audio = [s.get('codec_name') for s in streams if s.get('codec_type') == 'audio']

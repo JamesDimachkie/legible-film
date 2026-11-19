@@ -633,6 +633,24 @@ def scorecard_items(task, workspace, scorecard_path, run=None):
     return results
 
 
+def _pack():
+    pack_spec = importlib.util.spec_from_file_location('eval_pack', PROJECT_PATH.with_name('pack.py'))
+    pack = importlib.util.module_from_spec(pack_spec)
+    pack_spec.loader.exec_module(pack)
+    return pack
+
+
+def reading_problems(data):
+    """What keeps a blind-pack.json from showing two complete readings from two model families ([] when it does):
+    pack.py's own rule, which check.py --blind-pack uses too."""
+    return _pack().reading_problems(data)
+
+
+def reading_verdict(data):
+    """Why two complete readings do not pass ours ([] when they do): pack.py's rule, worked out from the readings."""
+    return _pack().reading_verdict(data)
+
+
 def blind_pack_check(blind_pack_path, workspace, task=None):
     """Verify optional double-blind relative lineup output (blind-pack.json from pack.py record), bound to the film
     being graded: a lineup recorded for another cut (or an earlier one) had passed for this one."""
@@ -658,9 +676,16 @@ def blind_pack_check(blind_pack_path, workspace, task=None):
         return check_result('blind-pack', 'fail', f'the blind lineup was made from another film than {video.name} '
                             f'(film_sha256 {str(data.get("film_sha256"))[:12]}, delivered {digest(video)[:12]})',
                             basis='blind-pack')
-    state = 'pass' if data.get('status') == 'pass' else 'fail'
+    missing = reading_problems(data)
+    if missing:
+        return check_result('blind-pack', 'inconclusive', 'the blind lineup report does not hold two complete readings '
+                            'from two model families: ' + '; '.join(missing[:4]), basis='blind-pack')
+    # the verdict is the readings', not the report's own status (which had passed two "beginner" readings)
+    verdict = reading_verdict(data)
+    state = 'pass' if not verdict and data.get('status') == 'pass' else 'fail'
     detail = (f"ours={data.get('ours_letter')} vs {data.get('yardstick_letter')}; "
-              f"families={data.get('families')}; dims={data.get('dimension_averages')}")
+              f"families={data.get('families')}; dims={data.get('dimension_averages')}"
+              + (f"; {'; '.join(verdict)}" if verdict else ''))
     return check_result('blind-pack', state, detail, basis='blind-pack')
 
 

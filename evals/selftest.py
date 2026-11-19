@@ -494,7 +494,7 @@ def routing_cases(record, root):
         done = subprocess.run([sys.executable, '-I', str(HERE / 'trigger_run.py'), 'guard', '--cases',
                                str(HERE / 'reshape-routing.json'), '--project', str(project), '--log', str(log)],
                               input=json.dumps({'tool_name': tool, 'tool_input': args}), capture_output=True,
-                              text=True)
+                              text=True, encoding='utf-8', errors='replace')
         decisions.append('deny' if '"deny"' in done.stdout else 'allow')
     record('routing guard: denies a render and a write outside the project; allows a probe and a write inside',
            decisions == ['deny', 'allow', 'deny', 'allow'], decisions)

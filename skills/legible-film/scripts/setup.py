@@ -29,6 +29,15 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('lf_project', HERE / 'project.py')
 project = importlib.util.module_from_spec(spec)
@@ -54,15 +63,15 @@ SPATIAL_URL = ('https://huggingface.co/Xenova/modnet/resolve/'
                'fa2fa546052fba4c08921230a26cc69a333fca12/onnx/model.onnx')
 SPATIAL_MB = 26
 EAR_MODELS = ('laion/larger_clap_general', 'MIT/ast-finetuned-audioset-10-10-0.4593')
-SCRIPTS = ('assemble.py blank_scan.py captions.py check.py compare_versions.py cue_list.py cue_onsets.py '
-           'delivery_check.py dialogue_io.py '
-           'exchange.py film_capture.mjs film_check.py film_render.py flash_scan.py frame_sheet.py '
+SCRIPTS = ('assemble.py blank_scan.py captions.py check.py compare_versions.py conform.py cue_gen.cjs cue_list.py '
+           'cue_onsets.py cut.py delivery_check.py dialogue_io.py '
+           'exchange.py film_capture.mjs film_check.py film_render.py flash_scan.py frame_sheet.py grade.py '
            'kit_selftest.py lineup.py listen.py look.py make_film.py make_sound_kit.py map.py matte.py '
            'measure.py mix_cues.py motion_blur.py motion_scan.py '
-           'new_film.py onion_frames.py pack.py project.py qc_file.py reframe.py region_check.py render_common.py '
-           'screen.py selftest.py setup.py sound_check.py sound_io.py sound_library.py spatial.py spot_cues.py '
-           'strip.py sync_check.py taste.py tempo_map.py tighten.py track.py transcribe.py transcript_cut.py '
-           'voice_clean.py with_lock.py constraints.txt').split()
+           'new_film.py onion_frames.py pack.py project.py qc_file.py reframe.py region_check.py render_block.cjs '
+           'render_common.py screen.py selftest.py setup.py sound_check.py sound_io.py sound_library.py spatial.py '
+           'spot_cues.py strip.py sync_check.py taste.py tempo_map.py tighten.py track.py transcribe.py '
+           'transcript_cut.py voice_clean.py with_lock.py world_spec.py constraints.txt').split()
 
 
 def command_fix(kind, system=None):
@@ -535,6 +544,7 @@ def pip_install(python, packages, *options):
                          'tested on Python 3.9 to 3.14. Run setup.py with one of those, from a virtual environment '
                          f'or after removing {dedicated_python().parent.parent}.'
                          ) from error
+    _IMPORTS.clear()
 
 
 def install_core(python):
@@ -718,6 +728,7 @@ def main():
                 print(result.stderr, end='', file=sys.stderr)
             print(result.stdout, end='')
             return result.returncode
+        _IMPORTS.clear()
         importlib.invalidate_caches()
         groups = inspect(args.check_updates)
         states = summary(groups)

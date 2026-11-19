@@ -1,7 +1,7 @@
 #!/bin/sh
 # Install Ubuntu packages on a CI runner: apt_install.sh [APT-GET OPTIONS] PACKAGE...
 #
-# An install takes under a minute, but some runners draw an Azure mirror crawling at about a package a second, and the
+# An install takes under a minute, but some runners draw a regional mirror crawling at about a package a second, and the
 # job then sits until its time limit, which GitHub reports as cancelled. So the mirror the runner came with gets a short
 # limit, and Ubuntu's own archive gets the next try. APT_FIRST_LIMIT sets the short limit, in seconds.
 set -u
@@ -19,5 +19,8 @@ if attempt "$first_limit" "$@"; then
 fi
 echo "::warning::apt did not finish on this runner's mirror within $first_limit s; trying archive.ubuntu.com"
 sudo dpkg --configure -a
-grep -rlI 'azure\.archive\.ubuntu\.com' /etc/apt | xargs -r sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g'
+# The runner's mirror is a regional host (azure.archive.ubuntu.com, us-east-2.ec2.archive.ubuntu.com, ...), named in
+# /etc/apt/apt-mirrors.txt or the sources lists; every such name becomes Ubuntu's own archive.
+grep -rlIE '[a-z0-9.-]+\.archive\.ubuntu\.com' /etc/apt |
+    xargs -r sudo sed -i -E 's/[a-z0-9.-]+\.archive\.ubuntu\.com/archive.ubuntu.com/g'
 attempt 600 "$@"

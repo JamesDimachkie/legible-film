@@ -257,11 +257,13 @@ scorecard derived from them may be refreshed and replaced:
   with the version's `sources`), or a picture. The picture is named by its packet hash and its frame schedule
   (`picture-timing.json`), so a remux keeps it and a re-encode, trim or retime does not.
 - `cues_provenance` copies the list's `provenance` (`exported` or `observed`, or `plan-bound` for a bound plan).
-- `binding` says how the master was tied to its source. `receipt` means the render attested the frozen source it read
-  and the output it wrote; `screened` means no receipt, the master being newer than every source file (a look);
-  `overridden` means older, accepted by a recorded decision with its reason (a look); `unverified` means the binding
-  cannot be checked (a look that says why); `plan-bound` means a plan list bound by the frame-change screen at each
-  turn. A mismatch is never registered; it is refused.
+- `binding` says how the master was tied to its source. `receipt` means the render attested the frozen source, cue
+  timing and generated modules (`times.gen.js` / `times.gen.ts`) it read and the output it wrote; `screened` means no
+  receipt, the master being newer than every source file and — for a page render — newer than synced timing modules
+  holding the cue list's timing (a look; a page render with neither a receipt nor timing modules registers `unverified`,
+  exit 1, naming the missing link); `overridden` means older, accepted by a recorded decision with its reason (a look);
+  `unverified` means the binding cannot be checked (a look that says why); `plan-bound` means a plan list bound by the
+  frame-change screen at each turn. A mismatch is never registered; it is refused.
 
 `cut.py render` fills the block for a paper version. `project.py add-version` registers a master made anywhere else
 as `cuts/vNNN/` without re-encoding it (another container is remuxed to MP4), with `picture-timing.json`, the list as
@@ -279,7 +281,10 @@ project.py add-version PROJECT --cues cues.json --file MASTER [--render "CMD"] [
 ([engines](engines.md) §2). `--sound` muxes a mix onto the master with the picture copied, on any route, only when
 the mixer's report (`mix-report.json` beside the WAV, or `--mix-report`) names the `--cues` list among its inputs;
 the mixer reads the spotted list, so register with `cues.spotted.json`. `--receipt` takes a kit render's
-`<output>.manifest.json`, and a `plan` list is bound here by screening each turn on the master.
+`<output>.manifest.json`, and a `plan` list is bound here by screening each turn on the master. A receipt binds the
+`--cues` list when what it recorded proves that list's timing: its timing hash, or its recorded timing modules still on
+disk and holding that timing, or (with neither) the very list it names, given or found as the page's `cues.json` by
+its hash with that timing, so `cues.json` and the `cues.spotted.json` spotting writes from it bind alike.
 `cut.py attach-mix PROJECT --version vNNN --buses DIR --report DIR/mix-report.json [--replace ROLE ...] [--strict]`
 adds designed sound to a paper version that kept its stems (`--final`). It takes
 the mixer's processed `music.wav`, `effects.wav` and `bed.wav`, never `voice.wav` or `mix.wav`; dialogue stays the

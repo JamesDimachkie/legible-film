@@ -248,7 +248,7 @@ def rendered_cases(tool, record, j, scripts_dir):
 
     def ffmpeg(*args):
         result = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-v', 'error', '-y',
-                                 *map(str, args)], capture_output=True, text=True)
+                                 *map(str, args)], capture_output=True, text=True, encoding='utf-8', errors='replace')
         if result.returncode:
             raise RuntimeError(result.stderr[-500:])
 
@@ -563,7 +563,7 @@ if __name__ == '__main__':
         results = []
         def tool(name, *args):
             p = subprocess.run([sys.executable, str(Path(__file__).parents[1] / name), *map(str, args)],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, encoding='utf-8', errors='replace')
             return p.returncode, p.stdout + p.stderr
         def record(name, ok, detail):
             results.append(ok)

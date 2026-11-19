@@ -34,6 +34,15 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PY = sys.executable
 RESULTS = []
@@ -205,7 +214,8 @@ def environment():
     node = find_tool('node')
     node_version = None
     if node:
-        result = subprocess.run([node, '--version'], capture_output=True, text=True, check=False)
+        result = subprocess.run([node, '--version'], capture_output=True, text=True,
+                                encoding='utf-8', errors='replace', check=False)
         node_version = result.stdout.strip() if result.returncode == 0 else None
     return dict(python=sys.version, numpy=numpy.__version__, pillow=PIL.__version__,
                 ffmpeg=versions['ffmpeg'], ffprobe=versions['ffprobe'], skill_version=version,

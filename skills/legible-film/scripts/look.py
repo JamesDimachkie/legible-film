@@ -31,6 +31,7 @@ Exit 0 on success, 2 when it cannot run.
 import argparse
 import importlib.util
 import json
+import math
 import re
 import secrets
 import shutil
@@ -40,6 +41,15 @@ import tempfile
 from pathlib import Path
 
 import os
+
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
 try:
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
@@ -67,6 +77,7 @@ def sibling(name):
 
 
 project = sibling('project')
+world_spec = sibling('world_spec')
 
 
 def root_for(path):
@@ -225,13 +236,15 @@ def video_frame(video, at, out):
     """Decode one frame of a video at a time in seconds (the middle when at is None)."""
     if at is None:
         probe = subprocess.run([find_tool('ffprobe'), '-v', 'error', '-show_entries', 'format=duration',
-                                '-of', 'default=nw=1:nk=1', str(video)], capture_output=True, text=True)
+                                '-of', 'default=nw=1:nk=1', str(video)], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
         try:
             at = float(probe.stdout.strip()) / 2
         except ValueError:
             at = 0.0
     result = subprocess.run([find_tool('ffmpeg'), '-v', 'error', '-y', '-ss', f'{at:.3f}', '-i', str(video),
-                             '-frames:v', '1', str(out)], capture_output=True, text=True)
+                             '-frames:v', '1', str(out)], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace')
     if result.returncode or not Path(out).is_file():
         raise ValueError(f'could not decode a frame of {video} at {at:.2f} s: {result.stderr.strip()[-300:]}')
     return Image.open(out).convert('RGB')
@@ -384,8 +397,20 @@ INK_MIN = 4.5      # WCAG AA for body text: the ink on its ground, where the she
 MUTED_MIN = 3.0    # WCAG AA for large text: the secondary line is set at display sizes in muted
 
 
+def _tracked_width(draw, text, font, px, tracking_em):
+    """How wide _draw_tracked sets TEXT, with room for the last glyph's overhang."""
+    chars = str(text)
+    if not chars:
+        return 0
+    advance = sum(draw.textlength(ch, font=font) for ch in chars) + tracking_em * px * (len(chars) - 1)
+    return advance + max(0, draw.textbbox((0, 0), chars[-1], font=font)[2] - draw.textlength(chars[-1], font=font))
+
+
+SHEET_MAX = (7680, 4320)   # the largest sheet drawn: a specimen past it is reported, not drawn
+
+
 def _font(size, role='sans'):
-    size = max(10, int(round(size)))
+    size = max(1, int(round(size)))   # drawn at its size: sizes under 10 px had been drawn at 10
     fonts_dir = HERE.parent / 'assets' / 'kit' / 'fonts'
     assets_fonts = HERE.parent / 'assets' / 'fonts'
     if role == 'mono':
@@ -406,52 +431,34 @@ def _font(size, role='sans'):
         return ImageFont.load_default()
 
 
-def _world_target(target):
-    """Accept either a project root (film.md / cuts) or a standalone kit film folder."""
-    p = Path(target)
-    proj = project.find_project(target)
-    if proj is not None:
-        return proj.resolve(), 'project'
-    if p.is_dir() and ((p / 'film.js').is_file() or (p / 'index.html').is_file()):
-        return p.resolve(), 'kit'
-    raise ValueError(f'{target} is neither a project folder nor a kit film folder')
+def _relative_to(path, start):
+    """PATH relative to START with forward slashes, or None when there is no relative path (another drive)."""
+    try:
+        return os.path.relpath(Path(path).resolve(), Path(start).resolve()).replace(os.sep, '/')
+    except ValueError:
+        return None
 
 
-def _read_spec_hints(root, kind):
-    hints = {'title': root.name, 'brand': '#2F9E6B', 'world_line': ''}
-    for fname in ('treatment.md', 'look.md', 'BOARD.md', 'film.js'):
-        p = root / fname
-        if not p.is_file():
-            continue
-        txt = p.read_text(encoding='utf-8', errors='replace')
-        if fname == 'film.js':
-            m = re.search(r"title:\s*['\"]([^'\"]+)['\"]", txt)
-            if m:
-                hints['title'] = m.group(1)
-            m = re.search(r"brand:\s*['\"](#[0-9a-fA-F]{3,6})['\"]", txt)
-            if m:
-                hints['brand'] = m.group(1)
-            m = re.search(r"what:\s*['\"]([^'\"]+)['\"]", txt)
-            if m and not hints['world_line']:
-                hints['world_line'] = m.group(1)
-        else:
-            m = re.search(r'^-\s*(?:World(?:\s+line)?|Visual world|Tone[^:]*)\s*:\s*(.+)$', txt, re.MULTILINE | re.IGNORECASE)
-            if m and not hints['world_line']:
-                hints['world_line'] = m.group(1).strip()
-    return hints
-
-
-def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg='#0D1016', fg='#F4F1EA',
-                muted='#9BA3B0', serif_words='Let it stand.', display_text='SHIP CLEAN.',
-                display_px=132, secondary_text='Every cue lands on one clock.', secondary_px=48,
-                mono_label='SECTION 01 · WORLD SHEET', display_tracking=-0.035, mono_tracking=0.12,
-                distinct_secondary=False):
-    """Build a 1920x1080 pre-render world sheet and validate BOARD/WORLD typographic guardrails."""
-    root, kind = _world_target(target)
-    hints = _read_spec_hints(root, kind)
-    title_val = title or hints['title']
-    brand_hex = brand or hints['brand']
-    wl_val = world_line if world_line is not None else (hints['world_line'] or f'{title_val} x brass proofreader table')
+def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg=None, fg=None, muted=None,
+                serif_words=None, display_text=None, display_px=None, secondary_text=None, secondary_px=None,
+                mono_label=None, display_tracking=None, mono_tracking=None, distinct_secondary=None):
+    """Build a 1920x1080 pre-render world sheet (wider or taller when the type asked for needs it) and validate
+    BOARD/WORLD typographic guardrails. An option left as None takes its default (world_spec.OPTION_DEFAULTS), or for
+    title, world line and brand the film's own; the record keeps the title and world line drawn and where each came
+    from, which film_check.py compares with what the film states when it is checked."""
+    root, kind = world_spec.world_target(target)
+    options = world_spec.given_options(
+        title=title, world_line=world_line, brand=brand, bg=bg, fg=fg, muted=muted, serif_words=serif_words,
+        display_text=display_text, display_px=display_px, secondary_text=secondary_text, secondary_px=secondary_px,
+        mono_label=mono_label, display_tracking=display_tracking, mono_tracking=mono_tracking,
+        distinct_secondary=distinct_secondary)
+    drawn, sources = world_spec.sheet_values(root, kind, options)
+    title_val, brand_hex, wl_val = drawn['title'], drawn['brand'], drawn['world_line']
+    bg, fg, muted = drawn['bg'], drawn['fg'], drawn['muted']
+    serif_words, display_text, display_px = drawn['serif_words'], drawn['display_text'], drawn['display_px']
+    secondary_text, secondary_px, mono_label = drawn['secondary_text'], drawn['secondary_px'], drawn['mono_label']
+    display_tracking, mono_tracking = drawn['display_tracking'], drawn['mono_tracking']
+    distinct_secondary = drawn['distinct_secondary']
 
     # Guardrail 1: 3-word serif limit.
     serif_tokens = [w for w in str(serif_words or '').strip().split() if w]
@@ -491,7 +498,24 @@ def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg='#
     out_path = Path(out) if out else (root / ('refs' if kind == 'project' else 'qa') / 'world-sheet.png')
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    W, H = 1920, 1080
+    # The specimen sets its type at the sizes asked for, one line under the next: the sheet had capped the display
+    # at 148 px and the secondary at 72 px, so sheets asked for at 220/110 and 148/72 drew the same specimen while
+    # reporting different sizes. A specimen too tall for 1080 rows makes the sheet taller rather than smaller.
+    disp_y = 276
+    sec_y = disp_y + int(round(display_px * 1.2)) + 16
+    rule_y = max(590, sec_y + int(round(secondary_px * 1.35)) + 24)
+    shift = rule_y - 590
+    # Each line is set whole, on one line as in a frame: the display had been cut at the panel ("SHIP CLE" at 220 px)
+    # and the secondary drawn past the panel and the canvas. A line wider than the panel makes the sheet wider.
+    f_disp, f_sec = _font(display_px, 'sans'), _font(secondary_px, 'sans')
+    ruler = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+    line_w = max(_tracked_width(ruler, str(display_text), f_disp, display_px, display_tracking),
+                 ruler.textbbox((0, 0), str(secondary_text), font=f_sec)[2] if str(secondary_text) else 0)
+    widen = max(0, int(math.ceil(line_w)) - 1060)
+    W, H = 1920 + widen, 1080 + shift
+    if W > SHEET_MAX[0] or H > SHEET_MAX[1]:
+        raise ValueError(f'a world sheet cannot draw display {display_px} px and secondary {secondary_px} px whole: '
+                         f'the specimen needs a {W}x{H} px sheet, past {SHEET_MAX[0]}x{SHEET_MAX[1]}; ask for smaller sizes')
     img = Image.new('RGB', (W, H), bg_rgb)
     draw = ImageDraw.Draw(img)
 
@@ -552,25 +576,23 @@ def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg='#
         draw.text((84, 768), 'Verify frame richness before generating blocks.', fill=muted_rgb, font=f_body)
 
     # Right column (x=736..1864): Scale Hierarchy & Tracking Specimen.
-    draw.rectangle((736, 152, 1864, 1024), fill=panel_rgb, outline=border_rgb, width=2)
+    draw.rectangle((736, 152, 1864 + widen, 1024 + shift), fill=panel_rgb, outline=border_rgb, width=2)
     draw.text((776, 174), 'TYPOGRAPHY SPECIMEN & GUARDRAILS', fill=muted_rgb, font=f_mono_sm)
 
     # Wide-tracked mono kicker, at its tracking.
-    _draw_tracked(draw, (776, 224), str(mono_label).upper(), _font(22, 'mono'), 22, mono_tracking, brand_rgb, max_w=1060)
+    _draw_tracked(draw, (776, 224), str(mono_label).upper(), _font(22, 'mono'), 22, mono_tracking, brand_rgb,
+                  max_w=1060 + widen)
 
     # Display headline at real scale (>= 2x secondary), at its tracking.
-    disp_px = min(display_px, 148)
-    _draw_tracked(draw, (776, 276), str(display_text), _font(disp_px, 'sans'), disp_px, display_tracking, fg_rgb,
-                  max_w=1060)
+    _draw_tracked(draw, (776, disp_y), str(display_text), f_disp, display_px, display_tracking, fg_rgb)
 
     # Secondary sans sentence.
-    f_sec = _font(min(secondary_px, 72), 'sans')
-    draw.text((776, 470), str(secondary_text), fill=muted_rgb, font=f_sec)
+    draw.text((776, sec_y), str(secondary_text), fill=muted_rgb, font=f_sec)
 
     # Serif accent (<= 3 words).
-    draw.line((776, 590, 1820, 590), fill=border_rgb, width=2)
-    draw.text((776, 616), f'SERIF ACCENT ({len(serif_tokens)}/3 WORDS MAX)', fill=muted_rgb, font=f_mono_sm)
-    draw.text((776, 654), str(serif_words), fill=fg_rgb, font=_font(64, 'serif'))
+    draw.line((776, rule_y, 1820 + widen, rule_y), fill=border_rgb, width=2)
+    draw.text((776, 616 + shift), f'SERIF ACCENT ({len(serif_tokens)}/3 WORDS MAX)', fill=muted_rgb, font=f_mono_sm)
+    draw.text((776, 654 + shift), str(serif_words), fill=fg_rgb, font=_font(64, 'serif'))
 
     # Guardrail verification strip, each line from what was measured: the contrast line had read PASS for ink the
     # colour of its ground (1.0:1). The specimen is drawn on the panel and the film on the ground, so both count.
@@ -578,7 +600,7 @@ def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg='#
     muted_c = min(_contrast_ratio(muted_rgb, bg_rgb), _contrast_ratio(muted_rgb, panel_rgb))
     contrast_ok = ink_c >= INK_MIN and muted_c >= MUTED_MIN
     verdict = lambda ok: 'PASS' if ok else 'FAIL'
-    draw.line((776, 780, 1820, 780), fill=border_rgb, width=2)
+    draw.line((776, 780 + shift, 1820 + widen, 780 + shift), fill=border_rgb, width=2)
     checks_lines = [
         f'1. Serif limit:        {len(serif_tokens)} word(s) <= 3 max               PASS',
         f'2. Scale hierarchy:    {display_px}px / {secondary_px}px = {scale_ratio}x (>= 2.0x)  PASS',
@@ -587,7 +609,7 @@ def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg='#
     ]
     # the checks are drawn in a colour that reads on the panel whatever the ink is, so a failing sheet stays legible
     check_rgb = (255, 255, 255) if _rel_luminance(panel_rgb) < 0.18 else (0, 0, 0)
-    cy = 812
+    cy = 812 + shift
     for line in checks_lines:
         draw.text((776, cy), line, fill=check_rgb, font=f_mono_md)
         cy += 44
@@ -596,7 +618,17 @@ def world_sheet(target, out=None, title=None, world_line=None, brand=None, bg='#
     meta = {
         'tool': 'look.py world-sheet',
         'target': str(root),
+        # the film as seen from the sheet, so a film copied or moved with its sheet is still the one it was drawn
+        # for: the absolute target alone had failed the film's own typography gate after a move
+        'target_rel': _relative_to(root, out_path.parent),
         'kind': kind,
+        'drawn': drawn,
+        'options': options,
+        # where the title and world line drawn came from: film_check.py compares those not given as options with
+        # what the film states when it is checked (the running page's title, a project's status.json title, a stated
+        # World line); for a project, also its status.json title as it was, whether or not --title was given
+        'sources': sources,
+        **({'project_title': world_spec.status_title(root)} if kind == 'project' else {}),
         'title': title_val,
         'world_line': wl_val,
         'out': str(out_path),
@@ -668,17 +700,17 @@ def parser():
     ws.add_argument('--title', help='film title')
     ws.add_argument('--world-line', help='subject x far thing')
     ws.add_argument('--brand', help='accent hex colour')
-    ws.add_argument('--bg', default='#0D1016', help='ground hex colour')
-    ws.add_argument('--fg', default='#F4F1EA', help='foreground ink hex colour')
-    ws.add_argument('--muted', default='#9BA3B0', help='muted hex colour')
-    ws.add_argument('--serif-words', default='Let it stand.', help='serif accent (<= 3 words)')
-    ws.add_argument('--display-text', default='SHIP CLEAN.', help='primary display line')
-    ws.add_argument('--display-px', type=int, default=132, help='primary display px size')
-    ws.add_argument('--secondary-text', default='Every cue lands on one clock.', help='secondary sans sentence')
-    ws.add_argument('--secondary-px', type=int, default=48, help='secondary sans px size')
-    ws.add_argument('--mono-label', default='SECTION 01 · WORLD SHEET', help='mono uppercase label')
-    ws.add_argument('--display-tracking', type=float, default=-0.035, help='display tracking em (-0.05..-0.03)')
-    ws.add_argument('--mono-tracking', type=float, default=0.12, help='mono label tracking em (0.10..0.16)')
+    ws.add_argument('--bg', help='ground hex colour (default #0D1016)')
+    ws.add_argument('--fg', help='foreground ink hex colour (default #F4F1EA)')
+    ws.add_argument('--muted', help='muted hex colour (default #9BA3B0)')
+    ws.add_argument('--serif-words', help='serif accent (<= 3 words; default "Let it stand.")')
+    ws.add_argument('--display-text', help='primary display line (default "SHIP CLEAN.")')
+    ws.add_argument('--display-px', type=int, help='primary display px size (default 132)')
+    ws.add_argument('--secondary-text', help='secondary sans sentence (default "Every cue lands on one clock.")')
+    ws.add_argument('--secondary-px', type=int, help='secondary sans px size (default 48)')
+    ws.add_argument('--mono-label', help='mono uppercase label (default "SECTION 01 · WORLD SHEET")')
+    ws.add_argument('--display-tracking', type=float, help='display tracking em (-0.05..-0.03; default -0.035)')
+    ws.add_argument('--mono-tracking', type=float, help='mono label tracking em (0.10..0.16; default 0.12)')
     ws.add_argument('--distinct-secondary', action='store_true', help='allow closer scale ratio for distinct italic/small-caps secondary face')
     ws.add_argument('--json', action='store_true')
     comparing = sub.add_parser('compare', help='a reference beside a still of the film, with colour measured')
@@ -706,7 +738,7 @@ def main():
                 serif_words=args.serif_words, display_text=args.display_text, display_px=args.display_px,
                 secondary_text=args.secondary_text, secondary_px=args.secondary_px,
                 mono_label=args.mono_label, display_tracking=args.display_tracking,
-                mono_tracking=args.mono_tracking, distinct_secondary=args.distinct_secondary,
+                mono_tracking=args.mono_tracking, distinct_secondary=args.distinct_secondary or None,
             )
             if args.json:
                 print(json.dumps(found, indent=1))
