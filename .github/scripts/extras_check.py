@@ -56,7 +56,8 @@ def install_pinned():
         print(f'$ setup.py --install {group} --yes', flush=True)
         if subprocess.run([sys.executable, str(script), '--install', group, '--yes']).returncode not in (0, 1):
             sys.exit(2)
-    report = subprocess.run([sys.executable, str(script), '--json'], capture_output=True, text=True, encoding='utf-8')
+    report = subprocess.run([sys.executable, str(script), '--json'], capture_output=True, text=True, encoding='utf-8',
+                            errors='replace')
     python = json.loads(report.stdout)['python']
     try:
         load_setup().install_ear_packages(python)

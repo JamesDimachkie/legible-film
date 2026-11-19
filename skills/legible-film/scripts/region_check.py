@@ -41,6 +41,15 @@ import subprocess
 import sys
 import tempfile
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 _project_spec = importlib.util.spec_from_file_location(
     'lf_project', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py'))
 project = importlib.util.module_from_spec(_project_spec)
@@ -61,7 +70,8 @@ def find_tool(name, explicit=None):
 
 
 def passthrough(ffmpeg):
-    head = subprocess.run([ffmpeg, '-hide_banner', '-version'], capture_output=True, text=True).stdout
+    head = subprocess.run([ffmpeg, '-hide_banner', '-version'], capture_output=True, text=True,
+                          encoding='utf-8', errors='replace').stdout
     m = re.search(r'version n?(\d+)\.(\d+)', head)
     old = m is not None and (int(m.group(1)), int(m.group(2))) < (5, 1)
     return ['-vsync' if old else '-fps_mode', 'passthrough']

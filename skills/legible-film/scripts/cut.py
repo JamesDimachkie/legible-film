@@ -115,6 +115,15 @@ import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 HERE = Path(__file__).resolve().parent
 # A range may run this far past its source: a header and its last frame or sample can differ by about this much.
 RANGE_SLACK = 0.05

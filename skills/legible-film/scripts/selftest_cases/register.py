@@ -75,7 +75,7 @@ def _module(name, path):
 
 def ffmpeg(*args):
     r = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-v', 'error', '-y', *map(str, args)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding='utf-8', errors='replace')
     return r.returncode == 0, r.stderr[-300:]
 
 
@@ -370,14 +370,15 @@ def run_register_cases(tool, record, j, scripts_dir, skip=None):
         isolated = root / 'isolated' / 'legible-film'
         shutil.copytree(SKILL, isolated, ignore=shutil.ignore_patterns('__pycache__'))
         iso_page = make_page(root / 'page-isolated')
-        r = subprocess.run([sys.executable, '-I', str(isolated / 'scripts' / 'film_check.py'), iso_page, '--size', '320x180', *map(str, pw)],
-                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+        checked = subprocess.run([sys.executable, '-I', str(isolated / 'scripts' / 'film_check.py'), iso_page, '--size', '320x180',
+                                  *map(str, pw)], capture_output=True, text=True, encoding='utf-8', errors='replace')
         r = subprocess.run([sys.executable, '-I', str(isolated / 'scripts' / 'project.py'), 'add-version', root / 'project-isolated',
                             '--cues', iso_page / 'cues.json', '--file', root / 'renders' / 'isolated.mp4', '--render', stub_cmd(),
                             ], capture_output=True, text=True, encoding='utf-8', errors='replace')
         record('register: --render runs from an isolated install (the skill folder copied alone, without evals/)',
                r.returncode == 0 and 'binding receipt' in r.stdout and not (isolated.parent.parent / 'evals').exists(),
-               (r.stdout + r.stderr)[-300:])
+               (r.stdout + r.stderr)[-300:] + (f' (film_check.py exit {checked.returncode}: '
+                                               f'{(checked.stdout + checked.stderr).strip()[-300:]})' if checked.returncode else ''))
         absolute = root / 'outside.png'
         ffmpeg('-f', 'lavfi', '-i', 'color=c=red:s=8x8', '-frames:v', '1', absolute)
         offline = make_page(root / 'page-absolute', head=f'<style>#label {{ background-image: url("{absolute.as_posix()}"); }}</style>\n')
@@ -512,6 +513,7 @@ def run_register_cases(tool, record, j, scripts_dir, skip=None):
         return
     hyperframes = shutil.which('npx')
     probe = subprocess.run([hyperframes, '--no-install', HYPERFRAMES, '--version'], capture_output=True, text=True,
+                           encoding='utf-8', errors='replace',
                            shell=os.name == 'nt', timeout=120) if hyperframes else None
     if probe is None or probe.returncode:
         skipped('register: a real HyperFrames render of testpages/labels/ under the block', f'{HYPERFRAMES} is not in the npx cache', 1)

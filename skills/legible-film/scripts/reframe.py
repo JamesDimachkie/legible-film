@@ -21,6 +21,15 @@ import os
 import subprocess
 import sys
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 try:
     import numpy as np
     from PIL import Image, ImageDraw
@@ -77,7 +86,7 @@ def make_face_detector():
 def probe(ffprobe, source):
     """Return the displayed dimensions, accounting for rotation metadata."""
     command = [ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json', source]
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode:
         raise ValueError('ffprobe: ' + result.stderr[-500:])
     stream = json.loads(result.stdout)['streams'][0]
@@ -131,7 +140,7 @@ def analyse(ffmpeg, source, width, height, start=None, end=None, face_data=None)
         if not ffprobe:
             raise ValueError('ffprobe is needed to establish the source presentation origin')
         command = [ffprobe, '-v', 'error', '-show_entries', 'format=start_time', '-of', 'json', str(source)]
-        result = subprocess.run(command, capture_output=True, text=True)
+        result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
         if result.returncode:
             raise ValueError('ffprobe could not establish the source presentation origin')
         raw_origin = (json.loads(result.stdout).get('format') or {}).get('start_time')

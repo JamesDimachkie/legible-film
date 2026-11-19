@@ -47,16 +47,16 @@ def run_lock_cases(tool, record, j, scripts_dir, skip=None):
            lock_module.default_lock() == setup.data_home() / 'heavy.lock', str(lock_module.default_lock()))
     holder = subprocess.Popen([sys.executable, str(Path(scripts_dir) / 'with_lock.py'), '--lock', str(lock),
                                '--min-free-gib', '0', '--', sys.executable, '-c', 'import time; time.sleep(4)'],
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace')
     deadline = time.monotonic() + 20
     while not lock.exists() and time.monotonic() < deadline:
         time.sleep(0.05)
     blocked = subprocess.run([sys.executable, str(Path(scripts_dir) / 'with_lock.py'), '--lock', str(lock),
                               '--min-free-gib', '0', '--wait-min', '0.01', '--poll-s', '0.1', '--', sys.executable,
-                              '-c', 'pass'], capture_output=True, text=True)
+                              '-c', 'pass'], capture_output=True, text=True, encoding='utf-8', errors='replace')
     waited = subprocess.run([sys.executable, str(Path(scripts_dir) / 'with_lock.py'), '--lock', str(lock),
                              '--min-free-gib', '0', '--wait-min', '1', '--poll-s', '0.2', '--', sys.executable, '-c',
-                             'print("second ran")'], capture_output=True, text=True)
+                             'print("second ran")'], capture_output=True, text=True, encoding='utf-8', errors='replace')
     holder.wait(timeout=60)
     record('lock: a second instance waits for the first\'s lock (exit 2 when its wait runs out, runs once it is free)',
            blocked.returncode == 2 and 'waited' in blocked.stderr and waited.returncode == 0
@@ -71,7 +71,7 @@ def run_lock_cases(tool, record, j, scripts_dir, skip=None):
     script = str(Path(scripts_dir) / 'with_lock.py')
     nested = subprocess.run([sys.executable, script, '--lock', str(lock), '--min-free-gib', '0', '--', sys.executable,
                              script, '--lock', str(lock), '--min-free-gib', '0', '--wait-min', '0.01', '--poll-s',
-                             '0.1', '--', sys.executable, '-c', 'print("inner ran")'], capture_output=True, text=True,
+                             '0.1', '--', sys.executable, '-c', 'print("inner ran")'], capture_output=True, text=True, encoding='utf-8', errors='replace',
                             timeout=120)
     record('lock: a job inside the lock its parent holds runs at once, and the lock is gone afterwards',
            nested.returncode == 0 and 'inner ran' in nested.stdout and 'inside the lock its parent holds' in nested.stdout
@@ -102,7 +102,7 @@ def run_lock_cases(tool, record, j, scripts_dir, skip=None):
             print(f'SKIP  lock: evals/with_lock.py forwards its arguments ({reason})')
         return
     result = subprocess.run([sys.executable, str(shim), '--lock', str(lock), '--min-free-gib', '0', '--', sys.executable,
-                             '-c', 'import sys; print("forwarded"); sys.exit(3)'], capture_output=True, text=True)
+                             '-c', 'import sys; print("forwarded"); sys.exit(3)'], capture_output=True, text=True, encoding='utf-8', errors='replace')
     record('lock: evals/with_lock.py forwards its arguments to the skill\'s with_lock.py',
            result.returncode == 3 and 'forwarded' in result.stdout and str(lock) in result.stdout
            and not lock.exists(), result.stdout[-200:] + result.stderr[-200:])

@@ -60,6 +60,15 @@ import tempfile
 import time
 from pathlib import Path
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 STAGES = ('map', 'plan', 'cut', 'check', 'screen', 'revise', 'deliver')
 STATES = ('todo', 'now', 'done', 'skipped', 'waiting')
 ROLE_PREFIX = {'interview': 'int', 'broll': 'broll', 'screen': 'screen', 'music': 'music', 'sfx': 'sfx', 'vo': 'vo',
@@ -775,9 +784,9 @@ def required_packages(scripts):
     """Package versions that may affect the invoked scanners and transcript."""
     names = set(scripts)
     packages = set()
-    if names & {'blank_scan.py', 'flash_scan.py', 'captions.py', 'transcribe.py', 'render_common.py'}:
+    if names & {'blank_scan.py', 'flash_scan.py', 'captions.py', 'transcribe.py', 'render_common.py', 'pack.py'}:
         packages.add('numpy')
-    if 'captions.py' in names:
+    if names & {'captions.py', 'pack.py'}:
         packages.add('Pillow')
     if 'transcribe.py' in names:
         packages.update(('ctranslate2', 'onnxruntime'))
@@ -1566,7 +1575,8 @@ any version. The binding says how the master is tied to its source:
               its fingerprint; the master's picture stream, geometry and frame schedule must match one of its
               entries (the file delivered, never the lossless intermediate).
               A picture list (observed anchors): the master's picture stream and schedule equal the list's.
-  screened    neither: the master is newer than every page file the fingerprint covers.
+  screened    neither: the master is newer than every page file the fingerprint covers and the timing modules,
+              and the timing modules hold the cue list's timing.
   overridden  older, accepted by --accept-older "reason" (recorded in decisions.jsonl).
   unverified  the binding cannot be checked: the export or the render was not shown closed, the receipt lacks
               pre-rewrite digests or lf1 digests or is not traced, or a display transform is not a quarter turn
@@ -1737,14 +1747,15 @@ def _mux(master, wav, target, seconds):
                         '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-af', 'apad', '-c:a', 'aac',
                         '-profile:a', 'aac_low', '-ar', '48000', '-b:a', '256k', '-t', f'{seconds:.6f}',
                         '-movflags', '+faststart', '-movie_timescale', '48000', str(target)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding='utf-8', errors='replace')
     if r.returncode:
         raise Refused('the mux failed: ' + r.stderr.strip()[-400:])
 
 
 def _remux_mp4(master, target):
     r = subprocess.run([_ffmpeg(), '-hide_banner', '-v', 'error', '-nostdin', '-n', '-i', str(master), '-map', '0',
-                        '-c', 'copy', '-movflags', '+faststart', str(target)], capture_output=True, text=True)
+                        '-c', 'copy', '-movflags', '+faststart', str(target)], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
     if r.returncode:
         raise Refused('could not copy the master into an MP4 without re-encoding: ' + r.stderr.strip()[-400:])
 
@@ -1771,7 +1782,7 @@ def screen_turns(master, schedule, events):
     width = 160
     probe = subprocess.run([shutil.which('ffprobe') or 'ffprobe', '-v', 'error', '-select_streams', 'v:0',
                             '-show_entries', 'stream=width,height', '-of', 'csv=p=0', str(master)],
-                           capture_output=True, text=True).stdout.strip().split(',')
+                           capture_output=True, text=True, encoding='utf-8', errors='replace').stdout.strip().split(',')
     w0, h0 = int(probe[0]), int(probe[1])
     height = max(2, int(round(h0 * width / w0 / 2)) * 2)
     raw = subprocess.run([_ffmpeg(), '-v', 'error', '-nostdin', '-i', str(master), '-map', '0:v:0',
@@ -1795,71 +1806,82 @@ def screen_turns(master, schedule, events):
     return out
 
 
+def timing_modules(cues_file, page_dir=None):
+    """The generated timing modules a render takes (cue_list.timing_modules): one rule for run_render, which stages
+    them, _timing_binding, which compares them, and film_render.py."""
+    return _sibling('cue_list').timing_modules(cues_file, page_dir)
+
+
 def run_render(cmd, copy_dir, out, min_free_gib, wait_min, cues_file=None, page_dir=None):
-    """Run an engine CMD with {page} and {out} filled, under the heavy lock, with outbound network blocked."""
+    """Run an engine CMD with {page} and {out} filled, under the heavy lock, with outbound network blocked. The timing
+    modules are verified and staged before the lock is taken, and the lock, sink and log are released on every path:
+    a refused module had left the shared lock on disk."""
+    filled = cmd.replace('{page}', _quote(copy_dir)).replace('{out}', _quote(out))
+    cue_env, generated = {}, {}
+    if cues_file:
+        cl = _sibling('cue_list')
+        cue_env['LF_CUES_FILE'] = str(Path(cues_file).resolve())
+        found = timing_modules(cues_file, page_dir)
+        if found:
+            cue_env['LF_CUES_GEN'] = cl.format_cues_gen_env(found)
+    if page_dir:
+        cue_env['LF_PAGE_DIR'] = str(Path(page_dir).resolve())
+    if cue_env.get('LF_CUES_GEN') and cues_file:
+        # the page imports ./times.gen.js, which the kept copy leaves out (it is an export): an engine given {page}
+        # failed to load it. Verified against the cue list, the modules go into a copy of the kept page made for this
+        # render (the kept copy itself stays as frozen), and the engine is given that copy. Each module staged is
+        # verified: a valid times.gen.js had let a stale times.gen.ts through to an engine that read it.
+        cl = _sibling('cue_list')
+        modules = timing_modules(cues_file, page_dir)
+        drift = [problem for module in modules for problem in cl.verify_cue_constants(cues_file, module)]
+        if drift:
+            hint = '' if any('rename it' in e for e in drift) else '; run cue_list.py codegen'
+            raise Refused('the timing constants do not match the cue list: ' + '; '.join(drift[:3]) + hint)
+        staged = Path(tempfile.mkdtemp(prefix='lf-page-'))
+        import atexit
+        atexit.register(shutil.rmtree, staged, True)
+        shutil.copytree(copy_dir, staged / 'page')
+        for module in modules:
+            copied = staged / 'page' / module.name
+            shutil.copyfile(module, copied)
+            # the copy the engine reads is the one checked, and the preload is pointed at it: it had re-checked the
+            # page's own module, so a copy that differed from what was checked rendered unchecked
+            drift = cl.verify_cue_constants(cues_file, copied)
+            if drift:
+                raise Refused('the staged timing module does not match the cue list: ' + '; '.join(drift[:3]))
+            generated[module.name] = file_sha256(copied)
+        # every staged module goes to the preload, which had been given the first alone: a staged times.gen.ts that
+        # changed after this check reached an engine that reads TypeScript unchecked
+        cue_env['LF_CUES_GEN'] = cl.format_cues_gen_env(staged / 'page' / module.name for module in modules)
+        filled = cmd.replace('{page}', _quote(staged / 'page')).replace('{out}', _quote(out))
     lock_module = _sibling('with_lock')
     lock = lock_module.HeavyLock(min_free_gib=min_free_gib, wait_min=wait_min, label='add-version')
-    filled = cmd.replace('{page}', _quote(copy_dir)).replace('{out}', _quote(out))
     sink = _sink_server()
     handle, name = tempfile.mkstemp(prefix='lf-block-', suffix='.jsonl')
     os.close(handle)
     log = Path(name)
     try:
-        lock.acquire()   # inside a job that already holds it (the full self-test), it proceeds at once
-    except lock_module.LockTimeout as error:
-        sink.shutdown()
-        sink.server_close()
-        log.unlink(missing_ok=True)
-        raise Refused(f'the render did not start: {error}') from None
-    env = lock.child_env() if lock.held else dict(os.environ)
-    preload = Path(__file__).with_name('render_block.cjs').resolve().as_posix()
-    env['NODE_OPTIONS'] = f'--require "{preload}"' + (' ' + env['NODE_OPTIONS'] if env.get('NODE_OPTIONS') else '')
-    url = f'http://127.0.0.1:{sink.server_address[1]}'
-    for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
-        env[key] = url
-    env['NO_PROXY'] = env['no_proxy'] = 'localhost,127.0.0.1,::1'
-    env.update(LF_BLOCK_PROXY=url, LF_BLOCK_LOG=str(log), HF_CLI_TELEMETRY_DISABLED='1', DO_NOT_TRACK='1')
-    if cues_file:
-        cp = Path(cues_file).resolve()
-        env['LF_CUES_FILE'] = str(cp)
-        for cand_dir in [Path(page_dir).resolve() if page_dir else None, cp.parent]:
-            if cand_dir is None:
-                continue
-            for name_gen in ('times.gen.js', 'times.gen.ts'):
-                cand = cand_dir / name_gen
-                if cand.is_file():
-                    env['LF_CUES_GEN'] = str(cand)
-                    break
-            if 'LF_CUES_GEN' in env:
-                break
-    if page_dir:
-        env['LF_PAGE_DIR'] = str(Path(page_dir).resolve())
-    if env.get('LF_CUES_GEN') and cues_file:
-        # the page imports ./times.gen.js, which the kept copy leaves out (it is an export): an engine given {page}
-        # failed to load it. Verified against the cue list, it goes into a copy of the kept page made for this render
-        # (the kept copy itself stays as frozen), and the engine is given that copy.
-        cl = _sibling('cue_list')
-        gen = Path(env['LF_CUES_GEN'])
-        drift = cl.verify_cue_constants(cues_file, gen)
-        if drift:
-            raise Refused('the timing constants do not match the cue list: ' + '; '.join(drift[:3]))
-        staged = Path(tempfile.mkdtemp(prefix='lf-page-'))
-        import atexit
-        atexit.register(shutil.rmtree, staged, True)
-        shutil.copytree(copy_dir, staged / 'page')
-        for name_gen in ('times.gen.js', 'times.gen.ts'):
-            if (gen.parent / name_gen).is_file():
-                shutil.copyfile(gen.parent / name_gen, staged / 'page' / name_gen)
-        filled = cmd.replace('{page}', _quote(staged / 'page')).replace('{out}', _quote(out))
-    # npm and npx run offline: a cached engine resolves from the cache, one that is not cached fails, and no
-    # registry lookup reaches the block (npm stops on the sink's refusal, where it would fall back offline).
-    env.update(npm_config_offline='true', npm_config_update_notifier='false', npm_config_audit='false',
-               npm_config_fund='false')
-    held = 'inherited from the job that holds it' if lock.inherited else str(lock.path)
-    try:
-        started = time.time()
-        stamp = now()
         try:
+            lock.acquire()   # inside a job that already holds it (the full self-test), it proceeds at once
+        except lock_module.LockTimeout as error:
+            raise Refused(f'the render did not start: {error}') from None
+        try:
+            env = lock.child_env() if lock.held else dict(os.environ)
+            preload = Path(__file__).with_name('render_block.cjs').resolve().as_posix()
+            env['NODE_OPTIONS'] = f'--require "{preload}"' + (' ' + env['NODE_OPTIONS'] if env.get('NODE_OPTIONS') else '')
+            url = f'http://127.0.0.1:{sink.server_address[1]}'
+            for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
+                env[key] = url
+            env['NO_PROXY'] = env['no_proxy'] = 'localhost,127.0.0.1,::1'
+            env.update(LF_BLOCK_PROXY=url, LF_BLOCK_LOG=str(log), HF_CLI_TELEMETRY_DISABLED='1', DO_NOT_TRACK='1')
+            env.update(cue_env)
+            # npm and npx run offline: a cached engine resolves from the cache, one that is not cached fails, and no
+            # registry lookup reaches the block (npm stops on the sink's refusal, where it would fall back offline).
+            env.update(npm_config_offline='true', npm_config_update_notifier='false', npm_config_audit='false',
+                       npm_config_fund='false')
+            held = 'inherited from the job that holds it' if lock.inherited else str(lock.path)
+            started = time.time()
+            stamp = now()
             r = subprocess.run(filled, shell=True, env=env, capture_output=True, text=True, encoding='utf-8',
                                errors='replace')
         finally:
@@ -1871,7 +1893,7 @@ def run_render(cmd, copy_dir, out, min_free_gib, wait_min, cues_file=None, page_
             except ValueError:
                 continue
         return {'returncode': r.returncode, 'output': (r.stdout or '') + (r.stderr or ''), 'started': started,
-                'started_at': stamp, 'ended_at': now(), 'filled': filled, 'lock': held,
+                'started_at': stamp, 'ended_at': now(), 'filled': filled, 'lock': held, 'generated': generated,
                 'nodes': sum(1 for x in rows if x.get('event') == 'node'),
                 'browsers': [x.get('exe') for x in rows if x.get('event') == 'browser'],
                 'refused': [f"{x.get('host')}:{x.get('port')}" for x in rows if x.get('event') == 'refused'],
@@ -1882,7 +1904,58 @@ def run_render(cmd, copy_dir, out, min_free_gib, wait_min, cues_file=None, page_
         log.unlink(missing_ok=True)
 
 
-def _receipt_binding(cl, listed, receipt_path, record, master_id):
+def _named_list_has_timing(cl, sha, cues_path, page):
+    """The page's cues.json is the very list a receipt names (SHA, its bytes' hash) and holds the timing of the list
+    given: so a receipt that recorded no modules (2.3.0 make_film.py) binds the cues.spotted.json spotted from it."""
+    named = Path(page) / 'cues.json'
+    try:
+        return (named.is_file() and file_sha256(named) == sha
+                and cl.cue_timing_sha256(named) == cl.cue_timing_sha256(cues_path))
+    except (OSError, ValueError):
+        return False
+
+
+def _timing_binding(cl, listed, receipt, cues_path, page):
+    """Reasons a receipt cannot show it rendered the cue timing and generated modules registered now; raises Refused
+    when they changed since the render. A render whose cue then moved, with both modules regenerated, had registered
+    as binding: the page's fingerprint leaves the generated modules out, and nothing compared them."""
+    reasons = []
+    modules = {module.name: module for module in timing_modules(cues_path, page)}   # where the render took them
+    now = {name: file_sha256(module) for name, module in modules.items()}
+    rendered = receipt.get('generated') or {}
+    if rendered and rendered != now:
+        changed = sorted(n for n in set(rendered) | set(now) if rendered.get(n) != now.get(n))
+        raise Refused(f"the generated timing modules changed since the render ({', '.join(changed)}): render again")
+    in_sync = not any(cl.verify_cue_constants(cues_path, module) for module in modules.values())
+    timing = receipt.get('cues_timing_sha256')
+    if timing:
+        if timing != cl.cue_timing_sha256(cues_path):
+            raise Refused('the cue timing changed since the render (the receipt records another CUES_SHA256 than the '
+                          'cue list has): render again')
+    elif rendered and in_sync:
+        # the modules it rendered are the ones here (checked above) and they hold the timing of the list given,
+        # whichever file of that timing it is: a 2.3.0 receipt registered with the cues.spotted.json spotting writes
+        # from cues.json had been refused for naming cues.json, as this branch came after the one below
+        pass
+    elif receipt.get('cues_sha256'):
+        # a receipt recording only the cue list it was given binds that list alone: one whose list then changed had
+        # bound with no reason when it recorded no modules, or came from a page without them
+        if receipt['cues_sha256'] != listed.sha256 and not _named_list_has_timing(cl, receipt['cues_sha256'], cues_path,
+                                                                                 page):
+            raise Refused('the cue list changed since the render (the receipt names another cue list and records no '
+                          'cue timing): render again')
+    else:
+        reasons.append('the receipt records neither the cue list nor the cue timing it rendered')
+    if now and not in_sync:
+        # modules that do not hold the list's timing are refused whatever the receipt records: with the timing hash
+        # matching and the modules as rendered, drift had been computed and then let through
+        names = ', '.join(sorted(now))
+        verb = 'does' if len(now) == 1 else 'do'
+        raise Refused(f"{names} {verb} not hold the cue list's timing: run cue_list.py codegen and render again")
+    return reasons
+
+
+def _receipt_binding(cl, listed, receipt_path, record, master_id, cues_path=None, page=None):
     """(binding, reasons, entry) for a kit receipt; raises Refused on any mismatch."""
     receipt = load_json(receipt_path, None)
     if not isinstance(receipt, dict) or not all(k in receipt for k in ('source_fingerprint', 'frozen', 'entries')):
@@ -1918,6 +1991,8 @@ def _receipt_binding(cl, listed, receipt_path, record, master_id):
             raise Refused('the receipt\'s per-file digests do not reproduce its fingerprint')
     if receipt.get('render_trace') != 'traced':
         reasons.append(f"the render was not traced (render_trace {receipt.get('render_trace')!r})")
+    if cues_path is not None and page is not None:
+        reasons += _timing_binding(cl, listed, receipt, cues_path, Path(page))
     entry = next((e for e in receipt['entries'] if e.get('picture_sha256') == master_id['sha256']), None)
     if entry is None:
         raise Refused('the master\'s picture stream is not one the receipt recorded (each step that writes a picture '
@@ -1997,6 +2072,9 @@ def add_version(args):
                 raise Refused('the kept copy differs from the export snapshot (' + '; '.join(problems[:5]) +
                               '); export again')
             out.parent.mkdir(parents=True, exist_ok=True)
+            # the cue timing this render is given, sampled before it starts: hashed after it, a cue moved while it ran
+            # was recorded as the timing rendered
+            timing_given = cl.cue_timing_sha256(args.cues)
             ran = run_render(args.render, copy_dir, out, args.min_free_gib, args.wait_min,
                              cues_file=args.cues, page_dir=page)
             if ran['returncode']:
@@ -2007,6 +2085,9 @@ def add_version(args):
                 raise Refused(f'the render command\'s output does not name {out}, so it cannot be shown to be this '
                               'render\'s file')
             _live(cl, args.cues, page, during=True)
+            if cl.cue_timing_sha256(args.cues) != timing_given:
+                raise Refused('the cue timing changed during the render (a cue moved in the cue list while it ran): '
+                              'render again')
             after = _copy_changes(cl, cl.verify_frozen(copy_dir, record['frozen_files'], snapshot),
                                   record['frozen_files'])
             if after:
@@ -2019,6 +2100,7 @@ def add_version(args):
                 reasons.append(f'the render tried to reach the network (blocked): {attempt}')
             receipt_rows = {'command': args.render, 'ran': ran['filled'], 'source_fingerprint': listed.picture['sha256'],
                             'snapshot_sha256': snapshot, 'cues_sha256': listed.sha256, 'digest': cl.DIGEST,
+                            'cues_timing_sha256': timing_given, 'generated': ran['generated'],
                             'frozen': {rel: {'sha256': sha, 'file_digest': cl.file_digest(copy_dir / rel)}
                                        for rel, sha in record['frozen_files'].items()},
                             'output': str(out), 'output_sha256': file_sha256(out),
@@ -2058,13 +2140,24 @@ def add_version(args):
         if kind == 'page' and args.render:
             binding = 'unverified' if reasons else 'receipt'
         elif kind == 'page' and args.receipt:
-            binding, extra, entry = _receipt_binding(cl, listed, args.receipt, record, picture_id)
+            binding, extra, entry = _receipt_binding(cl, listed, args.receipt, record, picture_id, args.cues, page)
             reasons += extra
             if binding == 'receipt' and reasons:
                 binding = 'unverified'
             render_trace = (load_json(args.receipt, {}) or {}).get('render_trace')
         if kind == 'page' and binding is None:
-            newest = max(((page / rel).stat().st_mtime for rel in cl.page_files(page)), default=0)
+            # the cue list's timing is compared by content: the timing modules the page imports must hold it. Its age
+            # had counted, and film_check.py rewrites cues.json on every run, so render, check, register refused an
+            # unchanged render; while a list edited without codegen, then rendered, was screened over modules that
+            # did not hold it. The modules are code the page runs, so they count with its files by age (codegen no
+            # longer rewrites a module whose content is unchanged).
+            modules = timing_modules(args.cues, page)
+            drift = [problem for module in modules for problem in cl.verify_cue_constants(args.cues, module)]
+            if drift:
+                raise Refused('the timing modules do not hold the cue list\'s timing (' + '; '.join(drift[:3]) +
+                              '): run cue_list.py codegen and render again')
+            inputs = [page / rel for rel in cl.page_files(page)] + modules
+            newest = max((path.stat().st_mtime for path in inputs), default=0)
             if master.stat().st_mtime > newest:
                 binding = 'screened'
             elif args.accept_older:
@@ -2072,6 +2165,15 @@ def add_version(args):
             else:
                 raise Refused('the master is older than the page it should show (a file changed after it was '
                               'rendered); render again, or pass --accept-older "reason" to record the decision')
+            if not modules:
+                # with no timing modules and no receipt, nothing ties the render to the cue list's timing: a cue edited
+                # after the render had been screened. The list's age cannot stand in (film_check.py rewrites it), so
+                # the render is registered, unverified, with the missing link named.
+                reasons.append('no timing modules (times.gen.js or times.gen.ts) beside the page or the cue list, and '
+                               'no render receipt: nothing ties this render to the cue list\'s timing (run cue_list.py '
+                               'codegen and import the module in the film, or register with --render or --receipt)')
+                if binding == 'screened':
+                    binding = 'unverified'
         if kind == 'picture':
             state = cl.check(args.cues, owner=picture_file)
             if state.state == 'stale':

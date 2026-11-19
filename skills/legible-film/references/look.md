@@ -54,8 +54,27 @@ reference for later rounds.
 - Look at every image reference at full size, and draw the set with `look.py board PROJECT` to see it whole.
 - Before generating lower-thirds, callouts, or standalone motion blocks, render and inspect the **world sheet**
   (`look.py world-sheet PROJECT`, writing `refs/world-sheet.png` or `qa/world-sheet.png`) showing the world line
-  (subject × far thing), palette contrast, reference thumbnails, and typography specimen (`<= 3`-word serif limit,
-  `>= 2x` held display-to-secondary scale, `-0.03em..-0.05em` display tracking vs `+0.10em..+0.16em` mono labels).
+  (taken from `--world-line`, or else from the first bullet in `treatment.md`, `look.md` or `BOARD.md` whose label
+  begins with the word `World` or `Visual world`, in any case, up to its colon: `- World: …`, `- World line: …`, and
+  also any other label after `World`, so `- World population: …` counts; never `frame.what` or `Tone`), palette
+  contrast, reference thumbnails, and typography specimen (`<= 3`-word serif limit, `>= 2x` held display-to-secondary
+  scale, `-0.03em..-0.05em` display tracking vs `+0.10em..+0.16em` mono labels), widening or lengthening the sheet
+  past 1920 by 1080 up to 7680 by 4320 when the requested pixel sizes need it.
+- How `film_check.py` judges a world sheet:
+  - `film_check.py` looks for a sheet only in the film's `qa/` or its enclosing project's `refs/`, and checks the
+    title and world line the sheet shows against what the film states now.
+  - A kit film's title is the one its running page reports; a project's is its `status.json` title, which must also be
+    the one it had when the sheet was drawn; the world line is the `World line` stated now. A sheet that shows the
+    folder's name passes only while the film states no title, and a default world line only while none is stated.
+  - When no `--title` is given, the title is read from `film.js` only to choose what to draw: if that reading is
+    wrong, the check refuses the sheet and says to draw it again with `look.py world-sheet`, giving the folder and the
+    title the film runs with each on a line of its own, exactly as they are; pass the title with `--title`.
+  - The check tells you that a sheet sits in this film's or its project's place and names it, and that the title and
+    world line it shows are the ones the film has now. It is a guard against the usual accident, a film folder copied
+    to start another film or retitled, not a proof of which film a sheet was drawn for: it does not notice a changed
+    brand (the running page does not report one), a value you gave on the command line (`--title`, `--world-line`,
+    `--brand` and the rest are not compared), a copy whose title and world line are unchanged, or a sheet copied from
+    another project started without `--title` whose folder has the same name.
 - Study a video reference over its range, frame by frame: `frame_sheet.py refs/V01.mp4 --every 0.25 --out
   refs/V01-rhythm.png` for its rhythm, `--around T --span 1.2 --rate 30` at each cut or transition, `motion_scan.py`
   for its pace in numbers. List what it does under Study in look.md, apart from the person's own words: timecode,

@@ -5,8 +5,9 @@ This product includes software and documentation developed by James Dimachkie.
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 Bundled fonts in skills/legible-film/assets/kit/fonts/ keep their own licences, each in the adjacent LICENSE file:
-Mona Sans and Geist Mono (SIL Open Font License 1.1), and Noto Sans Arabic, Hebrew, Thai and Devanagari (SIL Open
-Font License 1.1, copyright The Noto Project Authors; see NOTO-NOTICE.md).
+Mona Sans and Geist Mono (SIL Open Font License 1.1), Fraunces (SIL Open Font License 1.1, copyright 2018 The
+Fraunces Project Authors; Fraunces-LICENSE.txt), and Noto Sans Arabic, Hebrew, Thai and Devanagari (SIL Open Font
+License 1.1, copyright The Noto Project Authors; see NOTO-NOTICE.md).
 
 The example in examples/first-cut/ is an excerpt of Tears of Steel (c) Blender Foundation, mango.blender.org,
 licensed under the Creative Commons Attribution 3.0 licence (https://creativecommons.org/licenses/by/3.0/). It is cut

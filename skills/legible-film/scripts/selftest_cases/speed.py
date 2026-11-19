@@ -91,7 +91,7 @@ def counted_source(scripts_dir, path, seconds=6, rate=30, picture='', encode=(),
 def facts(path):
     """ffprobe's streams and format for a file."""
     result = subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(path)],
-                            capture_output=True, text=True, check=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     return json.loads(result.stdout)
 
 
@@ -147,7 +147,8 @@ def difference(first, second):
 def sound_hash(video):
     """The SHA-256 of a file's first audio stream's packets."""
     result = subprocess.run(['ffmpeg', '-hide_banner', '-v', 'error', '-i', str(video), '-map', '0:a:0', '-c', 'copy',
-                             '-f', 'hash', '-hash', 'sha256', '-'], capture_output=True, text=True, check=True)
+                             '-f', 'hash', '-hash', 'sha256', '-'], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace', check=True)
     return result.stdout.strip()
 
 
@@ -345,7 +346,8 @@ def check_hard_sources(tool, record, j, scripts_dir, skip):
                    picture=r"setpts='(floor(N/3)*0.1+if(eq(mod(N,3),0),0,if(eq(mod(N,3),1),0.025,0.065)))/TB'",
                    encode=(*BT709_ENCODE, '-fps_mode', 'vfr', '-video_track_timescale', '90000'))
     pts = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts_time',
-                          '-of', 'csv=p=0', str(vfr)], capture_output=True, text=True, check=True).stdout.split()
+                          '-of', 'csv=p=0', str(vfr)], capture_output=True, text=True,
+                         encoding='utf-8', errors='replace', check=True).stdout.split()
     times = sorted(float(value.strip(' ,')) for value in pts if value.strip(' ,'))
     origin = times[0]
     times = [value - origin for value in times]
@@ -503,7 +505,7 @@ def check_colour(tool, record, j, scripts_dir, skip):
         return
     source = Path(j('speed-colour-hlg.mp4'))
     counted_source(scripts_dir, source, seconds=2,
-                   picture='scale=out_color_matrix=bt2020nc:out_range=tv,'
+                   picture='scale=out_color_matrix=bt2020:out_range=tv,'
                            'setparams=colorspace=bt2020nc:color_trc=arib-std-b67:color_primaries=bt2020',
                    encode=('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '8', '-pix_fmt', 'yuv420p10le',
                            '-colorspace', 'bt2020nc', '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67',
@@ -581,7 +583,7 @@ def check_hdr_note(tool, record, j, scripts_dir, skip):
         return
     source = Path(j('speed-hdr.mp4'))
     counted_source(scripts_dir, source, seconds=2,
-                   picture='scale=out_color_matrix=bt2020nc:out_range=tv,'
+                   picture='scale=out_color_matrix=bt2020:out_range=tv,'
                            'setparams=colorspace=bt2020nc:color_trc=arib-std-b67:color_primaries=bt2020',
                    encode=('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '12', '-pix_fmt', 'yuv420p10le',
                            '-colorspace', 'bt2020nc', '-color_primaries', 'bt2020', '-color_trc', 'arib-std-b67',

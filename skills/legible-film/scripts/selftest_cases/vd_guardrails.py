@@ -186,7 +186,9 @@ export default function film(kit) {
     p1 = json.loads(out_p1) if c_p1 == 0 else {}
     pack1_dir = Path(p1.get('pack_dir', ''))
     l_ok = all((pack1_dir / 'lineup' / l / 'story-01.jpg').is_file() for l in (p1.get('letters') or {}))
-    a_ok = (pack1_dir / 'alone' / 'key-1.png').is_file() and (pack1_dir / 'alone' / 'move-1.jpg').is_file()
+    alone1_dir = Path((p1.get('alone') or {}).get('dir', ''))
+    a_ok = ((alone1_dir / 'key-1.png').is_file() and (alone1_dir / 'move-1.jpg').is_file()
+            and not alone1_dir.is_relative_to(pack1_dir))   # never beside the lineup readers are given
     key_outside = Path(p1.get('key_txt', '')).is_file() and not Path(p1.get('key_txt', '')).is_relative_to(pack1_dir)
     record('vd_guardrails: pack.py creates blinded lineup + alone bundles with key kept outside',
            c_p1 == 0 and l_ok and a_ok and key_outside, out_p1[:200])
@@ -448,11 +450,11 @@ export default function film(kit) {
     record('vd_guardrails: times.gen binds timing: spotted roles verify, a moved cue and an appended line do not',
            c_sp == 0 and c_mv != 0 and c_ap != 0, f'spotted={c_sp}, moved={c_mv}, appended={c_ap}; {out_sp[:160]}')
 
-    # Tamper with times.gen.js and confirm verifier + film_capture.mjs + render_block.cjs fail exit 2 immediately.
-    _write_lf(js_f, js_f.read_text(encoding='utf-8').replace('"0":', '"__broken":') + '\n// tampered\n')
-    bad_js_text = js_f.read_text(encoding='utf-8')
-    # Replace first numeric time inside CUES_SHA256 / TIMES so hash & times differ reliably.
-    tampered = bad_js_text.replace('CUES_SHA256 = "', 'CUES_SHA256 = "0000')
+    # Tamper with times.gen.js and confirm verifier + film_capture.mjs + render_block.cjs fail exit 2 immediately. Only
+    # the digest's value changes, at its own length: the 2.3.0 case had lengthened it (and appended a stray line), which
+    # the Node checks' shape test caught while a 64-zero digest passed them.
+    start = js_clean.index('CUES_SHA256 = "') + len('CUES_SHA256 = "')
+    tampered = js_clean[:start] + '0' * 64 + js_clean[start + 64:]
     _write_lf(js_f, tampered)
     c_v1, _ = tool('cue_list.py', 'codegen', str(cg_page / 'cues.json'), '--verify')
 

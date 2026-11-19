@@ -39,7 +39,9 @@ def link(target, alias):
     except (OSError, NotImplementedError):
         pass
     if os.name == 'nt':
-        r = subprocess.run(['cmd', '/c', 'mklink', '/J', str(alias), str(target)], capture_output=True, text=True)
+        # cmd.exe writes the console's code page, not UTF-8: read in the locale encoding, with stand-ins
+        r = subprocess.run(['cmd', '/c', 'mklink', '/J', str(alias), str(target)], capture_output=True, text=True,
+                           errors='replace')
         return r.returncode == 0 and alias.exists()
     return False
 

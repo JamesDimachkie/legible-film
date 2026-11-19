@@ -174,7 +174,7 @@ def run_gaps_cases(tool, record, j, scripts_dir):
                    str([(r['time_s'], r['lag_ms'], r['correlation']) for r in repaired['windows']]))
             p = subprocess.run([sync.find_tool('ffprobe'), '-v', 'error', '-count_frames', '-select_streams', 'v:0',
                                 '-show_entries', 'stream=nb_read_frames,duration', '-of', 'json', recipe['output']],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, encoding='utf-8', errors='replace')
             picture = json.loads(p.stdout)['streams'][0]
             record(f'sync_check: {ratio:g} repair preserves all 720 picture frames and 24 s',
                    picture['nb_read_frames'] == '720' and abs(float(picture['duration']) - 24) < .001)

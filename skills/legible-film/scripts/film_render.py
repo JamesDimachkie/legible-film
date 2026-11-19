@@ -56,6 +56,15 @@ import tempfile
 import threading
 import time
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 try:
     import numpy as np
     from PIL import Image
@@ -303,12 +312,14 @@ def main():
             if problems:
                 raise ValueError('the kept copy differs from the export snapshot (' + '; '.join(problems[:5]) +
                                  '); export the cue list again')
-            for gen_name in ('times.gen.js', 'times.gen.ts'):
-                gen_path = source / gen_name
-                if gen_path.is_file():
-                    sync_errs = cue_list.verify_cue_constants(a.cues, gen_path)
-                    if sync_errs:
-                        raise ValueError('; '.join(sync_errs))
+            for gen_path in cue_list.timing_modules(a.cues, source):
+                sync_errs = cue_list.verify_cue_constants(a.cues, gen_path)
+                if sync_errs:
+                    hint = '' if any('rename it' in e for e in sync_errs) else '; run cue_list.py codegen'
+                    raise ValueError('; '.join(sync_errs) + hint)
+        # the cue timing this render is given, sampled before it starts: the receipt had hashed the cue list as it
+        # stood when the render ended, so a cue moved during the render was recorded as the timing rendered
+        timing_given = cue_list.cue_timing_sha256(a.cues) if a.cues else None
         with tempfile.TemporaryDirectory(prefix='lf-render-', dir=output.parent if output.parent.is_dir() else None) as tmp:
             tmp = Path(tmp)
             frozen = tmp / 'frozen'
@@ -328,13 +339,23 @@ def main():
             if record is not None and hashes != record['frozen_files']:
                 raise ValueError('the kept copy changed while it was copied for the render; export again')
             generated = {}
-            for gen_name in ('times.gen.js', 'times.gen.ts'):
-                gen_src = source / gen_name
-                if gen_src.is_file() and not (frozen / gen_name).exists():
+            # the modules from where add-version takes them: the page folder, else beside the cue list (this had
+            # looked in the page alone, so a page whose modules sit beside an external --cues could not load them)
+            modules = (cue_list.timing_modules(a.cues, source) if a.cues else
+                       [source / n for n in ('times.gen.js', 'times.gen.ts') if (source / n).is_file()])
+            for gen_src in modules:
+                gen_name = gen_src.name
+                if not (frozen / gen_name).exists():
                     # the constants the page imports are code it runs: verified above against the cue list when one
                     # is given, and recorded in the receipt with their hash (they had rendered unrecorded). They
                     # are kept apart from the page's files, whose hashes must rebuild the export's snapshot.
                     shutil.copyfile(gen_src, frozen / gen_name)
+                    if a.cues:
+                        # the copy the page will import is the one checked, against the timing sampled above
+                        sync_errs = cue_list.verify_cue_constants(a.cues, frozen / gen_name)
+                        if sync_errs or cue_list.cue_timing_sha256(a.cues) != timing_given:
+                            raise ValueError('the cue list or its timing modules changed while the render was '
+                                             'prepared: ' + ('; '.join(sync_errs) or 'the cue timing moved'))
                     generated[gen_name] = C.sha256(frozen / gen_name)
             digests = {rel: cue_list.file_digest(frozen / rel) for rel in names}
             served = []
@@ -391,7 +412,8 @@ def main():
             cmd = [a.ffmpeg, '-v', 'error', '-nostdin', '-f', 'concat', '-safe', '0', '-i', str(concat), '-c', 'copy']
             if not a.lossless:
                 cmd += ['-movflags', '+faststart']
-            r = subprocess.run(cmd + [str(assembled)], capture_output=True, text=True)
+            r = subprocess.run(cmd + [str(assembled)], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
             if r.returncode:
                 raise RenderFailure('concat failed: ' + r.stderr[-1000:])
             decoded = C.decoded_count(a.ffprobe, assembled)
@@ -415,6 +437,8 @@ def main():
                         'generated': generated,
                         'cues': str(Path(a.cues).resolve()) if a.cues else None,
                         'cues_sha256': listed.sha256 if listed else None,
+                        # the cue timing this render showed, so a list whose cue moved afterwards does not bind it
+                        'cues_timing_sha256': timing_given,
                         'binding_reasons': (list(record.get('reasons') or []) if record else []) +
                                            [f"a request the copy does not hold: {r['path']}" for r in missing],
                         'render_trace': 'traced', 'requests': served,
@@ -428,7 +452,8 @@ def main():
                                      'playwright': records[0]['playwright'], 'chromium': records[0]['chromium'],
                                      'pillow': Image.__version__, 'ffmpeg': C.version(a.ffmpeg),
                                      'ffprobe': C.version(a.ffprobe),
-                                     'node': subprocess.check_output([a.node, '--version'], text=True).strip()},
+                                     'node': subprocess.check_output([a.node, '--version'], text=True,
+                                                                     encoding='utf-8', errors='replace').strip()},
                         'output_sha256': C.sha256(assembled), 'wall_s': round(time.perf_counter() - started, 3),
                         'audio': 'intentionally absent', 'not_checked': 'normal-speed viewing; page purity; display appearance'}
             output.parent.mkdir(parents=True, exist_ok=True)

@@ -45,7 +45,7 @@ def write(path, data):
 
 def ffmpeg(*args):
     r = subprocess.run(['ffmpeg', '-hide_banner', '-nostdin', '-v', 'error', '-y', *map(str, args)],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding='utf-8', errors='replace')
     if r.returncode:
         raise RuntimeError(r.stderr[-300:])
 

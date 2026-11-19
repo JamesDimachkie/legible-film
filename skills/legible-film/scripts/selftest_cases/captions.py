@@ -39,7 +39,8 @@ def check_burn_quality(tool, record, j, scripts_dir):
         graph = ('[0:v]crop=640:180:0:0,settb=AVTB,setpts=PTS-STARTPTS[a];'
                  '[1:v]crop=640:180:0:0,settb=AVTB,setpts=PTS-STARTPTS[b];[a][b]psnr')
         measured = subprocess.run(['ffmpeg', '-hide_banner', '-i', str(candidate), '-i', str(root / 'plain.mp4'),
-                                   '-lavfi', graph, '-f', 'null', '-'], capture_output=True, text=True)
+                                   '-lavfi', graph, '-f', 'null', '-'], capture_output=True, text=True,
+                                  encoding='utf-8', errors='replace')
         match = re.search(r'average:([0-9.]+|inf)', measured.stderr)
         return float(match.group(1)) if measured.returncode == 0 and match else 0.0
 
@@ -72,7 +73,8 @@ def check_burn_quality(tool, record, j, scripts_dir):
         probe = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0',
                                 '-show_entries', 'stream=codec_name,level,avg_frame_rate,nb_read_frames,'
                                 'color_space,color_transfer,color_primaries:frame=best_effort_timestamp_time',
-                                '-of', 'json', str(path)], capture_output=True, text=True)
+                                '-of', 'json', str(path)], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
         data = json.loads(probe.stdout or '{}') if probe.returncode == 0 else {}
         streams.append((data.get('streams') or [{}])[0])
         timestamps.append([float(frame['best_effort_timestamp_time']) for frame in data.get('frames', [])
@@ -91,7 +93,7 @@ def check_burn_quality(tool, record, j, scripts_dir):
     ntsc_probe = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0',
                                  '-show_entries', 'stream=avg_frame_rate,nb_read_frames:'
                                  'frame=best_effort_timestamp_time', '-of', 'json', str(root / 'ntsc.mp4')],
-                                capture_output=True, text=True)
+                                capture_output=True, text=True, encoding='utf-8', errors='replace')
     ntsc_data = json.loads(ntsc_probe.stdout or '{}') if ntsc_probe.returncode == 0 else {}
     ntsc_stream = (ntsc_data.get('streams') or [{}])[0]
     ntsc_times = [float(frame['best_effort_timestamp_time']) for frame in ntsc_data.get('frames', [])
@@ -752,7 +754,7 @@ def run_captions_cases(tool, record, j, scripts_dir):
            'yellow x means: {} {}'.format(float(x1.mean()) if len(x1) else None, float(x2.mean()) if len(x2) else None))
     probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                             'stream=color_space,color_transfer,color_primaries,color_range', '-of', 'json',
-                            str(root / 'burn.mp4')], capture_output=True, text=True)
+                            str(root / 'burn.mp4')], capture_output=True, text=True, encoding='utf-8', errors='replace')
     tags = json.loads(probe.stdout)['streams'][0]
     record('captions: output colour tags', all(tags.get(key) == 'bt709' for key in
            ('color_space', 'color_transfer', 'color_primaries')) and tags.get('color_range') == 'tv', str(tags))
@@ -770,7 +772,7 @@ def run_captions_cases(tool, record, j, scripts_dir):
         def frame_times(path):
             result = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_frames',
                                      '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', str(path)],
-                                    capture_output=True, text=True)
+                                    capture_output=True, text=True, encoding='utf-8', errors='replace')
             return [float(frame['best_effort_timestamp_time']) for frame in json.loads(result.stdout)['frames']]
         original = frame_times(vfr)
         rendered = frame_times(root / 'vfr-burn.mp4')
@@ -1124,7 +1126,8 @@ def check_burn_output(tool, record, j):
                          '--json', report_path)
     probe = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0',
                             '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', str(output)],
-                           capture_output=True, text=True) if output.exists() else None
+                           capture_output=True, text=True,
+                           encoding='utf-8', errors='replace') if output.exists() else None
     frames = int(probe.stdout.strip()) if probe and probe.stdout.strip().isdigit() else None
     report = json.loads(report_path.read_text(encoding='utf-8')) if report_path.exists() else {}
     record('captions: burning preserves the exact input frame count', code in (0, 1) and frames == 20,
@@ -1275,7 +1278,8 @@ def check_world_caption_shaping(tool, record, j, scripts_dir):
         else:
             message, refused = 'no error', False
         record('captions: uncovered ' + name + ' asks for a covered font', refused, message)
-    filters = subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True, check=True)
+    filters = subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True,
+                             encoding='utf-8', errors='replace', check=True)
     available = set(re.findall(r'^\s*[TSC.]{2,3}\s+(\S+)', filters.stdout, re.MULTILINE))
     if 'ass' not in available:
         print('SKIP  captions: per-script, reference, highlighting, missing-glyph/font and title cases '
@@ -1529,7 +1533,7 @@ def check_world_caption_hdr(tool, record, root, available, arabic):
         delta = int(np.max(np.abs(pixels[0].astype(int) - pixels[1].astype(int)))) if len(pixels) == 2 else 999
         probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                                 'stream=color_space,color_transfer,color_primaries', '-of', 'json', str(burned)],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, encoding='utf-8', errors='replace')
         tags = (json.loads(probe.stdout or '{}').get('streams') or [{}])[0]
         record('captions: ' + transfer + ' is converted to SDR before compositing',
                code in (0, 1) and assemble_code in (0, 1) and delta <= 8
@@ -1600,7 +1604,8 @@ def check_bidi_uniscribe(record, j, scripts_dir):
     spec = importlib.util.spec_from_file_location('round2_caption_bidi', Path(scripts_dir) / 'captions.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    filters = subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True, check=True)
+    filters = subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True,
+                             encoding='utf-8', errors='replace', check=True)
     if not re.search(r'^\s*[TSC.]{2,3}\s+ass\s', filters.stdout, re.MULTILINE):
         print('SKIP  captions: independent bidi-order comparison needs FFmpeg libass')
         return
@@ -1677,7 +1682,7 @@ def check_font_fallbacks_and_sdr(tool, record, j, scripts_dir):
                     '-threads', '1', '-colorspace', 'bt709', str(source)], capture_output=True, check=True)
     probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                             'stream=color_space,color_transfer,color_primaries', '-of', 'json', str(source)],
-                           capture_output=True, text=True, check=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     tags = (json.loads(probe.stdout).get('streams') or [{}])[0]
     partly_tagged = (tags.get('color_space') == 'bt709'
                      and tags.get('color_primaries') in (None, 'unknown', 'unspecified'))
@@ -1695,7 +1700,8 @@ def check_font_fallbacks_and_sdr(tool, record, j, scripts_dir):
     record('captions: alternate-charmap retry requires a verified prior fallback selection',
            not module.unresolved_libass_glyphs(retried) and module.unresolved_libass_glyphs(orphan))
     import re
-    available = subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True, check=True)
+    available = subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace', check=True)
     has_ass = bool(re.search(r'^\s*[TSC.]{2,3}\s+ass\s', available.stdout, re.MULTILINE))
     cases = [('emoji', 'Go \U0001f44d'), ('cjk', 'Hello \u4e16\u754c'),
              ('arabic-emoji', '\u0645\u0631\u062d\u0628\u0627 \U0001f44d'),

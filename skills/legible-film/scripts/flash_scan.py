@@ -51,6 +51,15 @@ import sys
 import threading
 from fractions import Fraction
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 _project_spec = importlib.util.spec_from_file_location(
     'lf_project', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'project.py'))
 project = importlib.util.module_from_spec(_project_spec)
@@ -85,7 +94,8 @@ def failure(e):
 def passthrough(ffmpeg):
     """Frame-exact output: -fps_mode passthrough (FFmpeg 5.1 and later), -vsync passthrough before it."""
     try:
-        head = subprocess.run([ffmpeg, '-hide_banner', '-version'], capture_output=True, text=True).stdout
+        head = subprocess.run([ffmpeg, '-hide_banner', '-version'], capture_output=True, text=True,
+                              encoding='utf-8', errors='replace').stdout
     except OSError:
         head = ''
     m = re.search(r'version n?(\d+)\.(\d+)', head)
@@ -162,7 +172,7 @@ def timing(times):
 def probe(ffprobe, path):
     out = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                           'stream=width,height,avg_frame_rate,r_frame_rate', '-of', 'json', path],
-                         capture_output=True, text=True, check=True).stdout
+                         capture_output=True, text=True, encoding='utf-8', errors='replace', check=True).stdout
     streams = json.loads(out).get('streams') or []
     if not streams:
         raise RuntimeError('no video stream')
@@ -178,7 +188,7 @@ def interlaced(ffprobe, path):
     """True when the stream or its first frames are flagged interlaced: then each field is its own image in time."""
     r = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-read_intervals', '%+#30',
                         '-show_entries', 'stream=field_order:frame=interlaced_frame', '-of', 'json', path],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding='utf-8', errors='replace')
     data = json.loads(r.stdout or '{}') if r.returncode == 0 else {}
     order = ((data.get('streams') or [{}])[0]).get('field_order', '')
     return order in ('tt', 'bb', 'tb', 'bt') or any(f.get('interlaced_frame') == 1 for f in data.get('frames', []))

@@ -28,6 +28,15 @@ import subprocess
 import sys
 import tempfile
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 try:
     import numpy as np
     from PIL import Image, ImageDraw, ImageFont
@@ -539,7 +548,7 @@ def reel_clip(source, label, audio, start, end, item, kind, total, out, ffmpeg):
 def reel_duration(path, ffprobe):
     """Measure a reel clip's encoded duration for the listening index."""
     result = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', str(path)],
-                            capture_output=True, text=True, timeout=60)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=60)
     if result.returncode:
         raise ValueError('could not measure the review reel: ' + result.stderr[-500:])
     return float(json.loads(result.stdout)['format']['duration'])

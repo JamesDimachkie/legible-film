@@ -293,7 +293,8 @@ def ffmpeg(*args):
     exe = shutil.which('ffmpeg')
     if not exe:
         raise RuntimeError('ffmpeg is not on PATH; the stub media cannot be built')
-    done = subprocess.run([exe, '-hide_banner', '-loglevel', 'error', '-y', *args], capture_output=True, text=True)
+    done = subprocess.run([exe, '-hide_banner', '-loglevel', 'error', '-y', *args], capture_output=True, text=True,
+                          encoding='utf-8', errors='replace')
     if done.returncode:
         raise RuntimeError(f'ffmpeg failed: {done.stderr.strip()[:300]}')
 
@@ -407,7 +408,8 @@ def free_mib():
         for line in meminfo.read_text(encoding='ascii').splitlines():
             if line.startswith('MemAvailable:'):
                 return int(line.split()[1]) / 1024
-    output = subprocess.run(['vm_stat'], capture_output=True, text=True).stdout
+    # vm_stat (macOS) writes the locale encoding: read it so, with stand-ins
+    output = subprocess.run(['vm_stat'], capture_output=True, text=True, errors='replace').stdout
     page = re.search(r'page size of (\d+) bytes', output)
     counts = re.findall(r'Pages (?:free|inactive|speculative):\s*(\d+)\.', output)
     if page and counts:

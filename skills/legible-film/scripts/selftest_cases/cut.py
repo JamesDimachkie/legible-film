@@ -160,7 +160,8 @@ Notes like this line never render.
 def decode_video(path):
     """Every frame of a small video as RGB."""
     probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-                            'stream=width,height', '-of', 'csv=p=0', str(path)], capture_output=True, text=True)
+                            'stream=width,height', '-of', 'csv=p=0', str(path)], capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
     width, height = map(int, probe.stdout.strip().split(','))
     result = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],
                             capture_output=True)
@@ -1539,7 +1540,8 @@ def check_first_render(record, root, version):
     files_ok = all(hashlib.sha256((version / name).read_bytes()).hexdigest() == digest
                    for name, digest in manifest['files'].items())
     streams = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'stream=codec_type,duration', '-of', 'csv=p=0',
-                              str(version / 'preview.mp4')], capture_output=True, text=True).stdout.split()
+                              str(version / 'preview.mp4')], capture_output=True, text=True,
+                             encoding='utf-8', errors='replace').stdout.split()
     lengths = {row.split(',')[0]: float(row.split(',')[1]) for row in streams if row.count(',') == 1}
     whole = math.ceil(5.7 * FPS - 1e-9) / FPS
     record('cut: status marks cut done and check next; the manifest hashes every file; sound and picture end together',
@@ -1706,7 +1708,7 @@ def check_ntsc(tool, record, j):
     if preview.is_file():
         rates = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                                 'stream=r_frame_rate,avg_frame_rate', '-of', 'csv=p=0', str(preview)],
-                               capture_output=True, text=True).stdout.strip()
+                               capture_output=True, text=True, encoding='utf-8', errors='replace').stdout.strip()
     manifest = json.loads((folder / 'cuts' / 'v001' / 'manifest.json').read_text()) if preview.is_file() else {}
     record('cut: fps 30000/1001 renders at exactly 30000/1001', rates == '30000/1001,30000/1001'
            and manifest.get('fps') == '30000/1001' and (folder / 'cuts' / 'v001' / 'stems').is_dir(),
@@ -1963,7 +1965,7 @@ def check_ntsc_audio_tail(tool, record, j):
     cut.mux_master('ffmpeg', picture, audio, length, frames, delivery)
     probe = subprocess.run(['ffprobe', '-v', 'error', '-show_entries',
                             'stream=codec_type,nb_frames,duration_ts,time_base', '-of', 'json', str(delivery)],
-                           capture_output=True, text=True, check=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     streams = json.loads(probe.stdout)['streams']
     video = next(row for row in streams if row['codec_type'] == 'video')
     sound = next(row for row in streams if row['codec_type'] == 'audio')
@@ -2005,8 +2007,10 @@ def speak(folder):
     script = Path(folder) / 'speak.ps1'
     script.write_text(SPEECH_SCRIPT, encoding='utf-8')
     wav, events = Path(folder) / 'speech.wav', Path(folder) / 'speech-words.json'
+    # PowerShell writes the console's code page, not UTF-8: read in the locale encoding, with stand-ins
     result = subprocess.run([shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script), '-Text', SPEECH,
-                             '-Out', str(wav), '-Json', str(events)], capture_output=True, text=True, timeout=120)
+                             '-Out', str(wav), '-Json', str(events)], capture_output=True, text=True,
+                            errors='replace', timeout=120)
     if result.returncode or not wav.is_file() or not events.is_file():
         return None
     with wave.open(str(wav), 'rb') as handle:
@@ -2317,7 +2321,7 @@ def decode_identity_video(path):
     """Decode every encoded frame once, without a second frame-rate conversion."""
     probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                             'stream=width,height', '-of', 'csv=p=0', str(path)],
-                           capture_output=True, text=True, check=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     width, height = map(int, probe.stdout.strip().split(','))
     frames = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), '-map', '0:v:0',
                              '-fps_mode', 'passthrough', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'],

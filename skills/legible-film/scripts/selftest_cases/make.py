@@ -196,8 +196,14 @@ def run_kit_cases(tool, record, j, load, lengths):
         record('kit cases: new_film.py makes a project', False, out[-200:])
         return
 
-    def check(source, *args):
+    def write_film(source):
+        # each source is another film with its own title: its world sheet is drawn again, as a sheet drawn from
+        # another title, brand or world line does not count (fixes231 Q)
         film_js.write_text(source, encoding='utf-8')
+        tool('look.py', 'world-sheet', folder)
+
+    def check(source, *args):
+        write_film(source)
         return tool('film_check.py', folder, *(args or ('--size', '240x240')))
 
     code, out = check(orbit())
@@ -260,7 +266,7 @@ def run_kit_cases(tool, record, j, load, lengths):
            code == 1 and 'needs 4.5:1 at 12 px in the 240x135 delivered raster' in out and 'delivered 240x135' in out
            and row.get('min_font_px') == 24 and row.get('min_output_px') == 12 and reading.get('size') == '480x270',
            f"exit {code}; {row.get('min_font_px')} -> {row.get('min_output_px')} px")
-    film_js.write_text(orbit(), encoding='utf-8')
+    write_film(orbit())
 
     # --res is the output short side; an odd side is refused before anything runs, with a --res that works.
     code, out = tool('make_film.py', folder, '--sizes', '1280x720', '--res', 721, '--sound', 'none')
@@ -376,16 +382,18 @@ def run_make_cases(tool, record, j, scripts_dir):
     def lengths(path):
         """Decoded video frames and audio samples of a delivered file (None when a stream is absent)."""
         frames = subprocess.run(['ffprobe', '-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries',
-                                 'stream=nb_read_frames', '-of', 'csv=p=0', str(path)], capture_output=True, text=True)
+                                 'stream=nb_read_frames', '-of', 'csv=p=0', str(path)], capture_output=True, text=True,
+                                encoding='utf-8', errors='replace')
         audio = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index',
-                                '-of', 'csv=p=0', str(path)], capture_output=True, text=True).stdout.strip()
+                                '-of', 'csv=p=0', str(path)], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace').stdout.strip()
         samples = None
         if audio:
             # The container's trimmed duration, which players honour: FFmpeg 5.1's decoder ignores an MP4's end trim
             # and returns the AAC padding (144384 samples where 9.0 decodes the same file to 144000).
             probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries',
                                     'stream=duration_ts,time_base', '-of', 'json', str(path)],
-                                   capture_output=True, text=True)
+                                   capture_output=True, text=True, encoding='utf-8', errors='replace')
             stream = (json.loads(probe.stdout or '{}').get('streams') or [{}])[0]
             if stream.get('duration_ts') and stream.get('time_base'):
                 samples = round(int(stream['duration_ts']) * Fraction(stream['time_base']) * 48000)
@@ -449,7 +457,8 @@ def run_make_cases(tool, record, j, scripts_dir):
 
     def video_hash(path):
         result = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(path), '-map', '0:v:0', '-c:v', 'copy',
-                                 '-f', 'hash', '-hash', 'sha256', '-'], capture_output=True, text=True)
+                                 '-f', 'hash', '-hash', 'sha256', '-'], capture_output=True, text=True,
+                                encoding='utf-8', errors='replace')
         return result.stdout.strip() if result.returncode == 0 else None
 
     old_hash = video_hash(deliverable)
@@ -747,7 +756,7 @@ def run_make_cases(tool, record, j, scripts_dir):
 
     def picture_md5(path):
         r = subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-i', str(path), '-map', '0:v:0', '-c', 'copy',
-                            '-f', 'md5', '-'], capture_output=True, text=True)
+                            '-f', 'md5', '-'], capture_output=True, text=True, encoding='utf-8', errors='replace')
         return r.stdout.strip()
     record('make_film: listening pair A/B: same picture, the two mixes, randomised and keyed outside deliver/',
            sorted([key.get('A'), key.get('B')]) == ['draft', 'hybrid'] and pair['A'] == pair['B'] == (90, 144000)
@@ -819,7 +828,8 @@ def run_make_cases(tool, record, j, scripts_dir):
         video.parent.mkdir(parents=True, exist_ok=True)
         r = subprocess.run(['ffmpeg', '-v', 'error', '-y', '-nostdin', '-f', 'lavfi', '-i',
                             f'testsrc2=s={w}x{h}:r=60:d=24', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '35',
-                            '-pix_fmt', 'yuv420p', str(video)], capture_output=True, text=True)
+                            '-pix_fmt', 'yuv420p', str(video)], capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
         status, summary, failed, sheets = make_film.cut_sheets(
             lambda label, script, *args: tool(script, *args), video, cuts, (w, h), 60, video.parent / f'{w}x{h}')
         frames, _ = lengths(video) if not r.returncode else (0, None)

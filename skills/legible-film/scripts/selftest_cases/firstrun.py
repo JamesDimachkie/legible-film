@@ -65,9 +65,9 @@ def check_transcription_consent(record, setup, j, scripts):
            str(downloading)[:500] + said)
     script = scripts / 'setup.py'
     refused = subprocess.run([sys.executable, '-I', str(script), '--install', 'transcription', '--download', '--json'],
-                             stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding='utf-8', errors='replace')
     orphan = subprocess.run([sys.executable, '-I', str(script), '--install', 'core', '--download', '--yes', '--json'],
-                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding='utf-8', errors='replace')
     record('firstrun: the download also needs a yes, and --download needs a group that has a model',
            refused.returncode == 2 and 'Not installed' in refused.stdout and orphan.returncode == 2
            and '--install transcription' in orphan.stdout and '--install spatial' in orphan.stdout,
@@ -141,7 +141,7 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
     fresh_py = fresh / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
     for name, args in (('map.py', ['--help']), ('captions.py', ['--help']), ('selftest.py', ['--quick']),
                        ('flash_scan.py', ['--help']), ('blank_scan.py', ['--help'])):
-        result = subprocess.run([str(fresh_py), '-I', str(scripts / name), *args], capture_output=True, text=True)
+        result = subprocess.run([str(fresh_py), '-I', str(scripts / name), *args], capture_output=True, text=True, encoding='utf-8', errors='replace')
         text = result.stdout + result.stderr
         record('firstrun: ' + name + ' explains missing numpy without a traceback',
                result.returncode == 2 and 'numpy' in text
@@ -169,7 +169,7 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
                "runpy.run_path(sys.argv[0], run_name='__main__')\n")
     for name in ('map.py', 'captions.py', 'frame_sheet.py'):
         result = subprocess.run([sys.executable, '-I', '-c', blocker, str(scripts / name)], capture_output=True,
-                                text=True)
+                                text=True, encoding='utf-8', errors='replace')
         text = result.stdout + result.stderr
         record('firstrun: ' + name + ' explains missing Pillow without a traceback',
                result.returncode == 2 and 'Pillow' in text and '--install core' in text
@@ -177,12 +177,12 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
     env = dict(os.environ)
     env['PATH'] = str(Path(j('empty-search-path')))
     result = subprocess.run([sys.executable, '-I', str(scripts / 'selftest.py'), '--smoke'], env=env,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
     output = result.stdout + result.stderr
     record('firstrun: smoke names the missing FFmpeg and its fix', result.returncode == 2
            and 'ffmpeg is missing' in output and 'Fix:' in output, output[-700:])
     result = subprocess.run([str(fresh_py), '-I', str(scripts / 'setup.py'), '--install', 'core', '--json'],
-                            stdin=subprocess.DEVNULL, capture_output=True, text=True)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding='utf-8', errors='replace')
     try:
         refused = result.returncode == 2 and 'Not installed' in json.loads(result.stdout).get('error', '')
     except ValueError:
@@ -192,7 +192,7 @@ def run_firstrun_cases(tool, record, j, scripts_dir):
     isolated['LOCALAPPDATA'] = str(Path(j('unconfigured-user')))
     isolated['XDG_DATA_HOME'] = str(Path(j('unconfigured-user')))
     result = subprocess.run([str(fresh_py), '-I', str(scripts / 'setup.py')], env=isolated,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
     output = result.stdout + result.stderr
     expected = project.python_command([scripts / 'setup.py', '--install', 'core'], fresh_py).count('--install core')
     record('firstrun: setup prints one core repair per missing package',

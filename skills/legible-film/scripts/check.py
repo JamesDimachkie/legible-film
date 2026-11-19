@@ -115,6 +115,15 @@ import tempfile
 from fractions import Fraction
 from pathlib import Path
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 HERE = Path(__file__).resolve().parent
 SEP = ' ' + chr(183) + ' '
 DEFAULT_LOUDNESS = None
@@ -198,7 +207,7 @@ def tools_record(model=None):
     """Record media tools, relevant packages, the speech model and invoked scripts including imported helpers."""
     scripts = {}
     names = {'check.py', 'project.py'} | INVOKED
-    if names & {'qc_file.py', 'transcribe.py'}:
+    if names & {'qc_file.py', 'transcribe.py', 'pack.py'}:
         names.add('render_common.py')
     if 'tempo_map.py' in names:
         names.add('sound_io.py')
@@ -440,7 +449,7 @@ def dropout_item(video, has_audio, selector='0:a:0'):
     if not ffmpeg or not ffprobe:
         return item('dropouts', 'Holes in the sound', 'skip', 'FFmpeg or ffprobe not found')
     probe = subprocess.run([ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', str(video)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
     result = subprocess.run([ffmpeg, '-hide_banner', '-nostdin', '-i', str(video), '-map', selector, '-af',
                              f'silencedetect=noise={DROPOUT_DB}dB:d={DROPOUT_S}', '-f', 'null', '-'],
                             capture_output=True, text=True, encoding='utf-8', errors='replace')
@@ -517,7 +526,7 @@ def frame_rate(video):
         return None
     result = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                              'stream=avg_frame_rate,r_frame_rate', '-of', 'csv=p=0', str(video)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
     for value in result.stdout.strip().split(','):
         try:
             rate = Fraction(value.strip())
@@ -2147,7 +2156,8 @@ def has_audio_stream(video):
     if ffprobe is None:
         return True
     result = subprocess.run([ffprobe, '-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=index',
-                             '-of', 'csv=p=0', str(video)], capture_output=True, text=True)
+                             '-of', 'csv=p=0', str(video)], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace')
     return result.returncode != 0 or bool(result.stdout.strip())
 
 
@@ -2597,8 +2607,28 @@ def stress_item(video):
     return entry
 
 
+def report_shape_problems(data):
+    """What in a blind-pack report's summary fields (written by pack.py record, read here only to describe it) is not
+    the shape pack.py writes; the readings themselves are pack.reading_problems'. A hand-edited families,
+    dimension_averages or reasons had raised a TypeError or AttributeError instead of a message."""
+    problems = []
+    # pack.py writes None for a reader whose family it could not name, never a reason that is not a sentence
+    families, reasons = data.get('families'), data.get('reasons')
+    if families is not None and not (isinstance(families, list)
+                                     and all(isinstance(x, str) or x is None for x in families)):
+        problems.append('families must be a list of family names')
+    if reasons is not None and not (isinstance(reasons, list) and all(isinstance(x, str) for x in reasons)):
+        problems.append('reasons must be a list of sentences, each one text')
+    dims = data.get('dimension_averages')
+    if dims is not None and not (isinstance(dims, dict) and all(
+            v is None or (isinstance(v, (int, float)) and not isinstance(v, bool)) for v in dims.values())):
+        problems.append('dimension_averages must map each dimension to a number')
+    return problems
+
+
 def blind_pack_item(bp_path, video_sha256):
     """Evaluate a blind lineup record (blind-pack.json from pack.py record) against this video's SHA-256."""
+    INVOKED.add('pack.py')
     path = Path(bp_path)
     if not path.is_file():
         return item('blind_pack', 'Blind lineup: file missing', 'look', f'no such blind-pack report: {path}')
@@ -2606,13 +2636,33 @@ def blind_pack_item(bp_path, video_sha256):
         data = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError) as error:
         return item('blind_pack', 'Blind lineup: unreadable', 'look', f'{path}: {error}')
+    if not isinstance(data, dict):
+        return item('blind_pack', 'Blind lineup: unreadable', 'look', f'{path}: not a blind-pack report')
     recorded_sha = data.get('film_sha256')
-    if recorded_sha and video_sha256 and recorded_sha != video_sha256:
+    if video_sha256 and recorded_sha != video_sha256:
+        # a report with no film hash had passed for any film (a review's finding)
         return item('blind_pack', 'Blind lineup stale (made for another render)', 'look',
-                    f'pack recorded {recorded_sha[:12]} vs current file {video_sha256[:12]}; rerun pack.py + pack.py record')
+                    f'pack recorded {str(recorded_sha or "no film")[:12]} vs current file {video_sha256[:12]}; '
+                    'rerun pack.py + pack.py record')
     if 'cross_family' not in data or 'readers' not in data:
         return item('blind_pack', 'Blind lineup: awaiting two cross-family readers', 'look',
                     'run pack.py record after collecting two cross-family lineup readings')
+    spec = importlib.util.spec_from_file_location('lf_check_pack', HERE / 'pack.py')
+    pack = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pack)
+    missing = pack.reading_problems(data)
+    if missing:
+        # the report's own status and cross_family were trusted: one holding only the film hash, cross_family true and
+        # status pass passed with no reader in it (a review's finding)
+        entry = item('blind_pack', 'Blind lineup: not two complete cross-family readings', 'look', '; '.join(missing[:4]))
+        entry['group'] = 'blind_pack'
+        return entry
+    damaged = report_shape_problems(data)
+    if damaged:
+        entry = item('blind_pack', 'Blind lineup: damaged report', 'look',
+                     f'{path.name}: ' + '; '.join(damaged) + '; run pack.py record again to write it')
+        entry['group'] = 'blind_pack'
+        return entry
     status = data.get('status') or 'look'
     cross = bool(data.get('cross_family'))
     fams = ', '.join(str(x or '?') for x in (data.get('families') or []))
@@ -2630,11 +2680,14 @@ def blind_pack_item(bp_path, video_sha256):
     dim_str = ', '.join(f'{d} {dims[d]}' for d in ('pacing', 'visual_clutter', 'callout_placement') if dims.get(d) is not None)
     label = (f"Blind lineup ({fams}): ours {ours} ranks {'/'.join(ranks) or '?'} vs {yst}"
              + (f" [{', '.join(tiers)}]" if tiers else ''))
-    if status == 'pass' and cross:
+    # the verdict is the readings', not the report's: a status of pass over two "beginner" readings ranking ours below
+    # the yardstick had passed
+    verdict = pack.reading_verdict(data)
+    if not verdict and status == 'pass' and cross:
         detail = dim_str or 'two cross-family readers verified pacing, clutter, and callout placement'
         entry = item('blind_pack', label, 'pass', detail)
     else:
-        reasons = '; '.join(data.get('reasons') or ['blind lineup needs inspection'])
+        reasons = '; '.join(verdict or data.get('reasons') or ['blind lineup needs inspection'])
         detail = f'{reasons}' + (f' ({dim_str})' if dim_str else '')
         entry = item('blind_pack', label, 'look', detail)
     entry['group'] = 'blind_pack'
@@ -3486,7 +3539,6 @@ def main():
     parser.add_argument('--blind-pack', help='blind-pack.json from pack.py record for cross-family lineup verification')
     add_file_arguments(parser)
     args = parser.parse_args()
-    P.safe_output()
     try:
         if args.verify:
             code, lines = verify(args.verify)

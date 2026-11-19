@@ -78,7 +78,8 @@ def chromium(module, node):
     if module and node:
         try:
             r = subprocess.run([node, '-e', 'console.log(require(process.argv[1]).chromium.executablePath())',
-                                str(module)], capture_output=True, text=True, timeout=20)
+                                str(module)], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace', timeout=20)
             path = Path(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
             if path and path.is_file():
                 return path, 'Playwright'

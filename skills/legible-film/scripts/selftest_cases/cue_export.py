@@ -293,6 +293,7 @@ def run_cue_export_cases(tool, record, j, scripts_dir, skip=None):
 
     hyperframes = shutil.which('npx')
     probe = subprocess.run([hyperframes, '--no-install', HYPERFRAMES, '--version'], capture_output=True, text=True,
+                           encoding='utf-8', errors='replace',
                            shell=os.name == 'nt', timeout=120) if hyperframes else None
     if probe is None or probe.returncode:
         skipped('cue export: npx hyperframes check on the fixture', f'{HYPERFRAMES} is not in the npx cache', 2)

@@ -334,6 +334,7 @@ changes a shared Python. `/legible-film setup` checks everything else and gives 
 | Tracking and mattes | `--install spatial --download` | OpenCV and onnxruntime, and the subject model (26 MB) with `--download` |
 | Automatic crops | `--install faces` | OpenCV face detection |
 | The film kit | `--install kit` | Playwright and Chromium (about 160 MB); needs Node.js 18 or later |
+| Listening labels | `--install ear` | CPU PyTorch and transformers, and the CLAP and AST audio-tagging models (about 1.4 GB), after it names their size and asks |
 
 **Check the installation.** With the Python `setup.py` names, `selftest.py --smoke` takes about ten seconds and
 `selftest.py --force` runs every known-answer case, 16 to 32 minutes on CI's machines. A pass shows the scripts measure

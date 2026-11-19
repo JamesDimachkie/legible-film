@@ -129,7 +129,8 @@ def check_track_mix(record, j, scripts_dir):
             failure = str(error)[-200:]
             break
         probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries',
-                                'stream=duration_ts', '-of', 'csv=p=0', str(out)], capture_output=True, text=True)
+                                'stream=duration_ts', '-of', 'csv=p=0', str(out)], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
         if probe.stdout.strip().isdigit():
             lengths.add(int(probe.stdout.strip()))
     record("footage: track mixes always finish, padded or trimmed to exactly the film's length (40 runs)",
@@ -755,7 +756,7 @@ def run_footage_cases(tool, record, j, scripts_dir):
            f'actual {counters}; expected {expected}')
     probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                             'stream=color_space,color_transfer,color_primaries', '-of', 'json', str(picture)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
     tags = json.loads(probe.stdout)['streams'][0]
     patch = frames[0, 65:75, 120:140].mean(axis=(0, 1))
     record('footage: BT.709 tags and brand patch survive',
@@ -806,7 +807,7 @@ def run_footage_cases(tool, record, j, scripts_dir):
                                                                picture=[{'src': 'a', 'in': .5, 'out': 1.5}]))
         probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                                 'stream=r_frame_rate', '-of', 'json', str(ntsc_dir / 'picture.mp4')],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, encoding='utf-8', errors='replace')
         stream = (json.loads(probe.stdout or '{}').get('streams') or [{}])[0]
         cues = ntsc_dir / 'edit-cues.json'
         cue_fps = json.loads(cues.read_text(encoding='utf-8')).get('fps') if cues.exists() else None
@@ -932,7 +933,8 @@ def run_footage_cases(tool, record, j, scripts_dir):
         converted = next(iter(report['sources'].values()))
         probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
                                 'stream=color_space,color_transfer,color_primaries', '-of', 'json',
-                                str(hlg_dir / 'picture.mp4')], capture_output=True, text=True)
+                                str(hlg_dir / 'picture.mp4')], capture_output=True, text=True,
+                               encoding='utf-8', errors='replace')
         tags = json.loads(probe.stdout)['streams'][0]
         reference_filter = ('zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,'
                             'tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,'
@@ -954,7 +956,8 @@ def run_footage_cases(tool, record, j, scripts_dir):
 def picture_facts(path):
     """Probe the video stream of one synthetic output."""
     result = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_streams',
-                             '-of', 'json', str(path)], capture_output=True, text=True, check=True)
+                             '-of', 'json', str(path)], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace', check=True)
     return json.loads(result.stdout)['streams'][0]
 
 
@@ -1237,7 +1240,8 @@ def check_edit_list_matrix(tool, record, j, scripts_dir):
     stream = picture_facts(root / 'open.mp4')
     packet = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_packets',
                              '-show_entries', 'packet=pts_time,side_data_list', '-of', 'json',
-                             str(root / 'closed.mp4')], capture_output=True, text=True, check=True)
+                             str(root / 'closed.mp4')], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace', check=True)
     packets = json.loads(packet.stdout).get('packets', [])
     priming = bool(packets and float(packets[0].get('pts_time', 0)) < 0)
     record('footage: edit-list matrix contains single and multiple edits, AAC priming and B-frames',
@@ -1270,7 +1274,8 @@ def check_edit_list_matrix(tool, record, j, scripts_dir):
                    f'samples={len(a)}/{len(b)}; max error={error}')
         times_result = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_frames',
                                        '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json',
-                                       str(source)], capture_output=True, text=True, check=True)
+                                       str(source)], capture_output=True, text=True,
+                                      encoding='utf-8', errors='replace', check=True)
         times = [float(frame['best_effort_timestamp_time'])
                  for frame in json.loads(times_result.stdout)['frames'] if 'best_effort_timestamp_time' in frame]
         reference_frames = linear_assembly_frames(source, 160, 120, scripts_dir)
@@ -1289,7 +1294,7 @@ def check_edit_list_matrix(tool, record, j, scripts_dir):
     source = root / 'open-multiple.mp4'
     probe = subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_frames',
                             '-show_entries', 'frame=best_effort_timestamp_time', '-of', 'json', str(source)],
-                           capture_output=True, text=True, check=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     times = [float(frame['best_effort_timestamp_time']) for frame in json.loads(probe.stdout)['frames']
              if 'best_effort_timestamp_time' in frame]
     reference_frames = linear_assembly_frames(source, 160, 120, scripts_dir)
@@ -1420,7 +1425,7 @@ def check_decoded_end_clamp(tool, record, j):
     short.write_bytes(data[:int(len(data) * .6)])
     times = subprocess.run(['ffprobe', '-v', 'quiet', '-select_streams', 'v:0', '-show_entries',
                             'frame=best_effort_timestamp_time', '-of', 'csv=p=0', str(short)],
-                           capture_output=True, text=True).stdout.split()
+                           capture_output=True, text=True, encoding='utf-8', errors='replace').stdout.split()
     end = float(times[-1].strip(',')) + .1
     # The same frames with a truthful header, as a preview proxy of the damaged source has: the two must agree.
     honest = root / 'honest.mp4'
@@ -1538,7 +1543,8 @@ def check_seeked_audio_window(record, j, scripts_dir):
            '-ss' not in command and len(a) == len(b) == 24000 and error == 0,
            f'seeked={"-ss" in command}; samples={len(a)}/{len(b)}; max error={error}')
     import re
-    encoders = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], capture_output=True, text=True, check=True)
+    encoders = subprocess.run(['ffmpeg', '-hide_banner', '-encoders'], capture_output=True, text=True,
+                              encoding='utf-8', errors='replace', check=True)
     if not re.search(r'^\s*A\S+\s+libopus\s', encoders.stdout, re.MULTILINE):
         print('SKIP  footage: coarse Opus clock case needs the optional libopus encoder')
         return
@@ -1546,7 +1552,7 @@ def check_seeked_audio_window(record, j, scripts_dir):
     ffmpeg('-f', 'lavfi', '-i', 'sine=frequency=533:sample_rate=48000:duration=12', '-c:a', 'libopus', webm)
     command = transcribe.audio_window_command(webm, None, 8.234, 8.734, rate=16000)
     probe = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=start_time', '-of', 'json', str(webm)],
-                           capture_output=True, text=True, check=True)
+                           capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     origin = float(json.loads(probe.stdout)['format']['start_time'])
     reference = ['ffmpeg', '-v', 'error', '-copyts', '-i', str(webm), '-map', '0:a:0', '-vn', '-af',
                  f'asetpts=PTS-({origin:.9f})/TB,aresample=16000:async=1:first_pts=0,'

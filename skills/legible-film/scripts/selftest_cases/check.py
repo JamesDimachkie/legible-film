@@ -921,8 +921,9 @@ def speak(folder, text):
     Path(folder).mkdir(parents=True, exist_ok=True)
     script, wav = Path(folder) / 'speak.ps1', Path(folder) / 'speech.wav'
     script.write_text(SPEAK_SCRIPT, encoding='utf-8')
+    # PowerShell writes the console's code page, not UTF-8: read in the locale encoding, with stand-ins
     result = subprocess.run([shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script), '-Text', text,
-                             '-Out', str(wav)], capture_output=True, text=True, timeout=120)
+                             '-Out', str(wav)], capture_output=True, text=True, errors='replace', timeout=120)
     return wav if result.returncode == 0 and wav.is_file() else None
 
 

@@ -82,6 +82,15 @@ import xml.etree.ElementTree as ET
 from fractions import Fraction
 from pathlib import Path, PurePosixPath
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 HERE = Path(__file__).resolve().parent
 TICKS_PER_SECOND = 254016000000
 UNSUPPORTED_EFFECTS = ('timeremap', 'speed', 'reverse')
@@ -1875,7 +1884,6 @@ def main():
         command.add_argument('--track', type=int, default=1, help='audio track number (default 1)')
         command.add_argument('--json', help='write the result here')
     args = parser.parse_args()
-    P.safe_output()
     try:
         if args.command == 'write':
             return run_write(args)

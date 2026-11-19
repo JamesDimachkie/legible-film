@@ -191,7 +191,7 @@ def main(argv=None):
         if not os.path.exists(path):
             problems.append(f'SKILL.md names a missing script: {script}')
             continue
-        r = subprocess.run([sys.executable, path, '--help'], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, path, '--help'], capture_output=True, text=True, encoding='utf-8', errors='replace')
         if r.returncode:
             problems.append(f'{script} --help failed')
     node = shutil.which('node')
@@ -201,7 +201,8 @@ def main(argv=None):
             problems.append(f'SKILL.md names a missing script: {script}')
         elif not node:
             print(f'note: node is not on PATH, so {script} --help was not run')
-        elif subprocess.run([node, path, '--help'], capture_output=True, text=True).returncode:
+        elif subprocess.run([node, path, '--help'], capture_output=True, text=True,
+                            encoding='utf-8', errors='replace').returncode:
             problems.append(f'{script} --help failed')
     lines = skill.count('\n')
     if lines > 500:
@@ -222,7 +223,7 @@ def main(argv=None):
     with open(os.path.join(ROOT, 'README.md'), encoding='utf-8') as fh:
         Images().feed(fh.read())
     # LF everywhere, so a Windows edit cannot turn a file into a whole-file diff; published run outputs stay verbatim.
-    text_types = ('.py', '.mjs', '.js', '.md', '.json', '.yml', '.yaml', '.txt', '.html', '.css', '.csv')
+    text_types = ('.py', '.mjs', '.cjs', '.js', '.md', '.json', '.yml', '.yaml', '.txt', '.html', '.css', '.csv')
     for folder, dirs, files in os.walk(ROOT):
         dirs[:] = [name for name in dirs if name not in ('.git', 'node_modules', '__pycache__')]
         if folder.startswith(os.path.join(results, '')) or folder == results:

@@ -22,6 +22,15 @@ import tempfile
 import http.server
 import socketserver
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 try:
     import numpy as np
     from PIL import Image, ImageFilter
@@ -511,7 +520,8 @@ class Encoder:
 
 def decoded_count(ffprobe, path):
     r = subprocess.run([ffprobe, '-v', 'error', '-threads', '8', '-count_frames', '-select_streams', 'v:0',
-                        '-show_entries', 'stream=nb_read_frames', '-of', 'json', str(path)], capture_output=True, text=True)
+                        '-show_entries', 'stream=nb_read_frames', '-of', 'json', str(path)], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
     if r.returncode:
         raise RuntimeError('output could not be decoded: ' + r.stderr[-500:])
     return int(json.loads(r.stdout)['streams'][0]['nb_read_frames'])

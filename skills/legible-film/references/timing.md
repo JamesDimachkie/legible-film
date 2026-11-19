@@ -22,7 +22,11 @@ page gets observed anchors, confirmed on frames and labelled `observed` with the
 cannot export from gets a `plan` list, unbound until its turns are checked on the master. The list records its
 picture's exact identity (a page's files byte for byte; a video's picture stream and timing). Every reader
 (through `cue_list.py`) refuses a stale list, reports one it cannot check as `unverified`, and reads a v1 list as
-unversioned. A retime re-exports before any mix; a revision invalidates stale beds and mixes.
+unversioned. A retime re-exports before any mix; a revision invalidates stale beds and mixes. `cue_list.py codegen`
+and the Node checks (`cue_gen.cjs`) hold a list to a frame rate from 1 to 1000, a `size` from 1 to 32768 pixels a
+side and times within 10^9 s: limits far outside any real film, chosen so both compute the same numbers. A cue's id
+is text, or a whole number within 2^53-1 either way (read as its digits); write any other id as text, in double
+quotes. A section's id, and a cue's `scale` and `section` and a section's `clock`, are text.
 
 Four scales. A **turn** is a section change; sound may lead or trail it by a stated `lead_ms`. A **follow** span
 (`t` to `t_end`) has sound density that tracks motion. A **contact** is a hit at `sync` attack, apex or end.

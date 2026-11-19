@@ -56,7 +56,7 @@ def stereo_movie(path, wav):
     """Mux the synthetic stereo tone with a small generated picture."""
     args = ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10:duration=1',
             '-i', str(wav), '-shortest', '-c:v', 'mpeg4', '-c:a', 'pcm_s16le', '-y', str(path)]
-    return subprocess.run(args, capture_output=True, text=True)
+    return subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
 
 def rating(identity, media, evidence, score=5, basis='judged', judge='self', independent=False):
@@ -160,7 +160,7 @@ def run_grade_cases(tool, record, j, scripts_dir):
     command = ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10:duration=2',
                '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=16000:duration=2', '-shortest',
                '-c:v', 'mpeg4', '-c:a', 'aac', '-y', str(media)]
-    made = subprocess.run(command, capture_output=True, text=True)
+    made = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
     record('grade: synthetic video fixture renders', made.returncode == 0, made.stderr[-500:])
     if made.returncode:
         return
@@ -197,7 +197,7 @@ def run_grade_cases(tool, record, j, scripts_dir):
     dark = external / 'darkened.mp4'
     command = ['ffmpeg', '-v', 'error', '-i', str(media), '-vf', 'eq=brightness=-0.45',
                '-c:v', 'mpeg4', '-c:a', 'copy', '-y', str(dark)]
-    made = subprocess.run(command, capture_output=True, text=True)
+    made = subprocess.run(command, capture_output=True, text=True, encoding='utf-8', errors='replace')
     if made.returncode:
         record('grade: darkening lowers FFmpeg luma while copied audio stays stable', False, made.stderr[-500:])
     else:
@@ -691,8 +691,9 @@ def synthetic_speech(folder, text):
     script = folder / 'speak.ps1'
     wav = folder / 'speech.wav'
     script.write_text(SPEAK, encoding='utf-8')
+    # PowerShell writes the console's code page, not UTF-8: read in the locale encoding, with stand-ins
     result = subprocess.run([shell, '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', str(script), '-Text', text,
-                             '-Out', str(wav)], capture_output=True, text=True, timeout=120)
+                             '-Out', str(wav)], capture_output=True, text=True, errors='replace', timeout=120)
     return wav if result.returncode == 0 and wav.is_file() else None
 
 
@@ -700,7 +701,7 @@ def picture_with(path, wav, size='160x90', pattern='testsrc2'):
     """Mux a generated picture with a WAV so the file has the WAV's duration."""
     args = ['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', f'{pattern}=size={size}:rate=10', '-i', str(wav),
             '-shortest', '-c:v', 'mpeg4', '-c:a', 'pcm_s16le', '-y', str(path)]
-    return subprocess.run(args, capture_output=True, text=True)
+    return subprocess.run(args, capture_output=True, text=True, encoding='utf-8', errors='replace')
 
 
 def bursts_fixture(path, noise_dbfs=None):
@@ -740,7 +741,8 @@ def loose_pair(folder):
     for path, pattern in ((first, 'testsrc2'), (second, 'smptebars')):
         subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', f'{pattern}=size=160x90:rate=10:duration=2',
                         '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=16000:duration=2', '-shortest',
-                        '-c:v', 'mpeg4', '-c:a', 'aac', '-y', str(path)], capture_output=True, text=True)
+                        '-c:v', 'mpeg4', '-c:a', 'aac', '-y', str(path)], capture_output=True, text=True,
+                       encoding='utf-8', errors='replace')
     return first, second
 
 
@@ -842,7 +844,8 @@ def detail_and_sound_cases(tool, record, folder):
     """Readable stills for text and image detail; a level picture and speech-versus-pause levels for sound."""
     wide = folder / 'wide.mp4'
     subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1280x720:rate=10:duration=2',
-                    '-c:v', 'mpeg4', '-q:v', '4', '-y', str(wide)], capture_output=True, text=True)
+                    '-c:v', 'mpeg4', '-q:v', '4', '-y', str(wide)], capture_output=True, text=True,
+                   encoding='utf-8', errors='replace')
     code, output = tool('grade.py', '--file', wide, '--no-transcribe')
     info_path = folder / 'wide.grade' / 'packet' / 'packet.json'
     detail = (json.loads(info_path.read_text(encoding='utf-8')) if info_path.is_file() else {}).get('detail') or {}
@@ -878,7 +881,8 @@ def detail_and_sound_cases(tool, record, folder):
                     '-f', 'lavfi', '-i', 'anoisesrc=color=pink:amplitude=0.6:r=48000:d=2', '-f', 'lavfi', '-i',
                     'anullsrc=r=48000:cl=stereo:d=2', '-filter_complex',
                     '[1:a]aformat=channel_layouts=stereo[n];[n][2:a]concat=n=2:v=0:a=1[a]', '-map', '0:v', '-map',
-                    '[a]', '-c:v', 'mpeg4', '-c:a', 'pcm_s16le', '-y', str(cutoff)], capture_output=True, text=True)
+                    '[a]', '-c:v', 'mpeg4', '-c:a', 'pcm_s16le', '-y', str(cutoff)], capture_output=True, text=True,
+                   encoding='utf-8', errors='replace')
     tool('grade.py', '--file', cutoff, '--no-transcribe')
     measured = folder / 'cutoff.grade' / 'packet' / 'measurements.json'
     series = json.loads(measured.read_text(encoding='utf-8'))['audio']['momentary_lufs'] if measured.is_file() else []
@@ -908,10 +912,11 @@ def detail_and_sound_cases(tool, record, folder):
     strobe = folder / 'strobe.mp4'
     subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', "nullsrc=size=160x90:rate=10:duration=2,"
                     "geq=lum='if(mod(N,2),235,16)':cb=128:cr=128", '-c:v', 'mpeg4', '-q:v', '3', '-y', str(strobe)],
-                   capture_output=True, text=True)
+                   capture_output=True, text=True, encoding='utf-8', errors='replace')
     steady = folder / 'steady.mp4'
     subprocess.run(['ffmpeg', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=10:duration=2',
-                    '-c:v', 'mpeg4', '-y', str(steady)], capture_output=True, text=True)
+                    '-c:v', 'mpeg4', '-y', str(steady)], capture_output=True, text=True,
+                   encoding='utf-8', errors='replace')
     prompts = []
     for movie in (strobe, steady):
         tool('grade.py', '--file', movie, '--no-transcribe')

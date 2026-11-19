@@ -31,6 +31,15 @@ import tempfile
 import time
 from pathlib import Path
 
+# Output is set up before anything can print, a failed import's message included: UTF-8 to a pipe or a file, a
+# stand-in character on a console that cannot show one (as project.safe_output does).
+if __name__ == '__main__':
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, 'reconfigure'):
+            _piped = not _stream.isatty()
+            _stream.reconfigure(**({'encoding': 'utf-8'} if _piped else {}), errors='replace')
+
+
 spec = importlib.util.spec_from_file_location('lf_project', Path(__file__).with_name('project.py'))
 project = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(project)
@@ -39,7 +48,7 @@ spec.loader.exec_module(project)
 def other_streams_note(path, stream):
     """What to try when a stream gave no words and the file has others: their levels and --stream, or ''."""
     result = subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-of', 'json', str(path)], capture_output=True,
-                            text=True)
+                            text=True, encoding='utf-8', errors='replace')
     streams = json.loads(result.stdout or '{}').get('streams', []) if not result.returncode else []
     if sum(row.get('codec_type') == 'audio' for row in streams) < 2 or not shutil.which('ffmpeg'):
         return ''
@@ -81,7 +90,7 @@ def audio_stream_info(facts, requested=None):
 def probe_audio(path, requested=None, ffprobe='ffprobe'):
     """Probe and choose the audio stream without relying on FFmpeg's automatic mapping."""
     result = subprocess.run([ffprobe, '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(path)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode:
         raise ValueError('ffprobe could not read audio: ' + (result.stderr.strip() or str(path)))
     try:
@@ -510,7 +519,7 @@ def duration(path):
     if not shutil.which('ffprobe'):
         raise ValueError('ffprobe not found; install FFmpeg (including ffprobe) and add it to PATH')
     result = subprocess.run(['ffprobe', '-v', 'error', '-show_streams', '-show_format', '-of', 'json', str(path)],
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding='utf-8', errors='replace')
     if result.returncode:
         raise ValueError('ffprobe: ' + (result.stderr.strip() or 'could not read media'))
     return presentation_duration(json.loads(result.stdout))
@@ -564,7 +573,7 @@ def audio_ranges(path, length, stream=None):
         command += ['-map', f'0:{stream}']
     command += ['-af', 'silencedetect=noise=-35dB:d=0.5', '-f', 'null', '-']
     run = subprocess.run(command,
-                         capture_output=True, text=True, check=True)
+                         capture_output=True, text=True, encoding='utf-8', errors='replace', check=True)
     events = re.findall(r'silence_(start|end):\s*(-?[\d.]+)', run.stderr)
     points = []
     silence_start = None
@@ -765,7 +774,7 @@ def main():
             if importlib.util.find_spec('faster_whisper'):
                 engine = 'faster-whisper'
             elif ' whisper ' in subprocess.run(['ffmpeg', '-hide_banner', '-filters'], capture_output=True,
-                                                 text=True, check=True).stdout:
+                                                 text=True, encoding='utf-8', errors='replace', check=True).stdout:
                 engine = 'ffmpeg'
             else:
                 raise ValueError(project.dependency_message('faster_whisper') + '\nOr import a transcript.')

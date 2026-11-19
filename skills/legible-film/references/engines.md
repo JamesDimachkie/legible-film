@@ -91,11 +91,15 @@ written with a look (`--verify`) and 2 refused. The kit exports through `film_ch
 - **The render reads the kept copy, never the live page.** `project.py add-version PROJECT --cues cues.json --render
   "CMD" --file OUT` runs CMD with `{page}` set to the kept copy and `{out}` to OUT, under the render lock (it waits
   for `--min-free-gib`, default 3, up to `--wait-min`, default 20) with outbound network blocked, and refuses when
-  the copy or the live page changed since export. OUT must be new, under the page's `renders/` or outside the page,
-  and CMD's output must name it; for HyperFrames, `--render "npx hyperframes render {page} -o {out}"`. Name the
+  the copy or the live page changed since export. When generated timing modules (`times.gen.js`, `times.gen.ts` from
+  `cue_list.py codegen`) sit in the page folder or else beside `--cues`, `add-version --render` verifies each module
+  against `cues.json`, copies them into a staged render directory, and passes their staged paths in `LF_CUES_GEN` (as a
+  JSON list of paths) to the `render_block.cjs` preload (which shares `cue_list.py`'s specification through
+  `cue_gen.cjs`, as `film_capture.mjs --cues-gen` does). OUT must be new, under the page's `renders/` or outside the
+  page, and CMD's output must name it; for HyperFrames, `--render "npx hyperframes render {page} -o {out}"`. Name the
   output in CMD, since engines' default outputs are timestamped and cannot be told apart. The kit's
-  `film_render.py DIR --cues DIR/cues.json --out OUT` renders its kept copy the same way and writes the receipt
-  `OUT.manifest.json`.
+  `film_render.py DIR --cues DIR/cues.json --out OUT` stages verified timing modules and renders its kept copy the same
+  way, writing the receipt `OUT.manifest.json`.
 - **Binding.** A render whose inputs are shown closed binds `receipt`. The kit's renderer traces every request
   (`render_trace: traced`); another engine renders with outbound network blocked (`render_trace: blocked`, the
   mechanism recorded). An engine that can be neither traced nor blocked records `render_trace: none` and binds
